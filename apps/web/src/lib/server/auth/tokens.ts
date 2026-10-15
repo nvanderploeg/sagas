@@ -30,18 +30,22 @@ export function createApiToken(
 ): { id: number; token: string } {
 	return db.transaction((tx) => {
 		assertCanManageTokens(actor, requireUserRow(tx, userId));
-		const token = generateSecret(API_TOKEN_PREFIX);
-		const row = tx
-			.insert(apiTokens)
-			.values({
-				userId,
-				name: requireText(name, 'Token name', 100),
-				tokenHash: hashSecret(token)
-			})
-			.returning({ id: apiTokens.id })
-			.get();
-		return { id: row.id, token };
+		return insertApiToken(tx, userId, name);
 	});
+}
+
+export function insertApiToken(
+	db: Handle,
+	userId: number,
+	name: string
+): { id: number; token: string } {
+	const token = generateSecret(API_TOKEN_PREFIX);
+	const row = db
+		.insert(apiTokens)
+		.values({ userId, name: requireText(name, 'Token name', 100), tokenHash: hashSecret(token) })
+		.returning({ id: apiTokens.id })
+		.get();
+	return { id: row.id, token };
 }
 
 export function revokeApiToken(db: Db, actor: AuthUser, tokenId: number): void {

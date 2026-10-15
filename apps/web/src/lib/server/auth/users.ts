@@ -52,25 +52,27 @@ export function assertUsernameFree(db: Handle, username: string): void {
 	}
 }
 
-// The lock check runs inside the transaction, so two concurrent setups cannot both create an Admin.
-export async function createFirstAdmin(
-	db: Db,
-	input: { username: string; displayName: string; password: string }
-): Promise<AuthUser> {
+type SetupInput = { username: string; displayName: string; password: string };
+
+type NewUser = typeof users.$inferInsert;
+
+export async function firstAdminValues(db: Handle, input: SetupInput): Promise<NewUser> {
 	if (hasUsers(db)) throw new DomainError('conflict', 'Setup is already complete');
 	const username = normalizeUsername(input.username);
 	const displayName = requireText(input.displayName, 'Display name', 100);
 	const passwordHash = await hashPassword(input.password);
+	return { kind: 'human', isAdmin: true, username, displayName, passwordHash };
+}
 
-	return db.transaction((tx) => {
-		if (hasUsers(tx)) throw new DomainError('conflict', 'Setup is already complete');
-		const row = tx
-			.insert(users)
-			.values({ kind: 'human', isAdmin: true, username, displayName, passwordHash })
-			.returning()
-			.get();
-		return toAuthUser(row);
-	});
+// Call inside the transaction that creates the Admin, so two concurrent setups cannot both win.
+export function insertFirstAdmin(tx: Handle, values: NewUser): AuthUser {
+	if (hasUsers(tx)) throw new DomainError('conflict', 'Setup is already complete');
+	return toAuthUser(tx.insert(users).values(values).returning().get());
+}
+
+export async function createFirstAdmin(db: Db, input: SetupInput): Promise<AuthUser> {
+	const values = await firstAdminValues(db, input);
+	return db.transaction((tx) => insertFirstAdmin(tx, values));
 }
 
 export function createAgentUser(
