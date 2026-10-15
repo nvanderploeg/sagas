@@ -111,6 +111,10 @@ export async function authenticate(
 	return (await verifyPassword(row.passwordHash, password)) ? toAuthUser(row) : null;
 }
 
+export function listUsers(db: Handle): AuthUser[] {
+	return db.select().from(users).orderBy(users.displayName, users.id).all().map(toAuthUser);
+}
+
 export function findUser(db: Handle, id: number): AuthUser | null {
 	const row = db.select().from(users).where(eq(users.id, id)).get();
 	return row ? toAuthUser(row) : null;

@@ -24,6 +24,29 @@ export function createInvite(db: Db, actor: AuthUser): { id: number; token: stri
 	return { id: row.id, token };
 }
 
+export type InviteInfo = {
+	id: number;
+	createdByUserId: number;
+	createdAt: Date;
+	usedAt: Date | null;
+	usedByUserId: number | null;
+};
+
+export function listInvites(db: Db, actor: AuthUser): InviteInfo[] {
+	requireAdmin(actor);
+	return db
+		.select({
+			id: invites.id,
+			createdByUserId: invites.createdByUserId,
+			createdAt: invites.createdAt,
+			usedAt: invites.usedAt,
+			usedByUserId: invites.usedByUserId
+		})
+		.from(invites)
+		.orderBy(invites.id)
+		.all();
+}
+
 export function isInviteOpen(db: Db, token: string): boolean {
 	return (
 		db

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
-import { createAgentUser, createFirstAdmin, hasUsers, authenticate } from './users.ts';
+import { createAgentUser, createFirstAdmin, hasUsers, authenticate, listUsers } from './users.ts';
 import { seedHuman } from './fixtures.ts';
 
 let db: Db;
@@ -116,5 +116,19 @@ describe('password sign-in', () => {
 		expect(await authenticate(db, 'root', 'wrong password here')).toBeNull();
 		expect(await authenticate(db, 'nobody', 'a long enough password')).toBeNull();
 		expect(await authenticate(db, '!!', 'a long enough password')).toBeNull();
+	});
+});
+
+describe('listing users', () => {
+	it('lists humans and agents by display name', async () => {
+		const root = await createFirstAdmin(db, setup());
+		createAgentUser(db, root, { username: 'bot', displayName: 'Atlas' });
+		seedHuman(db, 'zed');
+
+		expect(listUsers(db).map((u) => [u.username, u.kind])).toEqual([
+			['bot', 'agent'],
+			['root', 'human'],
+			['zed', 'human']
+		]);
 	});
 });

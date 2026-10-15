@@ -5,7 +5,7 @@ import { apiTokens } from '#lib/server/db/schema.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { createAgentUser, createFirstAdmin, findUser, type AuthUser } from './users.ts';
-import { createApiToken, revokeApiToken, verifyApiToken } from './tokens.ts';
+import { createApiToken, listApiTokens, revokeApiToken, verifyApiToken } from './tokens.ts';
 import { hashSecret } from './secrets.ts';
 import { seedHuman } from './fixtures.ts';
 
@@ -123,5 +123,32 @@ describe('who may manage a token', () => {
 
 	it('exposes the User behind a token through findUser', () => {
 		expect(findUser(db, admin.id)?.username).toBe('root');
+	});
+});
+
+describe('listing API tokens', () => {
+	it('lists a User’s tokens, revoked ones included, without their secrets', () => {
+		const kept = createApiToken(db, admin, admin.id, 'laptop');
+		const gone = createApiToken(db, admin, admin.id, 'old');
+		revokeApiToken(db, admin, gone.id);
+
+		const listed = listApiTokens(db, admin, admin.id);
+
+		expect(listed.map((t) => [t.id, t.name, t.revokedAt !== null])).toEqual([
+			[kept.id, 'laptop', false],
+			[gone.id, 'old', true]
+		]);
+		expect(JSON.stringify(listed)).not.toContain(kept.token);
+	});
+
+	it('refuses to list a human’s tokens to anyone but that human', () => {
+		const ada = seedHuman(db, 'ada');
+		expectCode(() => listApiTokens(db, admin, ada.id), 'forbidden');
+	});
+
+	it('lets an Admin list an Agent user’s tokens', () => {
+		const bot = createAgentUser(db, admin, { username: 'bot', displayName: 'Bot' });
+		createApiToken(db, admin, bot.id, 'mcp');
+		expect(listApiTokens(db, admin, bot.id).map((t) => t.name)).toEqual(['mcp']);
 	});
 });

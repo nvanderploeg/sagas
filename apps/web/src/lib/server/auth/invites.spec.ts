@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
-import { acceptInvite, createInvite, isInviteOpen } from './invites.ts';
+import { acceptInvite, createInvite, isInviteOpen, listInvites } from './invites.ts';
 import { createFirstAdmin, authenticate, type AuthUser } from './users.ts';
 import { seedHuman } from './fixtures.ts';
 
@@ -74,5 +74,26 @@ describe('invites', () => {
 			acceptInvite(db, token, { username: 'ada', displayName: 'Ada', password: 'short' })
 		).rejects.toMatchObject({ code: 'invalid' });
 		expect(isInviteOpen(db, token)).toBe(true);
+	});
+});
+
+describe('listing invites', () => {
+	it('lists open and used invites to an Admin', async () => {
+		const open = createInvite(db, admin);
+		const used = createInvite(db, admin);
+		await acceptInvite(db, used.token, { ...join, username: 'ada' });
+
+		const listed = listInvites(db, admin);
+
+		expect(listed.map((i) => [i.id, i.usedAt !== null])).toEqual([
+			[open.id, false],
+			[used.id, true]
+		]);
+		expect(JSON.stringify(listed)).not.toContain(open.token);
+	});
+
+	it('refuses a non-Admin', () => {
+		const ada = seedHuman(db, 'ada');
+		expect(() => listInvites(db, ada)).toThrow(DomainError);
 	});
 });

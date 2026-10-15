@@ -49,6 +49,30 @@ export function insertApiToken(
 	return { id: row.id, token };
 }
 
+export type ApiTokenInfo = {
+	id: number;
+	name: string;
+	createdAt: Date;
+	lastUsedAt: Date | null;
+	revokedAt: Date | null;
+};
+
+export function listApiTokens(db: Handle, actor: AuthUser, userId: number): ApiTokenInfo[] {
+	assertCanManageTokens(actor, requireUserRow(db, userId));
+	return db
+		.select({
+			id: apiTokens.id,
+			name: apiTokens.name,
+			createdAt: apiTokens.createdAt,
+			lastUsedAt: apiTokens.lastUsedAt,
+			revokedAt: apiTokens.revokedAt
+		})
+		.from(apiTokens)
+		.where(eq(apiTokens.userId, userId))
+		.orderBy(apiTokens.id)
+		.all();
+}
+
 export function revokeApiToken(db: Db, actor: AuthUser, tokenId: number): void {
 	const revoked = db.transaction((tx) => {
 		const token = tx.select().from(apiTokens).where(eq(apiTokens.id, tokenId)).get();
