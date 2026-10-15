@@ -332,6 +332,33 @@ describe('Ticket writes', () => {
 		expect(Object.keys(ranked.data).sort()).toEqual(['id', 'rank', 'stateId']);
 	});
 
+	it('records an update that changes only the Rank as ticket.ranked', () => {
+		const project = seedProject(db, 'AM');
+		const a = seedTicket(db, { projectId: project.id });
+		seedTicket(db, { projectId: project.id });
+
+		const ranked = expectOneEvent(() =>
+			updateTicket(db, actor, a.id, { title: a.title, stateId: a.stateId, placement: 'bottom' })
+		);
+
+		expect(shape([ranked])).toEqual([
+			['ticket.ranked', { id: a.id, stateId: a.stateId, rank: readTicket(db, a.id).rank }]
+		]);
+		expect(readTicket(db, a.id).updatedAt).toEqual(a.updatedAt);
+	});
+
+	it('records an update that changes the Rank with another field as ticket.updated', () => {
+		const project = seedProject(db, 'AM');
+		const a = seedTicket(db, { projectId: project.id });
+		seedTicket(db, { projectId: project.id });
+
+		const updated = expectOneEvent(() =>
+			updateTicket(db, actor, a.id, { title: 'Renamed', placement: 'bottom' })
+		);
+
+		expect(shape([updated])).toEqual([['ticket.updated', { ticket: json(readTicket(db, a.id)) }]]);
+	});
+
 	it('records the Children it detaches and the Quests it shrinks when deleting a Ticket', () => {
 		const am = seedProject(db, 'AM');
 		const bl = seedProject(db, 'BL');

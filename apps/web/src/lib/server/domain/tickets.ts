@@ -216,6 +216,14 @@ export function updateTicket(
 			(key) => changes[key] !== ticket[key as keyof Ticket]
 		);
 		if (changed.length === 0) return { value: readTicket(tx, ticketId), events: [] };
+		if (changed.length === 1 && changed[0] === 'rank') {
+			const rank = changes.rank!;
+			tx.update(tickets).set({ rank }).where(eq(tickets.id, ticketId)).run();
+			return {
+				value: readTicket(tx, ticketId),
+				events: [{ type: 'ticket.ranked', data: { id: ticketId, stateId: ticket.stateId, rank } }]
+			};
+		}
 		changes.updatedAt = new Date();
 		tx.update(tickets).set(changes).where(eq(tickets.id, ticketId)).run();
 		return ticketOutcome(tx, 'ticket.updated', ticketId);
