@@ -4,6 +4,7 @@ import {
 	foreignKey,
 	index,
 	integer,
+	primaryKey,
 	sqliteTable,
 	text,
 	uniqueIndex,
@@ -242,6 +243,37 @@ export const ticketKeys = sqliteTable(
 				`"key" GLOB '[A-Z]*-[1-9]*' AND "key" NOT GLOB '*[^A-Z0-9-]*' AND "key" NOT GLOB '*-*[^0-9]*'`
 			)
 		)
+	]
+);
+
+export const quests = sqliteTable('quests', {
+	id: id(),
+	name: text('name').notNull(),
+	description: text('description').notNull().default(''),
+	ownerId: integer('owner_id')
+		.notNull()
+		.references(() => users.id),
+	createdAt: now(),
+	updatedAt: now('updated_at')
+});
+
+export const questTickets = sqliteTable(
+	'quest_tickets',
+	{
+		questId: integer('quest_id')
+			.notNull()
+			.references(() => quests.id, { onDelete: 'cascade' }),
+		ticketId: integer('ticket_id')
+			.notNull()
+			.references(() => tickets.id, { onDelete: 'cascade' }),
+		// A fractional index ordering the Quest; keep the default BINARY collation.
+		rank: text('rank').notNull(),
+		addedAt: now('added_at')
+	},
+	(t) => [
+		primaryKey({ columns: [t.questId, t.ticketId] }),
+		uniqueIndex('quest_tickets_quest_rank_uq').on(t.questId, t.rank),
+		index('quest_tickets_ticket_idx').on(t.ticketId)
 	]
 );
 

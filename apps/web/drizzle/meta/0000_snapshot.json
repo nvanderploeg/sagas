@@ -1,7 +1,7 @@
 {
 	"version": "6",
 	"dialect": "sqlite",
-	"id": "01a721e7-3ad4-401e-b195-be1e18d67caf",
+	"id": "c4259f7c-29b2-4ba3-bd42-36de802f4473",
 	"prevId": "00000000-0000-0000-0000-000000000000",
 	"tables": {
 		"api_tokens": {
@@ -363,6 +363,142 @@
 					"value": "\"ticket_counter\" >= 0"
 				}
 			}
+		},
+		"quest_tickets": {
+			"name": "quest_tickets",
+			"columns": {
+				"quest_id": {
+					"name": "quest_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"ticket_id": {
+					"name": "ticket_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"rank": {
+					"name": "rank",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"added_at": {
+					"name": "added_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"quest_tickets_quest_rank_uq": {
+					"name": "quest_tickets_quest_rank_uq",
+					"columns": ["quest_id", "rank"],
+					"isUnique": true
+				},
+				"quest_tickets_ticket_idx": {
+					"name": "quest_tickets_ticket_idx",
+					"columns": ["ticket_id"],
+					"isUnique": false
+				}
+			},
+			"foreignKeys": {
+				"quest_tickets_quest_id_quests_id_fk": {
+					"name": "quest_tickets_quest_id_quests_id_fk",
+					"tableFrom": "quest_tickets",
+					"tableTo": "quests",
+					"columnsFrom": ["quest_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				},
+				"quest_tickets_ticket_id_tickets_id_fk": {
+					"name": "quest_tickets_ticket_id_tickets_id_fk",
+					"tableFrom": "quest_tickets",
+					"tableTo": "tickets",
+					"columnsFrom": ["ticket_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {
+				"quest_tickets_quest_id_ticket_id_pk": {
+					"columns": ["quest_id", "ticket_id"],
+					"name": "quest_tickets_quest_id_ticket_id_pk"
+				}
+			},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"quests": {
+			"name": "quests",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "integer",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": true
+				},
+				"name": {
+					"name": "name",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"description": {
+					"name": "description",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": "''"
+				},
+				"owner_id": {
+					"name": "owner_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"updated_at": {
+					"name": "updated_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {
+				"quests_owner_id_users_id_fk": {
+					"name": "quests_owner_id_users_id_fk",
+					"tableFrom": "quests",
+					"tableTo": "users",
+					"columnsFrom": ["owner_id"],
+					"columnsTo": ["id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
 		},
 		"sessions": {
 			"name": "sessions",

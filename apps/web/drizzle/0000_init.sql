@@ -57,6 +57,28 @@ CREATE TABLE `projects` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `projects_key_unique` ON `projects` (`key`);--> statement-breakpoint
+CREATE TABLE `quest_tickets` (
+	`quest_id` integer NOT NULL,
+	`ticket_id` integer NOT NULL,
+	`rank` text NOT NULL,
+	`added_at` integer NOT NULL,
+	PRIMARY KEY(`quest_id`, `ticket_id`),
+	FOREIGN KEY (`quest_id`) REFERENCES `quests`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`ticket_id`) REFERENCES `tickets`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `quest_tickets_quest_rank_uq` ON `quest_tickets` (`quest_id`,`rank`);--> statement-breakpoint
+CREATE INDEX `quest_tickets_ticket_idx` ON `quest_tickets` (`ticket_id`);--> statement-breakpoint
+CREATE TABLE `quests` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`name` text NOT NULL,
+	`description` text DEFAULT '' NOT NULL,
+	`owner_id` integer NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`owner_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
 CREATE TABLE `sessions` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` integer NOT NULL,

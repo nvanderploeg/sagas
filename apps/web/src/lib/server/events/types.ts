@@ -15,7 +15,13 @@ export const EVENT_TYPES = [
 	'ticket.moved',
 	'ticket.ranked',
 	'ticket.reparented',
-	'ticket.deleted'
+	'ticket.deleted',
+	'quest.created',
+	'quest.updated',
+	'quest.deleted',
+	'quest.tickets_added',
+	'quest.ticket_removed',
+	'quest.ticket_ranked'
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

@@ -8,6 +8,16 @@ import { testDb } from '#lib/server/test/db.ts';
 import { seedProject, seedTicket, seedUser, TODO } from '#lib/server/test/fixtures.ts';
 import { DomainError } from './errors.ts';
 import {
+	addQuestTicket,
+	addQuestTicketWithChildren,
+	createQuest,
+	deleteQuest,
+	rankQuestTicket,
+	readQuest,
+	removeQuestTicket,
+	updateQuest
+} from './quests.ts';
+import {
 	createProject,
 	deleteProject,
 	readProject,
@@ -207,6 +217,66 @@ describe('Ticket writes', () => {
 		const deleted = expectOneEvent(() => deleteTicket(db, actor, parent.id));
 
 		expect(deleted.projectIds).toEqual([am.id, bl.id]);
+	});
+});
+
+describe('Quest writes', () => {
+	it('records one Event per write, by the actor, with the Quest and every Project it touches', () => {
+		const am = seedProject(db, 'AM');
+		const bl = seedProject(db, 'BL');
+		const a = seedTicket(db, { projectId: am.id });
+		const b = seedTicket(db, { projectId: bl.id });
+		seedTicket(db, { projectId: bl.id, parentId: b.id });
+		let questId = 0;
+
+		const cases: [string, () => unknown, number[]][] = [
+			[
+				'quest.created',
+				() => (questId = createQuest(db, actor, { name: 'Launch', ownerId: actor.id }).id),
+				[]
+			],
+			['quest.updated', () => updateQuest(db, actor, questId, { name: 'Ship' }), []],
+			['quest.tickets_added', () => addQuestTicket(db, actor, questId, a.id), [am.id]],
+			[
+				'quest.tickets_added',
+				() => addQuestTicketWithChildren(db, actor, questId, b.id),
+				[am.id, bl.id]
+			],
+			[
+				'quest.ticket_ranked',
+				() => rankQuestTicket(db, actor, questId, a.id, 'bottom'),
+				[am.id, bl.id]
+			],
+			['quest.ticket_removed', () => removeQuestTicket(db, actor, questId, a.id), [am.id, bl.id]]
+		];
+		for (const [type, action, projectIds] of cases) {
+			const event = expectOneEvent(action);
+			expect(event.type, type).toBe(type);
+			expect(event.entityIds.questId).toBe(questId);
+			expect(event.projectIds, type).toEqual(projectIds);
+			expect(event.snapshot).toEqual(json(readQuest(db, questId)));
+		}
+
+		const deleted = expectOneEvent(() => deleteQuest(db, actor, questId));
+		expect(deleted).toMatchObject({
+			type: 'quest.deleted',
+			entityIds: { questId },
+			projectIds: [bl.id],
+			snapshot: null
+		});
+	});
+
+	it('names the Tickets a membership Event is about', () => {
+		const project = seedProject(db, 'AM');
+		const parent = seedTicket(db, { projectId: project.id });
+		const child = seedTicket(db, { projectId: project.id, parentId: parent.id });
+		const quest = createQuest(db, actor, { name: 'Launch', ownerId: actor.id });
+
+		const added = expectOneEvent(() => addQuestTicketWithChildren(db, actor, quest.id, parent.id));
+		const removed = expectOneEvent(() => removeQuestTicket(db, actor, quest.id, child.id));
+
+		expect(added.entityIds).toEqual({ questId: quest.id, ticketIds: [parent.id, child.id] });
+		expect(removed.entityIds).toEqual({ questId: quest.id, ticketId: child.id });
 	});
 });
 

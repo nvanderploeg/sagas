@@ -10,7 +10,7 @@ import { requireText } from './validate.ts';
 import { write, type Actor, type EventSpec } from './write.ts';
 
 const TITLE_MAX = 200;
-const DESCRIPTION_MAX = 50_000;
+export const DESCRIPTION_MAX = 50_000;
 
 export type TicketSpec = {
 	projectId: number;
@@ -39,21 +39,21 @@ export type Ticket = typeof tickets.$inferSelect;
 
 export type TicketView = Ticket & { key: string };
 
-function selectViews(db: Handle) {
+export function selectTicketViews(db: Handle) {
 	return db
 		.select({ ticket: tickets, projectKey: projects.key })
 		.from(tickets)
 		.innerJoin(projects, eq(projects.id, tickets.projectId));
 }
 
-function toView(row: { ticket: Ticket; projectKey: string }): TicketView {
+export function toTicketView(row: { ticket: Ticket; projectKey: string }): TicketView {
 	return { ...row.ticket, key: formatTicketKey(row.projectKey, row.ticket.number) };
 }
 
 export function readTicket(db: Handle, ticketId: number): TicketView {
-	const row = selectViews(db).where(eq(tickets.id, ticketId)).get();
+	const row = selectTicketViews(db).where(eq(tickets.id, ticketId)).get();
 	if (row === undefined) throw new DomainError('not_found', 'Ticket not found');
-	return toView(row);
+	return toTicketView(row);
 }
 
 export function ticketKeyOf(db: Handle, ticket: { projectId: number; number: number }): string {
@@ -61,19 +61,19 @@ export function ticketKeyOf(db: Handle, ticket: { projectId: number; number: num
 }
 
 export function listTickets(db: Handle, projectId: number): TicketView[] {
-	return selectViews(db)
+	return selectTicketViews(db)
 		.where(eq(tickets.projectId, projectId))
 		.orderBy(asc(tickets.number))
 		.all()
-		.map(toView);
+		.map(toTicketView);
 }
 
 export function listColumn(db: Handle, stateId: number): TicketView[] {
-	return selectViews(db)
+	return selectTicketViews(db)
 		.where(eq(tickets.stateId, stateId))
 		.orderBy(asc(tickets.rank))
 		.all()
-		.map(toView);
+		.map(toTicketView);
 }
 
 function columnOf(db: Handle, stateId: number) {
@@ -86,11 +86,11 @@ function columnOf(db: Handle, stateId: number) {
 }
 
 export function listChildren(db: Handle, ticketId: number): TicketView[] {
-	return selectViews(db)
+	return selectTicketViews(db)
 		.where(eq(tickets.parentId, ticketId))
 		.orderBy(asc(tickets.id))
 		.all()
-		.map(toView);
+		.map(toTicketView);
 }
 
 export function resolveTicketKey(db: Handle, input: string): TicketView | null {
