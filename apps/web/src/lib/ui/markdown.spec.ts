@@ -21,6 +21,15 @@ describe('renderMarkdown', () => {
 		expect(html).not.toMatch(/src="vbscript:/);
 	});
 
+	it('renders images as plain links, so viewing a description fetches nothing', () => {
+		const html = renderMarkdown('![a <b> chart](https://tracker.example/p.png "t") ![](/x.png)');
+		expect(html).not.toContain('<img');
+		expect(html).toContain(
+			'<a href="https://tracker.example/p.png" rel="noopener noreferrer nofollow" target="_blank">a &lt;b&gt; chart</a>'
+		);
+		expect(html).toContain('>/x.png</a>');
+	});
+
 	it('opens links in a new tab without handing over the opener', () => {
 		expect(renderMarkdown('<https://example.com>')).toContain(
 			'<a href="https://example.com" rel="noopener noreferrer nofollow" target="_blank">'
