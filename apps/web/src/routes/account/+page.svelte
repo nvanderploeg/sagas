@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import Avatar from '#lib/components/Avatar.svelte';
 	import ThemeToggle from '#lib/components/ThemeToggle.svelte';
 	import Tokens from '#lib/components/Tokens.svelte';
@@ -39,6 +40,11 @@
 			created={form && 'token' in form ? String(form.token) : null}
 			error={failure('token') ?? failure('revoke')}
 		/>
+	</section>
+
+	<section class="panel flex flex-wrap items-center justify-between gap-3 p-5">
+		<h2 class="text-lg font-bold tracking-tight">Password</h2>
+		<a class="btn" href={resolve('/password')}>Change password</a>
 	</section>
 
 	<section class="panel flex flex-wrap items-center justify-between gap-3 p-5">

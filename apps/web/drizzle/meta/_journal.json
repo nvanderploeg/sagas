@@ -22,6 +22,13 @@
       "when": 1792090624041,
       "tag": "0002_comments",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792096535393,
+      "tag": "0003_password_change",
+      "breakpoints": true
     }
   ]
 }

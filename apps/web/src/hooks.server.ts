@@ -3,14 +3,18 @@ import type { Handle, ServerInit } from '@sveltejs/kit/hooks';
 import { building } from '$app/env';
 import { gate, unauthorizedResponse } from '#lib/server/auth/access.ts';
 import { authFromRequest, SESSION_COOKIE } from '#lib/server/auth/request.ts';
-import { hasUsers } from '#lib/server/auth/users.ts';
-import { eventRetentionMs } from '#lib/server/config.ts';
+import { hasUsers, seedAdmin } from '#lib/server/auth/users.ts';
+import { eventRetentionMs, seedAdminPassword, seedAdminUsername } from '#lib/server/config.ts';
 import { getDb } from '#lib/server/db/index.ts';
 import { schedulePruning } from '#lib/server/events/log.ts';
 
-export const init: ServerInit = () => {
+export const init: ServerInit = async () => {
 	if (building) return;
-	schedulePruning(getDb(), eventRetentionMs);
+	const db = getDb();
+	if (seedAdminUsername && seedAdminPassword) {
+		await seedAdmin(db, { username: seedAdminUsername, password: seedAdminPassword });
+	}
+	schedulePruning(db, eventRetentionMs);
 };
 
 export const handle: Handle = async ({ event, resolve }) => {
@@ -19,9 +23,21 @@ export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.user = auth?.user ?? null;
 	event.locals.credential = auth?.credential ?? null;
 
-	const decision = gate(event.url.pathname, { setupDone: hasUsers(db), signedIn: auth !== null });
+	const decision = gate(event.url.pathname, {
+		setupDone: hasUsers(db),
+		signedIn: auth !== null,
+		mustChangePassword: auth?.user.mustChangePassword ?? false
+	});
 	if (decision === 'setup') redirect(303, '/setup');
 	if (decision === 'login') redirect(303, '/login');
+	if (decision === 'password') redirect(303, '/password');
 	if (decision === 'unauthorized') return unauthorizedResponse();
-	return resolve(event);
+	const response = await resolve(event);
+	response.headers.set('x-content-type-options', 'nosniff');
+	response.headers.set('referrer-policy', 'same-origin');
+	response.headers.set('permissions-policy', 'camera=(), microphone=(), geolocation=()');
+	if (event.url.protocol === 'https:') {
+		response.headers.set('strict-transport-security', 'max-age=31536000');
+	}
+	return response;
 };

@@ -1,9 +1,10 @@
-import { count, eq } from 'drizzle-orm';
+import { and, count, eq, ne } from 'drizzle-orm';
 import type { Db, Handle } from '#lib/server/db/client.ts';
-import { users } from '#lib/server/db/schema.ts';
+import { sessions, users } from '#lib/server/db/schema.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import { requireText } from '#lib/server/domain/validate.ts';
-import { hashPassword, spendPasswordTime, verifyPassword } from './password.ts';
+import { announceRevoked } from './credentials.ts';
+import { checkPassword, hashPassword, spendPasswordTime, verifyPassword } from './password.ts';
 
 export type AuthUser = {
 	id: number;
@@ -11,6 +12,7 @@ export type AuthUser = {
 	isAdmin: boolean;
 	username: string;
 	displayName: string;
+	mustChangePassword: boolean;
 };
 
 type UserRow = typeof users.$inferSelect;
@@ -23,7 +25,8 @@ export function toAuthUser(row: UserRow): AuthUser {
 		kind: row.kind,
 		isAdmin: row.isAdmin,
 		username: row.username,
-		displayName: row.displayName
+		displayName: row.displayName,
+		mustChangePassword: row.mustChangePassword
 	};
 }
 
@@ -118,4 +121,59 @@ export function listUsers(db: Handle): AuthUser[] {
 export function findUser(db: Handle, id: number): AuthUser | null {
 	const row = db.select().from(users).where(eq(users.id, id)).get();
 	return row ? toAuthUser(row) : null;
+}
+
+// Creates the Admin an operator configured, once, on an empty database. The password is a
+// placeholder: the Admin must change it before doing anything else.
+export async function seedAdmin(
+	db: Db,
+	input: { username: string; password: string }
+): Promise<AuthUser | null> {
+	if (hasUsers(db)) return null;
+	const username = normalizeUsername(input.username);
+	const passwordHash = await hashPassword(input.password);
+	return db.transaction((tx) => {
+		if (hasUsers(tx)) return null;
+		const row = tx
+			.insert(users)
+			.values({
+				kind: 'human',
+				isAdmin: true,
+				username,
+				displayName: username,
+				passwordHash,
+				mustChangePassword: true
+			})
+			.returning()
+			.get();
+		return toAuthUser(row);
+	});
+}
+
+// Ends every session but `keepSessionId`'s, so a stolen session does not outlive the change.
+export async function changePassword(
+	db: Db,
+	user: AuthUser,
+	input: { current: string; next: string; keepSessionId: string }
+): Promise<void> {
+	const row = db.select().from(users).where(eq(users.id, user.id)).get();
+	if (!row?.passwordHash || !(await verifyPassword(row.passwordHash, input.current))) {
+		throw new DomainError('invalid', 'Current password is wrong');
+	}
+	if (input.next === input.current) {
+		throw new DomainError('invalid', 'New password must differ from the current one');
+	}
+	const passwordHash = await hashPassword(checkPassword(input.next));
+	const ended = db.transaction((tx) => {
+		tx.update(users)
+			.set({ passwordHash, mustChangePassword: false })
+			.where(eq(users.id, user.id))
+			.run();
+		return tx
+			.delete(sessions)
+			.where(and(eq(sessions.userId, user.id), ne(sessions.id, input.keepSessionId)))
+			.returning({ id: sessions.id })
+			.all();
+	});
+	for (const { id } of ended) announceRevoked({ kind: 'session', hash: id });
 }

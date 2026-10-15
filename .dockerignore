@@ -8,3 +8,12 @@ data
 **/*.db
 **/*.db-wal
 **/*.db-shm
+.env
+.env.*
+token.txt
+e2e
+docs
+test-results
+playwright-report
+.github
+deploy

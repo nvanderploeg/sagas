@@ -30,6 +30,9 @@ export const users = sqliteTable(
 		username: text('username').notNull().unique(),
 		displayName: text('display_name').notNull(),
 		passwordHash: text('password_hash'),
+		mustChangePassword: integer('must_change_password', { mode: 'boolean' })
+			.notNull()
+			.default(false),
 		createdAt: now()
 	},
 	() => [

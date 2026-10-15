@@ -5,3 +5,4 @@ dist
 .svelte-kit
 .claude/
 data/
+apps/web/drizzle/meta/

@@ -19,3 +19,8 @@ export const streamHeartbeatMs = positiveNumber(
 	process.env.STREAM_HEARTBEAT_MS,
 	25_000
 );
+
+// Seeds the first Admin on an empty database. Both must be set; the Admin changes the password at
+// first sign-in.
+export const seedAdminUsername = process.env.ADMIN_USERNAME?.trim() || undefined;
+export const seedAdminPassword = process.env.ADMIN_PASSWORD || undefined;
