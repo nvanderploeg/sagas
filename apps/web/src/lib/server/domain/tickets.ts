@@ -4,6 +4,7 @@ import { projectKeys, projects, states, ticketKeys, tickets } from '../db/schema
 import { DomainError } from './errors.ts';
 import { formatTicketKey, parseTicketKey } from './keys.ts';
 import { getProject, getState, getSubstate, getTicket, requireUser } from './lookup.ts';
+import { rankAt, type Placement } from './rank.ts';
 import { listSubstates } from './states.ts';
 import { requireText } from './validate.ts';
 import { write, type Actor, type EventSpec } from './write.ts';
@@ -20,8 +21,10 @@ export type TicketSpec = {
 	stateId?: number;
 	substateId?: number | null;
 	parentId?: number | null;
+	placement?: Placement;
 };
 
+// A placement applies in the State the Ticket ends up in; a new State without one means bottom.
 export type TicketPatch = {
 	title?: string;
 	description?: string;
@@ -29,6 +32,7 @@ export type TicketPatch = {
 	assigneeId?: number | null;
 	stateId?: number;
 	substateId?: number | null;
+	placement?: Placement;
 };
 
 export type Ticket = typeof tickets.$inferSelect;
@@ -62,6 +66,23 @@ export function listTickets(db: Handle, projectId: number): TicketView[] {
 		.orderBy(asc(tickets.number))
 		.all()
 		.map(toView);
+}
+
+export function listColumn(db: Handle, stateId: number): TicketView[] {
+	return selectViews(db)
+		.where(eq(tickets.stateId, stateId))
+		.orderBy(asc(tickets.rank))
+		.all()
+		.map(toView);
+}
+
+function columnOf(db: Handle, stateId: number) {
+	return db
+		.select({ id: tickets.id, rank: tickets.rank })
+		.from(tickets)
+		.where(eq(tickets.stateId, stateId))
+		.orderBy(asc(tickets.rank))
+		.all();
 }
 
 export function listChildren(db: Handle, ticketId: number): TicketView[] {
@@ -129,6 +150,7 @@ export function createTicket(db: Db, actor: Actor, input: TicketSpec): TicketVie
 		const parentId = input.parentId ?? null;
 		if (parentId !== null) assertParent(tx, null, parentId);
 
+		const rank = rankAt(columnOf(tx, state.id), { id: null }, input.placement ?? 'bottom', 'State');
 		const number = allocateNumber(tx, project.id);
 		const ticket = tx
 			.insert(tickets)
@@ -141,7 +163,8 @@ export function createTicket(db: Db, actor: Actor, input: TicketSpec): TicketVie
 				assigneeId,
 				stateId: state.id,
 				substateId,
-				parentId
+				parentId,
+				rank
 			})
 			.returning()
 			.get();
@@ -186,6 +209,15 @@ export function updateTicket(
 		} else if (patch.substateId !== undefined) {
 			changes.substateId = substateFor(tx, getState(tx, ticket.stateId), patch.substateId);
 		}
+		if (moving || patch.placement !== undefined) {
+			const stateId = changes.stateId ?? ticket.stateId;
+			changes.rank = rankAt(
+				columnOf(tx, stateId),
+				{ id: ticketId, rank: moving ? undefined : ticket.rank },
+				patch.placement ?? 'bottom',
+				'State'
+			);
+		}
 
 		const changed = (Object.keys(changes) as (keyof typeof changes)[]).filter(
 			(key) => changes[key] !== ticket[key as keyof Ticket]
@@ -220,7 +252,12 @@ export function setParent(
 	});
 }
 
-export type MoveTarget = { projectId: number; stateId?: number; substateId?: number | null };
+export type MoveTarget = {
+	projectId: number;
+	stateId?: number;
+	substateId?: number | null;
+	placement?: Placement;
+};
 
 // Moving follows the Moving a Ticket decision in docs/mvp.md.
 export function moveTicket(db: Db, actor: Actor, ticketId: number, input: MoveTarget): TicketView {
@@ -232,6 +269,12 @@ export function moveTicket(db: Db, actor: Actor, ticketId: number, input: MoveTa
 		const target = getProject(tx, input.projectId);
 		const state = targetState(tx, target, getState(tx, ticket.stateId).isClosed, input.stateId);
 		const substateId = substateFor(tx, state, input.substateId);
+		const rank = rankAt(
+			columnOf(tx, state.id),
+			{ id: ticketId },
+			input.placement ?? 'bottom',
+			'State'
+		);
 
 		const number = allocateNumber(tx, target.id);
 		recordTicketKey(tx, ticketId, formatTicketKey(target.key, number));
@@ -241,11 +284,29 @@ export function moveTicket(db: Db, actor: Actor, ticketId: number, input: MoveTa
 				number,
 				stateId: state.id,
 				substateId,
+				rank,
 				updatedAt: new Date()
 			})
 			.where(eq(tickets.id, ticketId))
 			.run();
 		const event = ticketEvent(tx, 'ticket.moved', ticketId, [ticket.projectId]);
+		return { value: event.snapshot as TicketView, event };
+	});
+}
+
+// Rank follows the Rank decision in docs/mvp.md: write only this Ticket's row.
+export function rankTicket(
+	db: Db,
+	actor: Actor,
+	ticketId: number,
+	placement: Placement
+): TicketView {
+	return write(db, actor, (tx) => {
+		const ticket = getTicket(tx, ticketId);
+		const rank = rankAt(columnOf(tx, ticket.stateId), ticket, placement, 'State');
+		if (rank === ticket.rank) return { value: readTicket(tx, ticketId), event: null };
+		tx.update(tickets).set({ rank }).where(eq(tickets.id, ticketId)).run();
+		const event = ticketEvent(tx, 'ticket.ranked', ticketId);
 		return { value: event.snapshot as TicketView, event };
 	});
 }

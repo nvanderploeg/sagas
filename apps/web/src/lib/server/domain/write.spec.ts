@@ -31,6 +31,7 @@ import {
 	createTicket,
 	deleteTicket,
 	moveTicket,
+	rankTicket,
 	readTicket,
 	setParent,
 	updateTicket
@@ -166,6 +167,13 @@ describe('Ticket writes', () => {
 
 		const updated = expectOneEvent(() => updateTicket(db, actor, ticketId, { title: 'Fixed' }));
 		expect(updated).toMatchObject({ type: 'ticket.updated', snapshot: { title: 'Fixed' } });
+
+		seedTicket(db, { projectId: am.id, ownerId });
+		const ranked = expectOneEvent(() => rankTicket(db, actor, ticketId, 'bottom'));
+		expect(ranked).toMatchObject({
+			type: 'ticket.ranked',
+			snapshot: { rank: readTicket(db, ticketId).rank }
+		});
 
 		const reparented = expectOneEvent(() => setParent(db, actor, ticketId, parent.id));
 		expect(reparented).toMatchObject({

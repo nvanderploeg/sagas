@@ -1,7 +1,7 @@
 {
 	"version": "6",
 	"dialect": "sqlite",
-	"id": "858b4c93-1bed-413d-b162-9b26696850d3",
+	"id": "01a721e7-3ad4-401e-b195-be1e18d67caf",
 	"prevId": "00000000-0000-0000-0000-000000000000",
 	"tables": {
 		"api_tokens": {
@@ -753,6 +753,13 @@
 					"notNull": false,
 					"autoincrement": false
 				},
+				"rank": {
+					"name": "rank",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
 				"created_at": {
 					"name": "created_at",
 					"type": "integer",
@@ -779,10 +786,10 @@
 					"columns": ["parent_id"],
 					"isUnique": false
 				},
-				"tickets_state_idx": {
-					"name": "tickets_state_idx",
-					"columns": ["state_id"],
-					"isUnique": false
+				"tickets_state_rank_uq": {
+					"name": "tickets_state_rank_uq",
+					"columns": ["state_id", "rank"],
+					"isUnique": true
 				}
 			},
 			"foreignKeys": {

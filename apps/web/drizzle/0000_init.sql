@@ -119,6 +119,7 @@ CREATE TABLE `tickets` (
 	`state_id` integer NOT NULL,
 	`substate_id` integer,
 	`parent_id` integer,
+	`rank` text NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade,
@@ -132,7 +133,7 @@ CREATE TABLE `tickets` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `tickets_project_number_uq` ON `tickets` (`project_id`,`number`);--> statement-breakpoint
 CREATE INDEX `tickets_parent_idx` ON `tickets` (`parent_id`);--> statement-breakpoint
-CREATE INDEX `tickets_state_idx` ON `tickets` (`state_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `tickets_state_rank_uq` ON `tickets` (`state_id`,`rank`);--> statement-breakpoint
 CREATE TABLE `users` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`kind` text NOT NULL,

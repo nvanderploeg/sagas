@@ -203,13 +203,15 @@ export const tickets = sqliteTable(
 		parentId: integer('parent_id').references((): AnySQLiteColumn => tickets.id, {
 			onDelete: 'set null'
 		}),
+		// A fractional index ordering the State's column; keep the default BINARY collation.
+		rank: text('rank').notNull(),
 		createdAt: now(),
 		updatedAt: now('updated_at')
 	},
 	(t) => [
 		uniqueIndex('tickets_project_number_uq').on(t.projectId, t.number),
 		index('tickets_parent_idx').on(t.parentId),
-		index('tickets_state_idx').on(t.stateId),
+		uniqueIndex('tickets_state_rank_uq').on(t.stateId, t.rank),
 		foreignKey(() => ({
 			columns: [t.projectId, t.stateId],
 			foreignColumns: [states.projectId, states.id]

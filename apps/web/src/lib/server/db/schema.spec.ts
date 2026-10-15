@@ -53,12 +53,17 @@ const addSubstate = (stateId: number, key: string, position: number) =>
 const defaultOf = (stateId: number) =>
 	db.select().from(states).where(eq(states.id, stateId)).get()?.defaultSubstateId;
 
+let ranks = 0;
+
 const addTicket = (
-	values: Omit<typeof tickets.$inferInsert, 'number' | 'title'> & { number?: number }
+	values: Omit<typeof tickets.$inferInsert, 'number' | 'title' | 'rank'> & {
+		number?: number;
+		rank?: string;
+	}
 ) =>
 	db
 		.insert(tickets)
-		.values({ number: 1, title: 'ticket', ...values })
+		.values({ number: 1, title: 'ticket', rank: `a${++ranks}`, ...values })
 		.returning()
 		.get();
 
@@ -224,6 +229,21 @@ describe('tickets', () => {
 		addTicket({ projectId: project.id, stateId: state.id, ownerId: owner.id, number: 1 });
 		expect(() =>
 			addTicket({ projectId: project.id, stateId: state.id, ownerId: owner.id, number: 1 })
+		).toThrow();
+	});
+
+	it('rejects two Tickets with one rank in a State', () => {
+		const { project, state, owner } = setup();
+
+		addTicket({ projectId: project.id, stateId: state.id, ownerId: owner.id, rank: 'a0' });
+		expect(() =>
+			addTicket({
+				projectId: project.id,
+				stateId: state.id,
+				ownerId: owner.id,
+				number: 2,
+				rank: 'a0'
+			})
 		).toThrow();
 	});
 
