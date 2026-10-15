@@ -1,12 +1,22 @@
-import type { Handle } from '../db/client.ts';
+import type { Db } from '../db/client.ts';
 import { subscribe } from './bus.ts';
 import { canReplayFrom, eventsSince, eventWindow } from './log.ts';
 import type { WorkloadEvent } from './types.ts';
 
+export const DEFAULT_MAX_BACKLOG_BYTES = 8 * 1024 * 1024;
+
+// Who may keep a stream open: `valid` is checked on every heartbeat, `watch` calls back on revocation
+// and returns its own release.
+export type StreamGuard = {
+	valid(): boolean;
+	watch(revoked: () => void): () => void;
+};
+
 export type StreamOptions = {
 	since?: number;
 	heartbeatMs: number;
-	maxBacklog?: number;
+	maxBacklogBytes?: number;
+	guard?: StreamGuard;
 };
 
 export const STREAM_HEADERS = {
@@ -16,6 +26,8 @@ export const STREAM_HEADERS = {
 };
 
 const encoder = new TextEncoder();
+const PING = encoder.encode(': ping\n\n');
+const REPLAY_PAGE = 200;
 
 export class SinceError extends Error {}
 
@@ -31,66 +43,108 @@ export function eventFrame(event: WorkloadEvent): string {
 	return `id: ${event.seq}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
-export function resetFrame(seq: number): string {
-	return `id: ${seq}\nevent: reset\ndata: ${JSON.stringify({ seq })}\n\n`;
+export function controlFrame(type: 'ready' | 'reset', seq: number): string {
+	return `id: ${seq}\nevent: ${type}\ndata: ${JSON.stringify({ seq })}\n\n`;
 }
 
-export function openEventStream(db: Handle, options: StreamOptions): ReadableStream<Uint8Array> {
-	const maxBacklog = options.maxBacklog ?? 1000;
-	let controller!: ReadableStreamDefaultController<Uint8Array>;
-	let closed = false;
-	let lastSeq = 0;
-	let unsubscribe: (() => void) | undefined;
-	let heartbeat: ReturnType<typeof setInterval> | undefined;
+// A replay, or a reset when there is none to give, then ready: all read in one transaction.
+function openingFrames(
+	db: Db,
+	since: number | undefined,
+	maxBytes: number
+): { frames: Uint8Array[]; seq: number } {
+	return db.transaction((tx) => {
+		const { oldest, last } = eventWindow(tx);
+		const ready = encoder.encode(controlFrame('ready', last));
+		const reset = { frames: [encoder.encode(controlFrame('reset', last)), ready], seq: last };
+		if (since === undefined) return { frames: [ready], seq: last };
+		if (!canReplayFrom({ oldest, last }, since)) return reset;
 
-	function cleanup(): void {
-		closed = true;
-		unsubscribe?.();
-		unsubscribe = undefined;
-		clearInterval(heartbeat);
+		const frames: Uint8Array[] = [];
+		let bytes = 0;
+		for (let after = since; after < last;) {
+			const page = eventsSince(tx, after, REPLAY_PAGE);
+			if (page.length === 0) break;
+			for (const event of page) {
+				const frame = encoder.encode(eventFrame(event));
+				bytes += frame.byteLength;
+				if (bytes > maxBytes) return reset;
+				frames.push(frame);
+			}
+			after = page[page.length - 1].seq;
+		}
+		frames.push(ready);
+		return { frames, seq: last };
+	});
+}
+
+export function openEventStream(db: Db, options: StreamOptions): ReadableStream<Uint8Array> {
+	const maxBytes = options.maxBacklogBytes ?? DEFAULT_MAX_BACKLOG_BYTES;
+	let controller!: ReadableStreamDefaultController<Uint8Array>;
+	let open = true;
+	let lastSeq = 0;
+	const releases: (() => void)[] = [];
+
+	// Take every subscription and timer through here, so none outlives the stream however it ends.
+	function hold(release: () => void): void {
+		if (open) releases.push(release);
+		else release();
 	}
 
-	function send(text: string): void {
-		if (closed) return;
-		// A client this far behind reconnects and replays instead of holding server memory.
-		if ((controller.desiredSize ?? 0) < -maxBacklog) {
-			cleanup();
-			controller.close();
-			return;
-		}
+	function release(): void {
+		open = false;
+		for (const stop of releases.splice(0)) stop();
+	}
+
+	function close(): void {
+		if (!open) return;
+		release();
 		try {
-			controller.enqueue(encoder.encode(text));
+			controller.close();
 		} catch {
-			cleanup();
+			// The consumer already cancelled.
+		}
+	}
+
+	function send(chunk: Uint8Array): void {
+		if (!open) return;
+		// A client this far behind reconnects and replays instead of holding server memory.
+		if (-(controller.desiredSize ?? 0) > maxBytes) return close();
+		try {
+			controller.enqueue(chunk);
+		} catch {
+			release();
 		}
 	}
 
 	function emit(event: WorkloadEvent): void {
 		if (event.seq <= lastSeq) return;
 		lastSeq = event.seq;
-		send(eventFrame(event));
+		send(encoder.encode(eventFrame(event)));
 	}
 
-	return new ReadableStream<Uint8Array>({
-		start(c) {
-			controller = c;
-			send(': ok\n\n');
-			// Read the log and subscribe in one synchronous turn: no write can commit between them.
-			const window = eventWindow(db);
-			lastSeq = window.last;
-			if (options.since !== undefined) {
-				if (canReplayFrom(window, options.since)) {
-					lastSeq = options.since;
-					for (const event of eventsSince(db, options.since)) emit(event);
-				} else {
-					send(resetFrame(window.last));
-				}
+	function heartbeat(): void {
+		if (options.guard && !options.guard.valid()) return close();
+		send(PING);
+	}
+
+	return new ReadableStream<Uint8Array>(
+		{
+			start(c) {
+				controller = c;
+				if (options.guard) hold(options.guard.watch(close));
+				// Read the log and subscribe in one synchronous turn: no write can commit between them.
+				const opening = openingFrames(db, options.since, maxBytes);
+				lastSeq = opening.seq;
+				hold(subscribe(emit));
+				for (const frame of opening.frames) send(frame);
+				const timer = setInterval(heartbeat, options.heartbeatMs);
+				hold(() => clearInterval(timer));
+			},
+			cancel() {
+				release();
 			}
-			unsubscribe = subscribe(emit);
-			heartbeat = setInterval(() => send(': ping\n\n'), options.heartbeatMs);
 		},
-		cancel() {
-			cleanup();
-		}
-	});
+		{ highWaterMark: 0, size: (chunk) => chunk.byteLength }
+	);
 }
