@@ -5,14 +5,14 @@
 </script>
 
 <svelte:head>
-	<title>Join workload</title>
+	<title>Join sagas</title>
 </svelte:head>
 
 <main class="mx-auto max-w-sm px-4 py-16">
 	<p class="mb-6 inline-flex items-center gap-2 font-mono font-semibold">
-		<span class="size-2.5 rounded-full bg-[#22c55e]" aria-hidden="true"></span>workload
+		<span class="size-2.5 rounded-full bg-[#22c55e]" aria-hidden="true"></span>sagas
 	</p>
-	<h1 class="text-3xl font-extrabold tracking-tight">Join workload</h1>
+	<h1 class="text-3xl font-extrabold tracking-tight">Join sagas</h1>
 
 	{#if data.open}
 		<form method="POST" class="panel mt-6 grid gap-4 p-5">

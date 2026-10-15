@@ -25,7 +25,7 @@ export function mcpTransport(headers: Record<string, string> = {}) {
 }
 
 export async function connectMcp(token: string): Promise<Mcp> {
-	const client = new Client({ name: 'workload-e2e', version: '0' });
+	const client = new Client({ name: 'sagas-e2e', version: '0' });
 	await client.connect(mcpTransport({ authorization: `Bearer ${token}` }));
 
 	const call = async (name: string, args: Record<string, unknown> = {}): Promise<ToolReply> => {
@@ -46,7 +46,7 @@ export async function connectMcp(token: string): Promise<Mcp> {
 	};
 }
 
-export function uniqueProjectKey(): string {
+export function uniqueRealmKey(): string {
 	const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 	let key = 'M';
 	for (let i = 0; i < 5; i++) key += alphabet[Math.floor(Math.random() * alphabet.length)];

@@ -2,20 +2,20 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db, Handle } from '#lib/server/db/client.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import {
-	createProject,
-	deleteProject,
+	createRealm,
+	deleteRealm,
 	readBoard,
-	renameProjectKey,
+	renameRealmKey,
 	type BoardView
-} from '#lib/server/domain/projects.ts';
+} from '#lib/server/domain/realms.ts';
 import {
-	addQuestTicket,
-	addQuestTicketWithChildren,
+	addQuestLabour,
+	addQuestLabourWithChildren,
 	createQuest,
 	deleteQuest,
-	rankQuestTicket,
+	rankQuestLabour,
 	readQuest,
-	removeQuestTicket,
+	removeQuestLabour,
 	updateQuest,
 	type QuestView
 } from '#lib/server/domain/quests.ts';
@@ -27,104 +27,102 @@ import {
 	updateState
 } from '#lib/server/domain/states.ts';
 import {
-	createTicket,
-	deleteTicket,
-	moveTicket,
-	rankTicket,
+	createLabour,
+	deleteLabour,
+	moveLabour,
+	rankLabour,
 	setParent,
-	updateTicket
-} from '#lib/server/domain/tickets.ts';
+	updateLabour
+} from '#lib/server/domain/labours.ts';
 import type { Actor } from '#lib/server/domain/write.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { seedActor, TODO } from '#lib/server/test/fixtures.ts';
 import { eventsSince, readAtSeq } from './log.ts';
-import type { Json, WorkloadEvent } from './types.ts';
+import type { Json, SagasEvent } from './types.ts';
 
 // A client per docs/events.md: it loads a view with its seq, then applies Events alone.
 
 type Board = Json<BoardView>;
 type Quest = Json<QuestView>;
-type Member = Quest['tickets'][number];
+type Member = Quest['labours'][number];
 
-function applyToBoard(board: Board, projectId: number, event: Json<WorkloadEvent>): Board | null {
-	const without = (ids: number[]) => board.tickets.filter((t) => !ids.includes(t.id));
+function applyToBoard(board: Board, realmId: number, event: Json<SagasEvent>): Board | null {
+	const without = (ids: number[]) => board.labours.filter((t) => !ids.includes(t.id));
 	switch (event.type) {
-		case 'project.created':
-		case 'project.updated':
+		case 'realm.created':
+		case 'realm.updated':
 		case 'state.created':
 		case 'state.updated':
 		case 'state.deleted':
 		case 'substate.created':
 		case 'substate.updated':
 		case 'substate.deleted':
-			return event.data.project.id === projectId
-				? { ...board, project: event.data.project }
-				: board;
-		case 'project.deleted':
-			if (event.data.projectId === projectId) return null;
-			return { ...board, tickets: without(event.data.ticketIds) };
-		case 'ticket.created':
-		case 'ticket.updated':
-		case 'ticket.moved':
-		case 'ticket.reparented': {
-			const { ticket } = event.data;
-			const tickets = without([ticket.id]);
-			return { ...board, tickets: ticket.projectId === projectId ? [...tickets, ticket] : tickets };
+			return event.data.realm.id === realmId ? { ...board, realm: event.data.realm } : board;
+		case 'realm.deleted':
+			if (event.data.realmId === realmId) return null;
+			return { ...board, labours: without(event.data.labourIds) };
+		case 'labour.created':
+		case 'labour.updated':
+		case 'labour.moved':
+		case 'labour.reparented': {
+			const { labour } = event.data;
+			const labours = without([labour.id]);
+			return { ...board, labours: labour.realmId === realmId ? [...labours, labour] : labours };
 		}
-		case 'ticket.ranked': {
+		case 'labour.ranked': {
 			const { id, stateId, rank } = event.data;
 			return {
 				...board,
-				tickets: board.tickets.map((t) => (t.id === id ? { ...t, stateId, rank } : t))
+				labours: board.labours.map((t) => (t.id === id ? { ...t, stateId, rank } : t))
 			};
 		}
-		case 'ticket.rekeyed': {
-			const keys = new Map(event.data.tickets.map((t) => [t.id, t.key]));
+		case 'labour.rekeyed': {
+			const keys = new Map(event.data.labours.map((t) => [t.id, t.key]));
 			return {
 				...board,
-				tickets: board.tickets.map((t) => ({ ...t, key: keys.get(t.id) ?? t.key }))
+				labours: board.labours.map((t) => ({ ...t, key: keys.get(t.id) ?? t.key }))
 			};
 		}
-		case 'ticket.deleted':
-			return { ...board, tickets: without([event.data.id]) };
+		case 'labour.deleted':
+			return { ...board, labours: without([event.data.id]) };
 		default:
 			return board;
 	}
 }
 
-function applyToQuest(quest: Quest, event: Json<WorkloadEvent>): Quest | null {
-	const members = (tickets: Member[]): Quest => ({
+function applyToQuest(quest: Quest, event: Json<SagasEvent>): Quest | null {
+	const members = (labours: Member[]): Quest => ({
 		...quest,
-		tickets,
-		progress: { closed: tickets.filter((t) => t.closed).length, total: tickets.length }
+		labours,
+		progress: { closed: labours.filter((t) => t.closed).length, total: labours.length }
 	});
 	switch (event.type) {
 		case 'quest.created':
 		case 'quest.updated':
-		case 'quest.tickets_added':
-		case 'quest.tickets_removed':
-		case 'quest.ticket_ranked':
+		case 'quest.labours_added':
+		case 'quest.labours_removed':
+		case 'quest.labour_ranked':
 			return event.data.quest.id === quest.id ? event.data.quest : quest;
 		case 'quest.deleted':
 			return event.data.id === quest.id ? null : quest;
-		case 'ticket.updated':
-		case 'ticket.moved':
-		case 'ticket.reparented': {
-			const { ticket } = event.data;
-			return members(quest.tickets.map((t) => (t.id === ticket.id ? ticket : t)));
+		case 'labour.updated':
+		case 'labour.moved':
+		case 'labour.reparented': {
+			const { labour } = event.data;
+			return members(quest.labours.map((t) => (t.id === labour.id ? labour : t)));
 		}
-		case 'ticket.ranked': {
+		case 'labour.ranked': {
 			const { id, stateId, rank } = event.data;
-			return members(quest.tickets.map((t) => (t.id === id ? { ...t, stateId, rank } : t)));
+			return members(quest.labours.map((t) => (t.id === id ? { ...t, stateId, rank } : t)));
 		}
-		case 'ticket.rekeyed': {
-			const keys = new Map(event.data.tickets.map((t) => [t.id, t.key]));
-			return members(quest.tickets.map((t) => ({ ...t, key: keys.get(t.id) ?? t.key })));
+		case 'labour.rekeyed': {
+			const keys = new Map(event.data.labours.map((t) => [t.id, t.key]));
+			return members(quest.labours.map((t) => ({ ...t, key: keys.get(t.id) ?? t.key })));
 		}
-		case 'ticket.deleted':
-			return members(quest.tickets.filter((t) => t.id !== event.data.id));
-		case 'project.deleted':
-			return members(quest.tickets.filter((t) => !event.data.ticketIds.includes(t.id)));
+		case 'labour.deleted':
+			return members(quest.labours.filter((t) => t.id !== event.data.id));
+		case 'realm.deleted':
+			return members(quest.labours.filter((t) => !event.data.labourIds.includes(t.id)));
 		default:
 			return quest;
 	}
@@ -134,7 +132,7 @@ function applyToQuest(quest: Quest, event: Json<WorkloadEvent>): Quest | null {
 const boardOrder = (board: Board | null): Board | null =>
 	board && {
 		...board,
-		tickets: [...board.tickets].sort((a, b) =>
+		labours: [...board.labours].sort((a, b) =>
 			a.stateId !== b.stateId ? a.stateId - b.stateId : a.rank < b.rank ? -1 : 1
 		)
 	};
@@ -164,7 +162,7 @@ function loadOrNull<T>(read: (tx: Handle) => T): Json<T> | null {
 
 function replica<T>(
 	read: (tx: Handle) => T,
-	apply: (view: Json<T>, e: Json<WorkloadEvent>) => Json<T> | null
+	apply: (view: Json<T>, e: Json<SagasEvent>) => Json<T> | null
 ) {
 	const loaded = readAtSeq(db, read);
 	let seq = loaded.seq;
@@ -185,15 +183,14 @@ function replica<T>(
 describe('a client applying Stream Events', () => {
 	it('keeps its boards and its Quest view equal to a fresh load after every write', () => {
 		const style = (key: string) => ({ key, label: key, color: '#000000', icon: 'dot' });
-		const project = (key: string) =>
-			createProject(db, actor, { name: key, key, initialState: TODO });
-		const ticket = (projectId: number, parentId: number | null = null) =>
-			createTicket(db, actor, { projectId, title: 't', ownerId: actor.id, parentId });
-		const am = project('AM');
-		const bl = project('BL');
-		const cc = project('CC');
+		const realm = (key: string) => createRealm(db, actor, { name: key, key, initialState: TODO });
+		const labour = (realmId: number, parentId: number | null = null) =>
+			createLabour(db, actor, { realmId, title: 't', ownerId: actor.id, parentId });
+		const am = realm('AM');
+		const bl = realm('BL');
+		const cc = realm('CC');
 		const quest = createQuest(db, actor, { name: 'Launch', ownerId: actor.id });
-		const closedOf = (projectId: number) => listStates(db, projectId).find((s) => s.isClosed)!.id;
+		const closedOf = (realmId: number) => listStates(db, realmId).find((s) => s.isClosed)!.id;
 
 		const views = [
 			...[am, bl, cc].map((p) => ({
@@ -220,33 +217,33 @@ describe('a client applying Stream Events', () => {
 		let e = 0;
 		const writes: [string, () => unknown][] = [
 			[
-				'create Tickets across Projects',
+				'create Labours across Realms',
 				() => {
-					a = ticket(am.id).id;
-					b = ticket(bl.id, a).id;
-					c = ticket(cc.id, a).id;
-					d = ticket(am.id).id;
-					e = ticket(am.id, d).id;
+					a = labour(am.id).id;
+					b = labour(bl.id, a).id;
+					c = labour(cc.id, a).id;
+					d = labour(am.id).id;
+					e = labour(am.id, d).id;
 				}
 			],
-			['add to the Quest', () => addQuestTicket(db, actor, quest.id, a)],
-			['add with Children', () => addQuestTicketWithChildren(db, actor, quest.id, d)],
-			['add across Projects', () => addQuestTicket(db, actor, quest.id, c, 'top')],
-			['edit a member', () => updateTicket(db, actor, a, { title: 'renamed' })],
-			['close a member', () => updateTicket(db, actor, d, { stateId: closedOf(am.id) })],
+			['add to the Quest', () => addQuestLabour(db, actor, quest.id, a)],
+			['add with Children', () => addQuestLabourWithChildren(db, actor, quest.id, d)],
+			['add across Realms', () => addQuestLabour(db, actor, quest.id, c, 'top')],
+			['edit a member', () => updateLabour(db, actor, a, { title: 'renamed' })],
+			['close a member', () => updateLabour(db, actor, d, { stateId: closedOf(am.id) })],
 			['first Substate', () => createSubstate(db, actor, am.initialStateId!, style('review'))],
 			['add a State', () => createState(db, actor, am.id, style('doing'))],
 			['move a State', () => moveState(db, actor, listStates(db, am.id)[1].id, 0)],
 			['restyle a State', () => updateState(db, actor, am.initialStateId!, { label: 'Next' })],
-			['rank a member', () => rankTicket(db, actor, e, 'top')],
-			['rename a Project key', () => renameProjectKey(db, actor, am.id, 'AX')],
-			['move a Parent across Projects', () => moveTicket(db, actor, a, { projectId: bl.id })],
-			['move a Child across Projects', () => moveTicket(db, actor, e, { projectId: cc.id })],
+			['rank a member', () => rankLabour(db, actor, e, 'top')],
+			['rename a Realm key', () => renameRealmKey(db, actor, am.id, 'AX')],
+			['move a Parent across Realms', () => moveLabour(db, actor, a, { realmId: bl.id })],
+			['move a Child across Realms', () => moveLabour(db, actor, e, { realmId: cc.id })],
 			['reparent', () => setParent(db, actor, d, b)],
-			['rank in the Quest', () => rankQuestTicket(db, actor, quest.id, a, 'top')],
-			['remove from the Quest', () => removeQuestTicket(db, actor, quest.id, e)],
-			['delete a Parent and member', () => deleteTicket(db, actor, d)],
-			['delete a Project', () => deleteProject(db, actor, bl.id)],
+			['rank in the Quest', () => rankQuestLabour(db, actor, quest.id, a, 'top')],
+			['remove from the Quest', () => removeQuestLabour(db, actor, quest.id, e)],
+			['delete a Parent and member', () => deleteLabour(db, actor, d)],
+			['delete a Realm', () => deleteRealm(db, actor, bl.id)],
 			['edit the Quest', () => updateQuest(db, actor, quest.id, { name: 'Ship' })],
 			['delete the Quest', () => deleteQuest(db, actor, quest.id)]
 		];
@@ -265,7 +262,7 @@ describe('a client applying Stream Events', () => {
 
 describe('readAtSeq', () => {
 	it('reads the view and its seq in one transaction', () => {
-		createProject(db, actor, { name: 'AM', key: 'AM', initialState: TODO });
+		createRealm(db, actor, { name: 'AM', key: 'AM', initialState: TODO });
 		let inside = false;
 
 		const loaded = readAtSeq(db, () => (inside = db.$client.inTransaction));

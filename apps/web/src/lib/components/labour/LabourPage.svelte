@@ -9,10 +9,10 @@
 	import ConfirmButton from '#lib/components/ConfirmButton.svelte';
 	import Markdown from '#lib/components/Markdown.svelte';
 	import StatePill from '#lib/components/StatePill.svelte';
-	import TicketPicker, { type Match } from '#lib/components/TicketPicker.svelte';
-	import TicketRow from '#lib/components/TicketRow.svelte';
-	import { applyToTicketPage, touchedTickets } from '#lib/live/apply.ts';
-	import type { LiveEvent, Ticket, TicketPageView } from '#lib/live/types.ts';
+	import LabourPicker, { type Match } from '#lib/components/LabourPicker.svelte';
+	import LabourRow from '#lib/components/LabourRow.svelte';
+	import { applyToLabourPage, touchedLabours } from '#lib/live/apply.ts';
+	import type { LiveEvent, Labour, LabourPageView } from '#lib/live/types.ts';
 	import { LiveView } from '#lib/live/view.svelte.ts';
 	import { act, type Fields } from '#lib/ui/act.ts';
 	import { lookFor, usersOf } from '#lib/ui/directory.ts';
@@ -24,16 +24,16 @@
 		page: loaded,
 		me,
 		people: everyone
-	}: { seq: number; page: TicketPageView; me: Person; people: Person[] } = $props();
+	}: { seq: number; page: LabourPageView; me: Person; people: Person[] } = $props();
 
 	let glow = $state<{ actor: Person; n: number } | null>(null);
 	let glows = 0;
 
 	// svelte-ignore state_referenced_locally
-	const live = new LiveView<TicketPageView>(seq, loaded, applyToTicketPage, {
-		onEvent(event: LiveEvent, _before: TicketPageView, after: TicketPageView) {
+	const live = new LiveView<LabourPageView>(seq, loaded, applyToLabourPage, {
+		onEvent(event: LiveEvent, _before: LabourPageView, after: LabourPageView) {
 			if (event.actor.id === me.id) return;
-			if (!touchedTickets(event).includes(after.ticket.id)) return;
+			if (!touchedLabours(event).includes(after.labour.id)) return;
 			const n = ++glows;
 			glow = { actor: event.actor, n };
 			setTimeout(() => glow?.n === n && (glow = null), 2600);
@@ -42,7 +42,7 @@
 	$effect(() => live.load(loaded, seq));
 
 	// The last view shown, held while one's own delete is on its way to the board.
-	let kept = $state.raw<TicketPageView | null>(null);
+	let kept = $state.raw<LabourPageView | null>(null);
 	let deleting = $state(false);
 	$effect(() => {
 		if (live.current) kept = live.current;
@@ -53,23 +53,27 @@
 
 	$effect(() => {
 		if (!view) return;
-		const { ticket, parent, children } = view;
-		lookFor(usersOf([ticket, ...(parent ? [parent] : []), ...children]), people);
+		const { labour, parent, children } = view;
+		lookFor(usersOf([labour, ...(parent ? [parent] : []), ...children]), people);
+		lookFor(
+			view.comments.map((c) => c.authorId),
+			people
+		);
 	});
 
 	$effect(() => {
-		const key = view?.ticket.key;
-		if (key && resolve('/t/[key]', { key }) !== location.pathname) {
-			goto(resolve('/t/[key]', { key }), { replace: true, shallow: true });
+		const key = view?.labour.key;
+		if (key && resolve('/l/[key]', { key }) !== location.pathname) {
+			goto(resolve('/l/[key]', { key }), { replace: true, shallow: true });
 		}
 	});
 
-	// Only a Ticket this view already showed open bursts on closing.
+	// Only a Labour this view already showed open bursts on closing.
 	let bursts = $state(0);
 	let lastSeen: { id: number; closed: boolean } | null = null;
 	$effect(() => {
 		if (!view) return;
-		const { id, closed } = view.ticket;
+		const { id, closed } = view.labour;
 		if (lastSeen?.id === id && !lastSeen.closed && closed) bursts += 1;
 		lastSeen = { id, closed };
 	});
@@ -78,12 +82,12 @@
 		scope: string,
 		name: string,
 		fields: Fields,
-		patch: (v: TicketPageView) => TicketPageView
+		patch: (v: LabourPageView) => LabourPageView
 	) {
 		if (!view) return;
 		errors.delete(scope);
 		try {
-			await live.mutate(patch, () => act(name, { ticketId: view.ticket.id, ...fields }));
+			await live.mutate(patch, () => act(name, { labourId: view.labour.id, ...fields }));
 			return true;
 		} catch (error) {
 			errors.set(scope, (error as Error).message);
@@ -91,13 +95,13 @@
 		}
 	}
 
-	const withTicket = (patch: Partial<Ticket>) => (v: TicketPageView) => ({
+	const withLabour = (patch: Partial<Labour>) => (v: LabourPageView) => ({
 		...v,
-		ticket: { ...v.ticket, ...patch }
+		labour: { ...v.labour, ...patch }
 	});
 
-	const where = $derived(view ? stateOf(view.projects, view.ticket) : null);
-	const project = $derived(where?.project);
+	const where = $derived(view ? stateOf(view.realms, view.labour) : null);
+	const realm = $derived(where?.realm);
 
 	let editingTitle = $state(false);
 	let titleDraft = $state('');
@@ -135,33 +139,33 @@
 		const title = titleDraft.trim();
 		if (!title) return;
 		closeTitle();
-		await save('title', 'update', { title }, withTicket({ title }));
+		await save('title', 'update', { title }, withLabour({ title }));
 	}
 
 	async function saveBody() {
 		const description = bodyDraft;
 		closeBody();
-		await save('description', 'update', { description }, withTicket({ description }));
+		await save('description', 'update', { description }, withLabour({ description }));
 	}
 
 	function setState(stateId: number) {
-		const state = project?.states.find((s) => s.id === stateId);
+		const state = realm?.states.find((s) => s.id === stateId);
 		if (!state) return;
 		const substateId = state.substates.length > 0 ? state.defaultSubstateId : null;
 		save(
 			'state',
 			'update',
 			{ stateId },
-			withTicket({ stateId, substateId, closed: state.isClosed })
+			withLabour({ stateId, substateId, closed: state.isClosed })
 		);
 	}
 
 	function setParent(picked: Match | null) {
-		const parent: Ticket | null = picked && { ...picked };
+		const parent: Labour | null = picked && { ...picked };
 		if (parent) delete (parent as Partial<Match>).childCount;
 		save('parent', 'parent', { parentId: parent?.id ?? null }, (v) => ({
 			...v,
-			ticket: { ...v.ticket, parentId: parent?.id ?? null },
+			labour: { ...v.labour, parentId: parent?.id ?? null },
 			parent
 		}));
 	}
@@ -176,26 +180,24 @@
 	}
 
 	let moveOpen = $state(false);
-	let moveProjectId = $state<number | null>(null);
+	let moveRealmId = $state<number | null>(null);
 	let moveStateId = $state<number | null>(null);
 	let moveSubstateId = $state<number | null>(null);
-	const moveChoices = $derived(
-		view ? view.projects.filter((p) => p.id !== view.ticket.projectId) : []
-	);
-	const moveTarget = $derived(moveChoices.find((p) => p.id === moveProjectId));
+	const moveChoices = $derived(view ? view.realms.filter((p) => p.id !== view.labour.realmId) : []);
+	const moveTarget = $derived(moveChoices.find((p) => p.id === moveRealmId));
 	$effect(() => {
-		if (moveProjectId !== null && !moveTarget) moveProjectId = null;
+		if (moveRealmId !== null && !moveTarget) moveRealmId = null;
 	});
 	const moveStates = $derived(
-		moveTarget ? moveTarget.states.filter((s) => s.isClosed === (view?.ticket.closed ?? false)) : []
+		moveTarget ? moveTarget.states.filter((s) => s.isClosed === (view?.labour.closed ?? false)) : []
 	);
 	const moveState = $derived(moveStates.find((s) => s.id === moveStateId) ?? moveStates[0]);
 
-	function pickMoveProject(id: number | null) {
-		moveProjectId = id;
-		const target = view?.projects.find((p) => p.id === id);
+	function pickMoveRealm(id: number | null) {
+		moveRealmId = id;
+		const target = view?.realms.find((p) => p.id === id);
 		const states =
-			target?.states.filter((s) => s.isClosed === (view?.ticket.closed ?? false)) ?? [];
+			target?.states.filter((s) => s.isClosed === (view?.labour.closed ?? false)) ?? [];
 		const state = states.find((s) => s.id === target?.initialStateId) ?? states[0];
 		moveStateId = state?.id ?? null;
 		moveSubstateId = state && state.substates.length > 0 ? state.defaultSubstateId : null;
@@ -208,14 +210,14 @@
 		errors.delete('move');
 		try {
 			const done = await act('move', {
-				ticketId: view.ticket.id,
-				projectId: moveTarget.id,
+				labourId: view.labour.id,
+				realmId: moveTarget.id,
 				stateId: moveState.id,
 				substateId: moveState.substates.length > 0 ? moveSubstateId : null
 			});
-			moveProjectId = null;
+			moveRealmId = null;
 			moveOpen = false;
-			await goto(resolve('/t/[key]', { key: String(done.key) }), { replace: true, reset: false });
+			await goto(resolve('/l/[key]', { key: String(done.key) }), { replace: true, reset: false });
 		} catch (error) {
 			errors.set('move', (error as Error).message);
 		} finally {
@@ -223,34 +225,80 @@
 		}
 	}
 
-	const owner = $derived(view ? people.get(view.ticket.ownerId) : undefined);
+	const owner = $derived(view ? people.get(view.labour.ownerId) : undefined);
 	const assignee = $derived(
-		view?.ticket.assigneeId == null ? undefined : people.get(view.ticket.assigneeId)
+		view?.labour.assigneeId == null ? undefined : people.get(view.labour.assigneeId)
 	);
 	const joinable = $derived(view ? view.quests.filter((q) => !view.memberOf.includes(q.id)) : []);
 	let questToAdd = $state<number | null>(null);
+	let commentDraft = $state('');
+	let commenting = $state(false);
+
+	let editingComment = $state<number | null>(null);
+	let editDraft = $state('');
+
+	function openComment(id: number, body: string) {
+		editDraft = body;
+		editingComment = id;
+	}
+
+	async function saveComment(id: number) {
+		if (editDraft.trim() === '') return;
+		if (await save('comment', 'editComment', { commentId: id, body: editDraft }, (v) => v)) {
+			editingComment = null;
+		}
+	}
+
+	function removeComment(id: number) {
+		void save('comment', 'deleteComment', { commentId: id }, (v) => ({
+			...v,
+			comments: v.comments.filter((c) => c.id !== id)
+		}));
+	}
+
+	const stamp = (iso: string) => `${iso.slice(0, 16).replace('T', ' ')} UTC`;
+
+	async function postComment() {
+		if (!view || commenting || commentDraft.trim() === '') return;
+		commenting = true;
+		const saved = await save('comment', 'comment', { body: commentDraft }, (v) => v);
+		commenting = false;
+		if (saved) commentDraft = '';
+	}
+	let labelDraft = $state('');
+
+	function setLabels(labels: string[]) {
+		const next = [...new Set(labels.map((l) => l.trim().toLowerCase()))].sort();
+		save('labels', 'update', { labels: next.join(' ') }, withLabour({ labels: next }));
+	}
+
+	function addLabels() {
+		const added = labelDraft.split(/[\s,]+/).filter((l) => l !== '');
+		labelDraft = '';
+		if (view && added.length > 0) setLabels([...view.labour.labels, ...added]);
+	}
 </script>
 
 <svelte:head>
-	<title>{view ? `${view.ticket.key} ${view.ticket.title}` : 'Deleted Ticket'} · workload</title>
+	<title>{view ? `${view.labour.key} ${view.labour.title}` : 'Deleted Labour'} · sagas</title>
 </svelte:head>
 
 {#if !view}
 	<main class="mx-auto max-w-3xl px-4 py-16">
 		<div class="panel p-8">
-			<h1 class="text-2xl font-bold tracking-tight">This Ticket was deleted</h1>
+			<h1 class="text-2xl font-bold tracking-tight">This Labour was deleted</h1>
 			<p class="mt-2 text-muted">Someone deleted it while you had it open.</p>
 			<a class="btn mt-4" href={resolve('/')}>Go home</a>
 		</div>
 	</main>
 {:else}
-	{@const ticket = view.ticket}
+	{@const labour = view.labour}
 	{@const state = where?.state}
 	<main class="mx-auto grid max-w-6xl gap-6 px-4 pt-2 pb-16">
-		{#if project}
+		{#if realm}
 			<a
 				class="w-fit text-sm text-muted hover:text-ink"
-				href={resolve('/p/[key]', { key: project.key })}>← {project.name}</a
+				href={resolve('/r/[key]', { key: realm.key })}>← {realm.name}</a
 			>
 		{/if}
 
@@ -261,7 +309,7 @@
 			style:--gc={glow ? personColor(glow.actor.username) : undefined}
 		>
 			<div class="flex flex-wrap items-center gap-2">
-				<span class="key text-sm" data-testid="ticket-key">{ticket.key}</span>
+				<span class="key text-sm" data-testid="labour-key">{labour.key}</span>
 				<span class="relative inline-flex">
 					<StatePill def={state ?? FALLBACK_STATE} />
 					{#key bursts}{#if bursts}<Burst color={state?.color} />{/if}{/key}
@@ -298,13 +346,13 @@
 				</form>
 			{:else}
 				<div class="mt-2 flex flex-wrap items-start gap-2">
-					<h1 class="title">{ticket.title}</h1>
+					<h1 class="title">{labour.title}</h1>
 					<button
 						class="btn btn-quiet"
 						type="button"
 						bind:this={editTitleButton}
 						onclick={() => {
-							titleDraft = ticket.title;
+							titleDraft = labour.title;
 							editingTitle = true;
 						}}>Edit title</button
 					>
@@ -323,7 +371,7 @@
 								class="btn btn-quiet"
 								type="button"
 								bind:this={editBodyButton}
-								onclick={() => openBody(ticket.description)}>Edit description</button
+								onclick={() => openBody(labour.description)}>Edit description</button
 							>
 						{/if}
 					</div>
@@ -367,7 +415,7 @@
 							</div>
 						</div>
 					{:else}
-						<Markdown source={ticket.description} />
+						<Markdown source={labour.description} />
 					{/if}
 					{#if errors.get('description')}<p role="alert" class="error mt-2">
 							{errors.get('description')}
@@ -380,28 +428,112 @@
 					</h2>
 					{#if view.children.length === 0}
 						<p class="px-5 pb-5 text-sm text-muted">
-							No Children. A Ticket becomes a Child when its Parent is set to {ticket.key}.
+							No Children. A Labour becomes a Child when its Parent is set to {labour.key}.
 						</p>
 					{:else}
 						<ul class="divide-y divide-line border-t border-line" data-testid="children">
 							{#each view.children as child (child.id)}
-								<li><TicketRow ticket={child} projects={view.projects} {people} /></li>
+								<li><LabourRow labour={child} realms={view.realms} {people} /></li>
 							{/each}
 						</ul>
 					{/if}
 				</section>
+
+				<section class="panel overflow-hidden" aria-labelledby="comments-heading">
+					<h2 id="comments-heading" class="px-5 pt-4 pb-2 font-bold tracking-tight">
+						Comments <span class="font-normal text-muted">{view.comments.length}</span>
+					</h2>
+					{#if view.comments.length === 0}
+						<p class="px-5 pb-3 text-sm text-muted">No Comments yet.</p>
+					{:else}
+						<ul class="divide-y divide-line border-t border-line" data-testid="comments">
+							{#each view.comments as comment (comment.id)}
+								{@const author = people.get(comment.authorId)}
+								<li class="grid gap-2 px-5 py-3">
+									<div class="flex items-center gap-2 text-sm">
+										{#if author}<Avatar person={author} size="xs" />{/if}
+										<span class="font-semibold">{author?.displayName ?? 'Someone'}</span>
+										<time class="text-xs text-muted" datetime={comment.createdAt}
+											>{stamp(comment.createdAt)}</time
+										>
+										{#if comment.updatedAt}<span class="text-xs text-muted">(edited)</span>{/if}
+									</div>
+									{#if editingComment === comment.id}
+										<textarea
+											class="field min-h-24 w-full text-sm"
+											aria-label="Edit Comment (Markdown)"
+											maxlength="20000"
+											bind:value={editDraft}></textarea>
+										<div class="flex gap-2">
+											<button
+												class="btn btn-primary"
+												type="button"
+												disabled={editDraft.trim() === ''}
+												onclick={() => saveComment(comment.id)}>Save Comment</button
+											>
+											<button
+												class="btn btn-quiet"
+												type="button"
+												onclick={() => (editingComment = null)}>Cancel</button
+											>
+										</div>
+									{:else}
+										<Markdown source={comment.body} />
+										{#if comment.authorId === me.id}
+											<div class="flex gap-2">
+												<button
+													class="btn btn-quiet"
+													type="button"
+													onclick={() => openComment(comment.id, comment.body)}>Edit Comment</button
+												>
+												<ConfirmButton
+													label="Delete Comment"
+													confirm="Delete this Comment for good"
+													onconfirm={() => removeComment(comment.id)}
+												/>
+											</div>
+										{/if}
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					{/if}
+					<form
+						class="grid gap-2 border-t border-line p-5"
+						onsubmit={(e) => {
+							e.preventDefault();
+							void postComment();
+						}}
+					>
+						<textarea
+							class="field min-h-24 w-full text-sm"
+							aria-label="New Comment (Markdown)"
+							maxlength="20000"
+							bind:value={commentDraft}></textarea>
+						<div class="flex items-center gap-2">
+							<button
+								class="btn btn-primary"
+								type="submit"
+								disabled={commenting || commentDraft.trim() === ''}>Comment</button
+							>
+							{#if errors.get('comment')}<p role="alert" class="error">
+									{errors.get('comment')}
+								</p>{/if}
+						</div>
+					</form>
+				</section>
 			</div>
 
-			<aside class="panel grid gap-5 p-5" aria-label="Ticket fields">
+			<aside class="panel grid gap-5 p-5" aria-label="Labour fields">
 				<div class="grid gap-1.5">
 					<label class="label" for="state">State</label>
 					<select
 						id="state"
 						class="field"
-						value={ticket.stateId}
+						value={labour.stateId}
 						onchange={(e) => setState(Number(e.currentTarget.value))}
 					>
-						{#each project?.states ?? [] as option (option.id)}
+						{#each realm?.states ?? [] as option (option.id)}
 							<option value={option.id}>{option.label}</option>
 						{/each}
 					</select>
@@ -410,10 +542,10 @@
 						<select
 							id="substate"
 							class="field"
-							value={ticket.substateId}
+							value={labour.substateId}
 							onchange={(e) => {
 								const substateId = Number(e.currentTarget.value);
-								save('state', 'update', { substateId }, withTicket({ substateId }));
+								save('state', 'update', { substateId }, withLabour({ substateId }));
 							}}
 						>
 							{#each state.substates as option (option.id)}
@@ -431,13 +563,13 @@
 						<select
 							id="owner"
 							class="field min-w-0 flex-1"
-							value={ticket.ownerId}
+							value={labour.ownerId}
 							onchange={(e) => {
 								const ownerId = Number(e.currentTarget.value);
-								save('owner', 'update', { ownerId }, withTicket({ ownerId }));
+								save('owner', 'update', { ownerId }, withLabour({ ownerId }));
 							}}
 						>
-							{#if !owner}<option value={ticket.ownerId}>Loading…</option>{/if}
+							{#if !owner}<option value={labour.ownerId}>Loading…</option>{/if}
 							{#each everyone as person (person.id)}
 								<option value={person.id}>{person.displayName}</option>
 							{/each}
@@ -451,16 +583,16 @@
 					<select
 						id="assignee"
 						class="field"
-						value={ticket.assigneeId ?? ''}
+						value={labour.assigneeId ?? ''}
 						onchange={(e) => {
 							const v = e.currentTarget.value;
 							const assigneeId = v === '' ? null : Number(v);
-							save('assignee', 'update', { assigneeId }, withTicket({ assigneeId }));
+							save('assignee', 'update', { assigneeId }, withLabour({ assigneeId }));
 						}}
 					>
 						<option value="">Unassigned</option>
-						{#if ticket.assigneeId !== null && !assignee}
-							<option value={ticket.assigneeId}>Loading…</option>
+						{#if labour.assigneeId !== null && !assignee}
+							<option value={labour.assigneeId}>Loading…</option>
 						{/if}
 						{#each everyone as person (person.id)}
 							<option value={person.id}>{person.displayName}</option>
@@ -475,23 +607,65 @@
 					<span class="label">Parent</span>
 					{#if view.parent}
 						<div class="rounded-lg border border-line" data-testid="parent">
-							<TicketRow ticket={view.parent} projects={view.projects} {people}>
+							<LabourRow labour={view.parent} realms={view.realms} {people}>
 								{#snippet actions()}
 									<button class="btn btn-quiet" type="button" onclick={() => setParent(null)}
 										>Clear</button
 									>
 								{/snippet}
-							</TicketRow>
+							</LabourRow>
 						</div>
 					{:else}
 						<p class="text-sm text-muted">None</p>
 					{/if}
-					<TicketPicker
+					<LabourPicker
 						label={view.parent ? 'Change Parent' : 'Set Parent'}
-						exclude={[ticket.id, ...view.children.map((c) => c.id)]}
+						exclude={[labour.id, ...view.children.map((c) => c.id)]}
 						onpick={(picked) => setParent(picked)}
 					/>
 					{#if errors.get('parent')}<p role="alert" class="error">{errors.get('parent')}</p>{/if}
+				</div>
+
+				<div class="grid gap-1.5">
+					<label class="label" for="labels">Labels</label>
+					{#if labour.labels.length === 0}
+						<p class="text-sm text-muted">No Labels.</p>
+					{:else}
+						<ul class="flex flex-wrap gap-1.5" data-testid="labour-labels">
+							{#each labour.labels as label (label)}
+								<li class="chip">
+									{label}
+									<button
+										type="button"
+										aria-label="Remove label {label}"
+										onclick={() => setLabels(labour.labels.filter((l) => l !== label))}>✕</button
+									>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+					<form
+						class="flex gap-2"
+						onsubmit={(e) => {
+							e.preventDefault();
+							addLabels();
+						}}
+					>
+						<input
+							id="labels"
+							class="field min-w-0 flex-1"
+							placeholder="Add labels"
+							maxlength="200"
+							bind:value={labelDraft}
+						/>
+						<button
+							class="btn"
+							type="submit"
+							aria-label="Add label"
+							disabled={labelDraft.trim() === ''}>Add</button
+						>
+					</form>
+					{#if errors.get('labels')}<p role="alert" class="error">{errors.get('labels')}</p>{/if}
 				</div>
 
 				<div class="grid gap-1.5">
@@ -499,7 +673,7 @@
 					{#if view.memberOf.length === 0}
 						<p class="text-sm text-muted">In no Quest.</p>
 					{:else}
-						<ul class="flex flex-wrap gap-1.5" data-testid="ticket-quests">
+						<ul class="flex flex-wrap gap-1.5" data-testid="labour-quests">
 							{#each view.memberOf as questId (questId)}
 								{@const quest = view.quests.find((q) => q.id === questId)}
 								<li class="chip">
@@ -517,7 +691,7 @@
 						<div class="flex gap-2">
 							<select
 								class="field min-w-0 flex-1"
-								aria-label="Quest to add this Ticket to"
+								aria-label="Quest to add this Labour to"
 								bind:value={questToAdd}
 							>
 								<option value={null}>Choose a Quest</option>
@@ -540,18 +714,16 @@
 				</div>
 
 				<details class="group grid gap-2" bind:open={moveOpen}>
-					<summary class="label cursor-pointer select-none">Move to another Project</summary>
+					<summary class="label cursor-pointer select-none">Move to another Realm</summary>
 					<div class="mt-2 grid gap-2">
 						<select
 							class="field"
-							aria-label="Target Project"
-							value={moveProjectId ?? ''}
+							aria-label="Target Realm"
+							value={moveRealmId ?? ''}
 							onchange={(e) =>
-								pickMoveProject(
-									e.currentTarget.value === '' ? null : Number(e.currentTarget.value)
-								)}
+								pickMoveRealm(e.currentTarget.value === '' ? null : Number(e.currentTarget.value))}
 						>
-							<option value="">Choose a Project</option>
+							<option value="">Choose a Realm</option>
 							{#each moveChoices as option (option.id)}
 								<option value={option.id}>{option.name} ({option.key})</option>
 							{/each}
@@ -560,7 +732,7 @@
 							<select
 								class="field"
 								aria-label="Target State"
-								disabled={ticket.closed}
+								disabled={labour.closed}
 								value={moveState?.id}
 								onchange={(e) => {
 									moveStateId = Number(e.currentTarget.value);
@@ -572,8 +744,8 @@
 									<option value={option.id}>{option.label}</option>
 								{/each}
 							</select>
-							{#if ticket.closed}
-								<p class="text-xs text-muted">A Closed Ticket stays Closed.</p>
+							{#if labour.closed}
+								<p class="text-xs text-muted">A Closed Labour stays Closed.</p>
 							{/if}
 							{#if moveState && moveState.substates.length > 0}
 								<select
@@ -591,7 +763,7 @@
 								>Move to {moveTarget.key}</button
 							>
 							<p class="text-xs text-muted">
-								It gets a new key; {ticket.key} keeps leading here. Parent and Children stay put.
+								It gets a new key; {labour.key} keeps leading here. Parent and Children stay put.
 							</p>
 						{/if}
 						{#if errors.get('move')}<p role="alert" class="error">{errors.get('move')}</p>{/if}
@@ -610,11 +782,11 @@
 						};
 					}}
 				>
-					<input type="hidden" name="ticketId" value={ticket.id} />
+					<input type="hidden" name="labourId" value={labour.id} />
 					<ConfirmButton
 						type="submit"
-						label="Delete Ticket"
-						confirm="Delete {ticket.key} for good"
+						label="Delete Labour"
+						confirm="Delete {labour.key} for good"
 					/>
 				</form>
 			</aside>

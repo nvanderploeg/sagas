@@ -6,9 +6,9 @@
 </script>
 
 <svelte:head>
-	<title>{data.board.project.name} · workload</title>
+	<title>{data.board.realm.name} · sagas</title>
 </svelte:head>
 
-{#key data.board.project.id}
+{#key data.board.realm.id}
 	<Board seq={data.seq} board={data.board} me={data.user!} people={data.people} />
 {/key}

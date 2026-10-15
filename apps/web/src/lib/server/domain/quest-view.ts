@@ -1,14 +1,14 @@
 import { asc, count, eq, sql } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
-import { questTickets, quests, states, tickets } from '../db/schema.ts';
+import { questLabours, quests, states, labours } from '../db/schema.ts';
 import { DomainError } from './errors.ts';
-import { selectTicketViews, toTicketView, type TicketView } from './ticket-view.ts';
+import { selectLabourViews, toLabourView, type LabourView } from './labour-view.ts';
 
 export type Quest = typeof quests.$inferSelect;
 export type QuestProgress = { closed: number; total: number };
 
-// `tickets` are the members in Quest order.
-export type QuestView = Quest & { tickets: TicketView[]; progress: QuestProgress };
+// `labours` are the members in Quest order.
+export type QuestView = Quest & { labours: LabourView[]; progress: QuestProgress };
 
 export function getQuest(db: Handle, questId: number): Quest {
 	const row = db.select().from(quests).where(eq(quests.id, questId)).get();
@@ -24,28 +24,28 @@ export function questProgress(db: Handle, questId: number): QuestProgress {
 			total: count(),
 			closed: sql<number>`coalesce(sum(${states.isClosed}), 0)`
 		})
-		.from(questTickets)
-		.innerJoin(tickets, eq(tickets.id, questTickets.ticketId))
-		.innerJoin(states, eq(states.id, tickets.stateId))
-		.where(eq(questTickets.questId, questId))
+		.from(questLabours)
+		.innerJoin(labours, eq(labours.id, questLabours.labourId))
+		.innerJoin(states, eq(states.id, labours.stateId))
+		.where(eq(questLabours.questId, questId))
 		.get();
 	return { closed: Number(row?.closed ?? 0), total: row?.total ?? 0 };
 }
 
-export function listQuestTickets(db: Handle, questId: number): TicketView[] {
+export function listQuestLabours(db: Handle, questId: number): LabourView[] {
 	getQuest(db, questId);
-	return selectTicketViews(db)
-		.innerJoin(questTickets, eq(questTickets.ticketId, tickets.id))
-		.where(eq(questTickets.questId, questId))
-		.orderBy(asc(questTickets.rank))
+	return selectLabourViews(db)
+		.innerJoin(questLabours, eq(questLabours.labourId, labours.id))
+		.where(eq(questLabours.questId, questId))
+		.orderBy(asc(questLabours.rank))
 		.all()
-		.map(toTicketView);
+		.map(toLabourView);
 }
 
 export function readQuest(db: Handle, questId: number): QuestView {
 	return {
 		...getQuest(db, questId),
-		tickets: listQuestTickets(db, questId),
+		labours: listQuestLabours(db, questId),
 		progress: questProgress(db, questId)
 	};
 }

@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from './client.ts';
-import { projectKeys, projects, states, substates, ticketKeys, tickets, users } from './schema.ts';
+import { realmKeys, realms, states, substates, labourKeys, labours, users } from './schema.ts';
 import { testDb } from '#lib/server/test/db.ts';
 
 let db: Db;
@@ -30,16 +30,16 @@ const agent = (username = 'bot') => ({
 const addUser = (values: typeof users.$inferInsert) =>
 	db.insert(users).values(values).returning().get();
 
-const addProject = (key = 'AM', name = 'Amber') =>
-	db.insert(projects).values({ name, key }).returning().get();
+const addRealm = (key = 'AM', name = 'Amber') =>
+	db.insert(realms).values({ name, key }).returning().get();
 
 const addState = (
-	projectId: number,
+	realmId: number,
 	values: Partial<typeof states.$inferInsert> & { key: string; position: number }
 ) =>
 	db
 		.insert(states)
-		.values({ label: values.key, color: '#000000', icon: 'dot', projectId, ...values })
+		.values({ label: values.key, color: '#000000', icon: 'dot', realmId, ...values })
 		.returning()
 		.get();
 
@@ -55,15 +55,15 @@ const defaultOf = (stateId: number) =>
 
 let ranks = 0;
 
-const addTicket = (
-	values: Omit<typeof tickets.$inferInsert, 'number' | 'title' | 'rank'> & {
+const addLabour = (
+	values: Omit<typeof labours.$inferInsert, 'number' | 'title' | 'rank'> & {
 		number?: number;
 		rank?: string;
 	}
 ) =>
 	db
-		.insert(tickets)
-		.values({ number: 1, title: 'ticket', rank: `a${++ranks}`, ...values })
+		.insert(labours)
+		.values({ number: 1, title: 'labour', rank: `a${++ranks}`, ...values })
 		.returning()
 		.get();
 
@@ -96,55 +96,55 @@ describe('users', () => {
 	});
 });
 
-describe('projects', () => {
-	it('rejects a project key that is not uppercase letters and digits of 2 to 6 characters', () => {
-		expect(() => addProject('am')).toThrow();
-		expect(() => addProject('A')).toThrow();
-		expect(() => addProject('AAAAAAA')).toThrow();
-		expect(() => addProject('1AB')).toThrow();
-		expect(() => addProject('A-B')).toThrow();
-		expect(addProject('A1B2C3').key).toBe('A1B2C3');
+describe('realms', () => {
+	it('rejects a realm key that is not uppercase letters and digits of 2 to 6 characters', () => {
+		expect(() => addRealm('am')).toThrow();
+		expect(() => addRealm('A')).toThrow();
+		expect(() => addRealm('AAAAAAA')).toThrow();
+		expect(() => addRealm('1AB')).toThrow();
+		expect(() => addRealm('A-B')).toThrow();
+		expect(addRealm('A1B2C3').key).toBe('A1B2C3');
 	});
 
-	it('rejects a duplicate project key', () => {
-		addProject('AM');
-		expect(() => addProject('AM', 'Other')).toThrow();
+	it('rejects a duplicate realm key', () => {
+		addRealm('AM');
+		expect(() => addRealm('AM', 'Other')).toThrow();
 	});
 
-	it('rejects an Initial State that belongs to another project', () => {
-		const first = addProject('AM');
-		const second = addProject('BL');
+	it('rejects an Initial State that belongs to another realm', () => {
+		const first = addRealm('AM');
+		const second = addRealm('BL');
 		const state = addState(first.id, { key: 'todo', position: 0 });
 
 		expect(() =>
-			db.update(projects).set({ initialStateId: state.id }).where(eq(projects.id, second.id)).run()
+			db.update(realms).set({ initialStateId: state.id }).where(eq(realms.id, second.id)).run()
 		).toThrow();
-		db.update(projects).set({ initialStateId: state.id }).where(eq(projects.id, first.id)).run();
+		db.update(realms).set({ initialStateId: state.id }).where(eq(realms.id, first.id)).run();
 	});
 });
 
 describe('states', () => {
-	it('allows one Closed State per project', () => {
-		const project = addProject();
-		addState(project.id, { key: 'closed', position: 0, isClosed: true });
+	it('allows one Closed State per realm', () => {
+		const realm = addRealm();
+		addState(realm.id, { key: 'closed', position: 0, isClosed: true });
 
-		expect(() => addState(project.id, { key: 'done', position: 1, isClosed: true })).toThrow();
+		expect(() => addState(realm.id, { key: 'done', position: 1, isClosed: true })).toThrow();
 		expect(
-			addState(addProject('BL').id, { key: 'closed', position: 0, isClosed: true }).id
+			addState(addRealm('BL').id, { key: 'closed', position: 0, isClosed: true }).id
 		).toBeTypeOf('number');
 	});
 
-	it('gives each State of a project a distinct position and key', () => {
-		const project = addProject();
-		addState(project.id, { key: 'todo', position: 0 });
+	it('gives each State of a realm a distinct position and key', () => {
+		const realm = addRealm();
+		addState(realm.id, { key: 'todo', position: 0 });
 
-		expect(() => addState(project.id, { key: 'other', position: 0 })).toThrow();
-		expect(() => addState(project.id, { key: 'todo', position: 1 })).toThrow();
+		expect(() => addState(realm.id, { key: 'other', position: 0 })).toThrow();
+		expect(() => addState(realm.id, { key: 'todo', position: 1 })).toThrow();
 	});
 
 	it('gives each Substate of a State a distinct position and key', () => {
-		const project = addProject();
-		const state = addState(project.id, { key: 'todo', position: 0 });
+		const realm = addRealm();
+		const state = addState(realm.id, { key: 'todo', position: 0 });
 		addSubstate(state.id, 'review', 0);
 
 		expect(() => addSubstate(state.id, 'other', 0)).toThrow();
@@ -152,8 +152,8 @@ describe('states', () => {
 	});
 
 	it('removes the Substates of a deleted State, its default among them', () => {
-		const project = addProject();
-		const state = addState(project.id, { key: 'todo', position: 0 });
+		const realm = addRealm();
+		const state = addState(realm.id, { key: 'todo', position: 0 });
 		const review = addSubstate(state.id, 'review', 0);
 		db.update(states).set({ defaultSubstateId: review.id }).where(eq(states.id, state.id)).run();
 
@@ -164,8 +164,8 @@ describe('states', () => {
 	});
 
 	it('clears the default when the default Substate is deleted', () => {
-		const project = addProject();
-		const state = addState(project.id, { key: 'todo', position: 0 });
+		const realm = addRealm();
+		const state = addState(realm.id, { key: 'todo', position: 0 });
 		const review = addSubstate(state.id, 'review', 0);
 		db.update(states).set({ defaultSubstateId: review.id }).where(eq(states.id, state.id)).run();
 		expect(defaultOf(state.id)).toBe(review.id);
@@ -176,9 +176,9 @@ describe('states', () => {
 	});
 
 	it('rejects a default Substate that belongs to another State', () => {
-		const project = addProject();
-		const todo = addState(project.id, { key: 'todo', position: 0 });
-		const doing = addState(project.id, { key: 'doing', position: 1 });
+		const realm = addRealm();
+		const todo = addState(realm.id, { key: 'todo', position: 0 });
+		const doing = addState(realm.id, { key: 'doing', position: 1 });
 		const foreign = addSubstate(doing.id, 'review', 0);
 
 		expect(() =>
@@ -188,31 +188,31 @@ describe('states', () => {
 	});
 });
 
-describe('tickets', () => {
+describe('labours', () => {
 	const setup = () => {
-		const project = addProject();
-		const state = addState(project.id, { key: 'todo', position: 0 });
+		const realm = addRealm();
+		const state = addState(realm.id, { key: 'todo', position: 0 });
 		const owner = addUser(human());
-		return { project, state, owner };
+		return { realm, state, owner };
 	};
 
-	it('rejects a State from another project', () => {
-		const { project, owner } = setup();
-		const otherState = addState(addProject('BL').id, { key: 'todo', position: 0 });
+	it('rejects a State from another realm', () => {
+		const { realm, owner } = setup();
+		const otherState = addState(addRealm('BL').id, { key: 'todo', position: 0 });
 
 		expect(() =>
-			addTicket({ projectId: project.id, stateId: otherState.id, ownerId: owner.id })
+			addLabour({ realmId: realm.id, stateId: otherState.id, ownerId: owner.id })
 		).toThrow();
 	});
 
 	it('rejects a Substate that belongs to another State', () => {
-		const { project, state, owner } = setup();
-		const other = addState(project.id, { key: 'doing', position: 1 });
+		const { realm, state, owner } = setup();
+		const other = addState(realm.id, { key: 'doing', position: 1 });
 		const foreign = addSubstate(other.id, 'review', 0);
 
 		expect(() =>
-			addTicket({
-				projectId: project.id,
+			addLabour({
+				realmId: realm.id,
 				stateId: state.id,
 				substateId: foreign.id,
 				ownerId: owner.id
@@ -220,25 +220,25 @@ describe('tickets', () => {
 		).toThrow();
 	});
 
-	it('rejects a number below 1 and a repeated number within a project', () => {
-		const { project, state, owner } = setup();
+	it('rejects a number below 1 and a repeated number within a realm', () => {
+		const { realm, state, owner } = setup();
 
 		expect(() =>
-			addTicket({ projectId: project.id, stateId: state.id, ownerId: owner.id, number: 0 })
+			addLabour({ realmId: realm.id, stateId: state.id, ownerId: owner.id, number: 0 })
 		).toThrow();
-		addTicket({ projectId: project.id, stateId: state.id, ownerId: owner.id, number: 1 });
+		addLabour({ realmId: realm.id, stateId: state.id, ownerId: owner.id, number: 1 });
 		expect(() =>
-			addTicket({ projectId: project.id, stateId: state.id, ownerId: owner.id, number: 1 })
+			addLabour({ realmId: realm.id, stateId: state.id, ownerId: owner.id, number: 1 })
 		).toThrow();
 	});
 
-	it('rejects two Tickets with one rank in a State', () => {
-		const { project, state, owner } = setup();
+	it('rejects two Labours with one rank in a State', () => {
+		const { realm, state, owner } = setup();
 
-		addTicket({ projectId: project.id, stateId: state.id, ownerId: owner.id, rank: 'a0' });
+		addLabour({ realmId: realm.id, stateId: state.id, ownerId: owner.id, rank: 'a0' });
 		expect(() =>
-			addTicket({
-				projectId: project.id,
+			addLabour({
+				realmId: realm.id,
 				stateId: state.id,
 				ownerId: owner.id,
 				number: 2,
@@ -248,77 +248,75 @@ describe('tickets', () => {
 	});
 
 	it('clears the Parent of children when the Parent is deleted', () => {
-		const { project, state, owner } = setup();
-		const parent = addTicket({ projectId: project.id, stateId: state.id, ownerId: owner.id });
-		const child = addTicket({
-			projectId: project.id,
+		const { realm, state, owner } = setup();
+		const parent = addLabour({ realmId: realm.id, stateId: state.id, ownerId: owner.id });
+		const child = addLabour({
+			realmId: realm.id,
 			stateId: state.id,
 			ownerId: owner.id,
 			number: 2,
 			parentId: parent.id
 		});
 
-		db.delete(tickets).where(eq(tickets.id, parent.id)).run();
+		db.delete(labours).where(eq(labours.id, parent.id)).run();
 
-		expect(db.select().from(tickets).where(eq(tickets.id, child.id)).get()?.parentId).toBeNull();
+		expect(db.select().from(labours).where(eq(labours.id, child.id)).get()?.parentId).toBeNull();
 	});
 
-	it('deletes a project with its States, Tickets and keys', () => {
-		const { project, state, owner } = setup();
-		const ticket = addTicket({ projectId: project.id, stateId: state.id, ownerId: owner.id });
+	it('deletes a realm with its States, Labours and keys', () => {
+		const { realm, state, owner } = setup();
+		const labour = addLabour({ realmId: realm.id, stateId: state.id, ownerId: owner.id });
 		addSubstate(state.id, 'review', 0);
-		db.update(projects).set({ initialStateId: state.id }).where(eq(projects.id, project.id)).run();
-		db.insert(ticketKeys).values({ key: 'AM-9', ticketId: ticket.id }).run();
-		db.insert(projectKeys).values({ key: 'OLD', projectId: project.id }).run();
+		db.update(realms).set({ initialStateId: state.id }).where(eq(realms.id, realm.id)).run();
+		db.insert(labourKeys).values({ key: 'AM-9', labourId: labour.id }).run();
+		db.insert(realmKeys).values({ key: 'OLD', realmId: realm.id }).run();
 
-		db.delete(projects).where(eq(projects.id, project.id)).run();
+		db.delete(realms).where(eq(realms.id, realm.id)).run();
 
 		expect(db.select().from(states).all()).toEqual([]);
-		expect(db.select().from(tickets).all()).toEqual([]);
-		expect(db.select().from(ticketKeys).all()).toEqual([]);
-		expect(db.select().from(projectKeys).all()).toEqual([]);
+		expect(db.select().from(labours).all()).toEqual([]);
+		expect(db.select().from(labourKeys).all()).toEqual([]);
+		expect(db.select().from(realmKeys).all()).toEqual([]);
 	});
 });
 
 describe('keys', () => {
 	const setup = () => {
-		const project = addProject();
-		const state = addState(project.id, { key: 'todo', position: 0 });
+		const realm = addRealm();
+		const state = addState(realm.id, { key: 'todo', position: 0 });
 		const ownerId = addUser(human()).id;
-		const first = addTicket({ projectId: project.id, stateId: state.id, ownerId });
-		const second = addTicket({ projectId: project.id, stateId: state.id, ownerId, number: 2 });
-		return { project, first, second };
+		const first = addLabour({ realmId: realm.id, stateId: state.id, ownerId });
+		const second = addLabour({ realmId: realm.id, stateId: state.id, ownerId, number: 2 });
+		return { realm, first, second };
 	};
 
-	it('stores ticket and project keys in uppercase only', () => {
-		const { project, first } = setup();
+	it('stores labour and realm keys in uppercase only', () => {
+		const { realm, first } = setup();
 
-		expect(() =>
-			db.insert(projectKeys).values({ key: 'old', projectId: project.id }).run()
-		).toThrow();
-		expect(() => db.insert(ticketKeys).values({ key: 'am-1', ticketId: first.id }).run()).toThrow();
+		expect(() => db.insert(realmKeys).values({ key: 'old', realmId: realm.id }).run()).toThrow();
+		expect(() => db.insert(labourKeys).values({ key: 'am-1', labourId: first.id }).run()).toThrow();
 	});
 
-	it('rejects a malformed ticket key', () => {
+	it('rejects a malformed labour key', () => {
 		const { first } = setup();
 
 		for (const key of ['AM', 'AM-0', 'AM-1X', '-1', 'A M-1']) {
-			expect(() => db.insert(ticketKeys).values({ key, ticketId: first.id }).run(), key).toThrow();
+			expect(() => db.insert(labourKeys).values({ key, labourId: first.id }).run(), key).toThrow();
 		}
 	});
 
-	it('gives a key to one Ticket and a project key to one Project', () => {
-		const { project, first, second } = setup();
-		db.insert(ticketKeys).values({ key: 'AM-1', ticketId: first.id }).run();
-		db.insert(projectKeys).values({ key: 'AM', projectId: project.id }).run();
+	it('gives a key to one Labour and a realm key to one Realm', () => {
+		const { realm, first, second } = setup();
+		db.insert(labourKeys).values({ key: 'AM-1', labourId: first.id }).run();
+		db.insert(realmKeys).values({ key: 'AM', realmId: realm.id }).run();
 
 		expect(() =>
-			db.insert(ticketKeys).values({ key: 'AM-1', ticketId: second.id }).run()
+			db.insert(labourKeys).values({ key: 'AM-1', labourId: second.id }).run()
 		).toThrow();
 		expect(() =>
 			db
-				.insert(projectKeys)
-				.values({ key: 'AM', projectId: addProject('BL').id })
+				.insert(realmKeys)
+				.values({ key: 'AM', realmId: addRealm('BL').id })
 				.run()
 		).toThrow();
 	});

@@ -1,12 +1,12 @@
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
-import { states, substates, tickets } from '../db/schema.ts';
+import { states, substates, labours } from '../db/schema.ts';
 import { DomainError } from './errors.ts';
-import { getProject, getState, getSubstate } from './lookup.ts';
+import { getRealm, getState, getSubstate } from './lookup.ts';
 import type { EventSpec } from '../events/types.ts';
 import { placeAt, writePositions } from './positions.ts';
-import { stateEvent, substateEvent } from './project-view.ts';
-import { readTicket } from './ticket-view.ts';
+import { stateEvent, substateEvent } from './realm-view.ts';
+import { readLabour } from './labour-view.ts';
 import { COLOR, ICON, requireMatch, requireText, STATE_KEY } from './validate.ts';
 import { write, type Actor } from './write.ts';
 
@@ -48,11 +48,11 @@ function normalizeUpdate(patch: StyleUpdate, kind: 'State' | 'Substate'): StyleU
 	return update;
 }
 
-export function listStates(db: Handle, projectId: number) {
+export function listStates(db: Handle, realmId: number) {
 	return db
 		.select()
 		.from(states)
-		.where(eq(states.projectId, projectId))
+		.where(eq(states.realmId, realmId))
 		.orderBy(asc(states.position))
 		.all();
 }
@@ -69,7 +69,7 @@ export function listSubstates(db: Handle, stateId: number) {
 // Closed keeps the last slot: a new open State is placed among the open States only.
 export function insertState(
 	db: Handle,
-	projectId: number,
+	realmId: number,
 	input: StyleSpec,
 	options: { index?: number; closed?: boolean } = {}
 ) {
@@ -78,14 +78,14 @@ export function insertState(
 	if (!closed && spec.key === CLOSED_STATE.key) {
 		throw new DomainError('conflict', '"closed" is the built-in Closed State');
 	}
-	const existing = listStates(db, projectId);
+	const existing = listStates(db, realmId);
 	if (existing.some((s) => s.key === spec.key)) {
-		throw new DomainError('conflict', `State key "${spec.key}" is already used in this Project`);
+		throw new DomainError('conflict', `State key "${spec.key}" is already used in this Realm`);
 	}
 
 	const row = db
 		.insert(states)
-		.values({ projectId, ...spec, position: existing.length, isClosed: closed })
+		.values({ realmId, ...spec, position: existing.length, isClosed: closed })
 		.returning()
 		.get();
 
@@ -103,16 +103,16 @@ export function insertState(
 export function createState(
 	db: Db,
 	actor: Actor,
-	projectId: number,
+	realmId: number,
 	input: StyleSpec,
 	index?: number
 ): State {
 	return write(db, actor, (tx) => {
-		getProject(tx, projectId);
-		const value = insertState(tx, projectId, input, { index });
+		getRealm(tx, realmId);
+		const value = insertState(tx, realmId, input, { index });
 		return {
 			value,
-			events: [stateEvent(tx, 'state.created', projectId, value.id)]
+			events: [stateEvent(tx, 'state.created', realmId, value.id)]
 		};
 	});
 }
@@ -126,7 +126,7 @@ export function updateState(db: Db, actor: Actor, stateId: number, patch: StyleU
 		}
 		if (!changes(state, update)) return { value: state, events: [] };
 		const value = tx.update(states).set(update).where(eq(states.id, stateId)).returning().get();
-		return { value, events: [stateEvent(tx, 'state.updated', state.projectId, stateId)] };
+		return { value, events: [stateEvent(tx, 'state.updated', state.realmId, stateId)] };
 	});
 }
 
@@ -134,7 +134,7 @@ export function moveState(db: Db, actor: Actor, stateId: number, index: number):
 	return write(db, actor, (tx) => {
 		const state = getState(tx, stateId);
 		if (state.isClosed) throw new DomainError('forbidden', 'The Closed State cannot be reordered');
-		const rows = listStates(tx, state.projectId);
+		const rows = listStates(tx, state.realmId);
 		const open = rows.filter((s) => !s.isClosed && s.id !== stateId).map((s) => s.id);
 		const shut = rows.filter((s) => s.isClosed).map((s) => s.id);
 		const order = [...placeAt(open, stateId, index), ...shut];
@@ -144,7 +144,7 @@ export function moveState(db: Db, actor: Actor, stateId: number, index: number):
 		);
 		return {
 			value: getState(tx, stateId),
-			events: [stateEvent(tx, 'state.updated', state.projectId, stateId)]
+			events: [stateEvent(tx, 'state.updated', state.realmId, stateId)]
 		};
 	});
 }
@@ -153,25 +153,25 @@ export function deleteState(db: Db, actor: Actor, stateId: number): void {
 	write(db, actor, (tx) => {
 		const state = getState(tx, stateId);
 		if (state.isClosed) throw new DomainError('forbidden', 'The Closed State cannot be removed');
-		const project = getProject(tx, state.projectId);
-		if (project.initialStateId === stateId) {
+		const realm = getRealm(tx, state.realmId);
+		if (realm.initialStateId === stateId) {
 			throw new DomainError('conflict', 'Pick another Initial State before removing this one');
 		}
 		const held = tx
-			.select({ id: tickets.id })
-			.from(tickets)
-			.where(eq(tickets.stateId, stateId))
+			.select({ id: labours.id })
+			.from(labours)
+			.where(eq(labours.stateId, stateId))
 			.get();
-		if (held) throw new DomainError('conflict', 'The State still holds Tickets');
+		if (held) throw new DomainError('conflict', 'The State still holds Labours');
 
 		tx.delete(states).where(eq(states.id, stateId)).run();
 		writePositions(
-			listStates(tx, state.projectId).map((s) => s.id),
+			listStates(tx, state.realmId).map((s) => s.id),
 			(id, position) => tx.update(states).set({ position }).where(eq(states.id, id)).run()
 		);
 		return {
 			value: undefined,
-			events: [stateEvent(tx, 'state.deleted', state.projectId, stateId)]
+			events: [stateEvent(tx, 'state.deleted', state.realmId, stateId)]
 		};
 	});
 }
@@ -209,19 +209,19 @@ export function createSubstate(
 		const moved: number[] = [];
 		if (existing.length === 0) {
 			tx.update(states).set({ defaultSubstateId: row.id }).where(eq(states.id, stateId)).run();
-			const unplaced = and(eq(tickets.stateId, stateId), isNull(tickets.substateId));
-			for (const ticket of tx.select({ id: tickets.id }).from(tickets).where(unplaced).all()) {
-				moved.push(ticket.id);
+			const unplaced = and(eq(labours.stateId, stateId), isNull(labours.substateId));
+			for (const labour of tx.select({ id: labours.id }).from(labours).where(unplaced).all()) {
+				moved.push(labour.id);
 			}
-			tx.update(tickets).set({ substateId: row.id, updatedAt: new Date() }).where(unplaced).run();
+			tx.update(labours).set({ substateId: row.id, updatedAt: new Date() }).where(unplaced).run();
 		}
 		return {
 			value: getSubstate(tx, row.id),
 			events: [
 				substateEvent(tx, 'substate.created', row),
 				...moved.map((id): EventSpec => ({
-					type: 'ticket.updated',
-					data: { ticket: readTicket(tx, id) }
+					type: 'labour.updated',
+					data: { labour: readLabour(tx, id) }
 				}))
 			]
 		};
@@ -276,11 +276,11 @@ export function deleteSubstate(db: Db, actor: Actor, substateId: number): void {
 			throw new DomainError('conflict', 'Set another default Substate before removing this one');
 		}
 		const held = tx
-			.select({ id: tickets.id })
-			.from(tickets)
-			.where(eq(tickets.substateId, substateId))
+			.select({ id: labours.id })
+			.from(labours)
+			.where(eq(labours.substateId, substateId))
 			.get();
-		if (held) throw new DomainError('conflict', 'The Substate still holds Tickets');
+		if (held) throw new DomainError('conflict', 'The Substate still holds Labours');
 
 		tx.delete(substates).where(eq(substates.id, substateId)).run();
 		writePositions(
@@ -310,7 +310,7 @@ export function setDefaultSubstate(
 			.where(eq(states.id, stateId))
 			.returning()
 			.get();
-		return { value, events: [stateEvent(tx, 'state.updated', state.projectId, stateId)] };
+		return { value, events: [stateEvent(tx, 'state.updated', state.realmId, stateId)] };
 	});
 }
 

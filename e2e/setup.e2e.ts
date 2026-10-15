@@ -15,9 +15,9 @@ const admin = {
 test('an empty database sends every page to /setup', async ({ page, request }) => {
 	await page.goto('/');
 	await expect(page).toHaveURL(/\/setup$/);
-	await expect(page.getByRole('heading', { name: 'Set up workload' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Set up sagas' })).toBeVisible();
 
-	for (const path of ['/', '/login', '/projects', '/invite/wli_nothing']) {
+	for (const path of ['/', '/login', '/realms', '/invite/wli_nothing']) {
 		const response = await getNoFollow(request, path);
 		expect(response.status(), path).toBe(303);
 		expect(response.headers().location, path).toBe('/setup');
@@ -68,7 +68,7 @@ test('setup creates the first Admin and shows one API token, once', async ({ pag
 	await expect(page).toHaveURL(/\/$/);
 	expect(await page.content()).not.toContain(setupToken);
 
-	expect((await context.cookies()).map((c) => c.name)).toContain('workload_session');
+	expect((await context.cookies()).map((c) => c.name)).toContain('sagas_session');
 
 	writeFileSync(adminFile, JSON.stringify({ ...admin, setupToken }));
 });

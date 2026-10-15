@@ -8,11 +8,11 @@
 	import Avatar from '#lib/components/Avatar.svelte';
 	import ConfirmButton from '#lib/components/ConfirmButton.svelte';
 	import Markdown from '#lib/components/Markdown.svelte';
-	import TicketPicker, { type Match } from '#lib/components/TicketPicker.svelte';
-	import TicketRow from '#lib/components/TicketRow.svelte';
+	import LabourPicker, { type Match } from '#lib/components/LabourPicker.svelte';
+	import LabourRow from '#lib/components/LabourRow.svelte';
 	import XpBar from '#lib/components/XpBar.svelte';
 	import { applyToQuestPage } from '#lib/live/apply.ts';
-	import type { Quest, QuestPageView, Ticket } from '#lib/live/types.ts';
+	import type { Quest, QuestPageView, Labour } from '#lib/live/types.ts';
 	import { LiveView } from '#lib/live/view.svelte.ts';
 	import { act, type Fields } from '#lib/ui/act.ts';
 	import { encodePlacement, placementAt } from '#lib/ui/board.ts';
@@ -35,7 +35,7 @@
 	const errors = new SvelteMap<string, string>();
 
 	$effect(() => {
-		if (view) lookFor([view.quest.ownerId, ...usersOf(view.quest.tickets)], people);
+		if (view) lookFor([view.quest.ownerId, ...usersOf(view.quest.labours)], people);
 	});
 
 	// Completion is celebrated only when a member's closing completes the Quest; removing the last
@@ -44,14 +44,14 @@
 	let celebrated = 0;
 	let wasClosed: Map<number, boolean> | null = null;
 	$effect(() => {
-		const tickets = view?.quest.tickets;
-		if (!tickets) return;
-		const now = new Map(tickets.map((t) => [t.id, t.closed]));
+		const labours = view?.quest.labours;
+		if (!labours) return;
+		const now = new Map(labours.map((t) => [t.id, t.closed]));
 		const before = wasClosed;
 		wasClosed = now;
-		if (!before || tickets.length === 0 || !tickets.every((t) => t.closed)) return;
+		if (!before || labours.length === 0 || !labours.every((t) => t.closed)) return;
 		if ([...before.values()].every(Boolean) && before.size > 0) return;
-		if (tickets.some((t) => before.get(t.id) === false)) celebrations = ++celebrated;
+		if (labours.some((t) => before.get(t.id) === false)) celebrations = ++celebrated;
 	});
 
 	$effect(() => {
@@ -73,9 +73,9 @@
 		}
 	}
 
-	const progressOf = (tickets: Ticket[]) => ({
-		closed: tickets.filter((t) => t.closed).length,
-		total: tickets.length
+	const progressOf = (labours: Labour[]) => ({
+		closed: labours.filter((t) => t.closed).length,
+		total: labours.length
 	});
 
 	let editingName = $state(false);
@@ -106,22 +106,22 @@
 	let withChildren = $state(false);
 
 	async function addStaged() {
-		const ticket = staged;
-		if (!ticket) return;
-		const children = withChildren && ticket.childCount > 0;
+		const labour = staged;
+		if (!labour) return;
+		const children = withChildren && labour.childCount > 0;
 		staged = null;
 		withChildren = false;
-		await save('add', 'add', { ticketId: ticket.id, children }, (q) => {
-			if (q.tickets.some((t) => t.id === ticket.id)) return q;
-			const tickets = [...q.tickets, ticket];
-			return { ...q, tickets, progress: progressOf(tickets) };
+		await save('add', 'add', { labourId: labour.id, children }, (q) => {
+			if (q.labours.some((t) => t.id === labour.id)) return q;
+			const labours = [...q.labours, labour];
+			return { ...q, labours, progress: progressOf(labours) };
 		});
 	}
 
-	function remove(ticket: Ticket) {
-		save('members', 'remove', { ticketId: ticket.id }, (q) => {
-			const tickets = q.tickets.filter((t) => t.id !== ticket.id);
-			return { ...q, tickets, progress: progressOf(tickets) };
+	function remove(labour: Labour) {
+		save('members', 'remove', { labourId: labour.id }, (q) => {
+			const labours = q.labours.filter((t) => t.id !== labour.id);
+			return { ...q, labours, progress: progressOf(labours) };
 		});
 	}
 
@@ -133,18 +133,18 @@
 	let announcement = $state('');
 	const { leave, arrive } = cardFlight();
 
-	const members = $derived(view?.quest.tickets ?? []);
+	const members = $derived(view?.quest.labours ?? []);
 	const others = $derived(members.filter((t) => t.id !== drag?.id));
 	const items = $derived.by(() => {
-		const rows: { key: number | 'slot'; ticket: Ticket | null }[] = others.map((t) => ({
+		const rows: { key: number | 'slot'; labour: Labour | null }[] = others.map((t) => ({
 			key: t.id,
-			ticket: t
+			labour: t
 		}));
 		if (drag) {
-			const ticket = members.find((t) => t.id === drag!.id) ?? null;
+			const labour = members.find((t) => t.id === drag!.id) ?? null;
 			rows.splice(Math.min(drag.index, rows.length), 0, {
 				key: drag.mode === 'pointer' ? 'slot' : drag.id,
-				ticket
+				labour
 			});
 		}
 		return rows;
@@ -184,22 +184,22 @@
 		drag = null;
 		if (!current || !view || current.index === start) return;
 		const placement = placementAt(others, current.index);
-		const moved = view.quest.tickets.find((t) => t.id === current.id);
+		const moved = view.quest.labours.find((t) => t.id === current.id);
 		announcement = `${moved?.key} moved to position ${current.index + 1}.`;
 		const order = [...others];
 		if (moved) order.splice(current.index, 0, moved);
 		save(
 			'members',
 			'rank',
-			{ ticketId: current.id, placement: encodePlacement(placement) },
+			{ labourId: current.id, placement: encodePlacement(placement) },
 			(q) => {
 				const ids = order.map((t) => t.id);
-				const tickets = [...q.tickets].sort((a, b) => {
+				const labours = [...q.labours].sort((a, b) => {
 					const ia = ids.indexOf(a.id);
 					const ib = ids.indexOf(b.id);
 					return (ia < 0 ? Infinity : ia) - (ib < 0 ? Infinity : ib);
 				});
-				return { ...q, tickets };
+				return { ...q, labours };
 			}
 		);
 	}
@@ -209,20 +209,20 @@
 		list?.querySelector<HTMLElement>(`[data-handle="${id}"]`)?.focus();
 	}
 
-	function onHandleKey(event: KeyboardEvent, ticket: Ticket) {
+	function onHandleKey(event: KeyboardEvent, labour: Labour) {
 		if (drag || (event.key !== ' ' && event.key !== 'Enter')) return;
 		event.preventDefault();
 		// The window handler below would otherwise drop the row on this same key press.
 		event.stopPropagation();
-		start = members.findIndex((t) => t.id === ticket.id);
-		drag = { id: ticket.id, mode: 'keyboard', index: start };
-		announcement = `Picked up ${ticket.key}. Arrow keys move it, Space drops it, Escape cancels.`;
+		start = members.findIndex((t) => t.id === labour.id);
+		drag = { id: labour.id, mode: 'keyboard', index: start };
+		announcement = `Picked up ${labour.key}. Arrow keys move it, Space drops it, Escape cancels.`;
 	}
 
 	function onLiftedKey(event: KeyboardEvent) {
 		if (drag?.mode !== 'keyboard') return;
-		const ticket = members.find((t) => t.id === drag!.id);
-		if (!ticket) return;
+		const labour = members.find((t) => t.id === drag!.id);
+		if (!labour) return;
 		if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
 			event.preventDefault();
 			const index =
@@ -237,16 +237,16 @@
 		} else if (event.key === 'Escape') {
 			event.preventDefault();
 			drag = null;
-			announcement = `${ticket.key} put back.`;
+			announcement = `${labour.key} put back.`;
 		} else return;
-		focusHandle(ticket.id);
+		focusHandle(labour.id);
 	}
 
 	const owner = $derived(view ? people.get(view.quest.ownerId) : undefined);
 </script>
 
 <svelte:head>
-	<title>{view?.quest.name ?? 'Quest'} · workload</title>
+	<title>{view?.quest.name ?? 'Quest'} · sagas</title>
 </svelte:head>
 
 <svelte:window onkeydown={onLiftedKey} />
@@ -333,14 +333,14 @@
 		<div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
 			<section class="panel overflow-hidden" aria-labelledby="members-heading">
 				<div class="flex items-baseline justify-between gap-3 px-5 pt-4 pb-2">
-					<h2 id="members-heading" class="font-bold tracking-tight">Tickets</h2>
+					<h2 id="members-heading" class="font-bold tracking-tight">Labours</h2>
 					<p id="members-help" class="text-xs text-muted">
 						Drag ⠿ to reorder, or focus it and press Space, then arrows.
 					</p>
 				</div>
 				{#if members.length === 0}
 					<p class="px-5 pb-5 text-sm text-muted">
-						No Tickets yet. Add them from any Project with the search on the right.
+						No Labours yet. Add them from any Realm with the search on the right.
 					</p>
 				{:else}
 					<ol
@@ -362,35 +362,35 @@
 							>
 								{#if item.key === 'slot'}
 									<div class="slot" style:height="{pointer.lifted?.height ?? 44}px"></div>
-								{:else if item.ticket}
-									{@const ticket = item.ticket}
-									<TicketRow {ticket} projects={view.projects} {people}>
+								{:else if item.labour}
+									{@const labour = item.labour}
+									<LabourRow {labour} realms={view.realms} {people}>
 										{#snippet lead()}
 											<button
 												type="button"
 												class="handle"
-												data-handle={ticket.id}
-												aria-label="Reorder {ticket.key}"
+												data-handle={labour.id}
+												aria-label="Reorder {labour.key}"
 												aria-describedby="members-help"
 												onpointerdown={(e) =>
 													pointer.begin(
 														e,
-														ticket.id,
+														labour.id,
 														(e.currentTarget as HTMLElement).closest('li')!,
 														true
 													)}
-												onkeydown={(e) => onHandleKey(e, ticket)}>⠿</button
+												onkeydown={(e) => onHandleKey(e, labour)}>⠿</button
 											>
 										{/snippet}
 										{#snippet actions()}
 											<button
 												type="button"
 												class="btn btn-quiet"
-												aria-label="Remove {ticket.key} from the Quest"
-												onclick={() => remove(ticket)}>Remove</button
+												aria-label="Remove {labour.key} from the Quest"
+												onclick={() => remove(labour)}>Remove</button
 											>
 										{/snippet}
-									</TicketRow>
+									</LabourRow>
 								{/if}
 							</li>
 						{/each}
@@ -403,12 +403,12 @@
 
 			<aside class="grid gap-6">
 				<section class="panel grid gap-3 p-5" aria-labelledby="add-heading">
-					<h2 id="add-heading" class="font-bold tracking-tight">Add a Ticket</h2>
-					<TicketPicker
-						label="Find a Ticket"
+					<h2 id="add-heading" class="font-bold tracking-tight">Add a Labour</h2>
+					<LabourPicker
+						label="Find a Labour"
 						exclude={members.map((t) => t.id)}
-						onpick={(ticket) => {
-							staged = ticket;
+						onpick={(labour) => {
+							staged = labour;
 							withChildren = false;
 						}}
 					/>
@@ -485,7 +485,7 @@
 
 				<form method="POST" action="?/delete" use:enhance class="panel p-5">
 					<ConfirmButton type="submit" label="Delete Quest" confirm="Delete {quest.name}" />
-					<p class="mt-2 text-xs text-muted">Its Tickets stay where they are.</p>
+					<p class="mt-2 text-xs text-muted">Its Labours stay where they are.</p>
 				</form>
 			</aside>
 		</div>

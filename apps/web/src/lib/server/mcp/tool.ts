@@ -11,17 +11,17 @@ const ref = (what: string) =>
 		error: `expected ${what} as a string, or an id as a JSON number`
 	});
 
-export const ticketRef = ref('a Ticket key').describe(
-	'Ticket key in any case, e.g. "AM-12", a former key (Alias) included; or the internal id as a JSON number'
+export const labourRef = ref('a Labour key').describe(
+	'Labour key in any case, e.g. "AM-12", a former key (Alias) included; or the internal id as a JSON number'
 );
-export const projectRef = ref('a Project key').describe(
-	'Project key, a former key included; or the id as a JSON number'
+export const realmRef = ref('a Realm key').describe(
+	'Realm key, a former key included; or the id as a JSON number'
 );
 export const userRef = ref('a username').describe(
 	'Username, or "me" for you; or the id as a JSON number'
 );
 export const stateRef = ref('a State key').describe(
-	'State key within the Project, e.g. "todo"; or the id as a JSON number'
+	'State key within the Realm, e.g. "todo"; or the id as a JSON number'
 );
 export const substateRef = ref('a Substate key').describe(
 	'Substate key within its State; or the id as a JSON number'
@@ -34,8 +34,8 @@ export const questRef = z
 
 export const placementShape = {
 	position: z.enum(['top', 'bottom']).optional().describe('Place at the top or the bottom'),
-	before: ticketRef.optional().describe('Place just before this Ticket'),
-	after: ticketRef.optional().describe('Place just after this Ticket')
+	before: labourRef.optional().describe('Place just before this Labour'),
+	after: labourRef.optional().describe('Place just after this Labour')
 };
 
 export const indexField = z.number().int().min(0);

@@ -1,35 +1,35 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { resolve } from '$app/paths';
-	import type { Project, Ticket } from '../live/types.ts';
+	import type { Realm, Labour } from '../live/types.ts';
 	import { FALLBACK_STATE, stateOf } from '../ui/lookup.ts';
 	import type { Person } from '../ui/people.ts';
 	import Avatar from './Avatar.svelte';
 	import StatePill from './StatePill.svelte';
 
 	let {
-		ticket,
-		projects,
+		labour,
+		realms,
 		people,
 		lead,
 		actions
 	}: {
-		ticket: Ticket;
-		projects: Project[];
+		labour: Labour;
+		realms: Realm[];
 		people: Map<number, Person>;
 		lead?: Snippet;
 		actions?: Snippet;
 	} = $props();
 
-	const where = $derived(stateOf(projects, ticket));
-	const assignee = $derived(ticket.assigneeId === null ? null : people.get(ticket.assigneeId));
+	const where = $derived(stateOf(realms, labour));
+	const assignee = $derived(labour.assigneeId === null ? null : people.get(labour.assigneeId));
 </script>
 
-<div class="row" class:closed={ticket.closed} data-testid="ticket-row" data-ticket-key={ticket.key}>
+<div class="row" class:closed={labour.closed} data-testid="labour-row" data-labour-key={labour.key}>
 	{#if lead}{@render lead()}{/if}
-	<a class="main" href={resolve('/t/[key]', { key: ticket.key })}>
-		<span class="key">{ticket.key}</span>
-		<span class="title">{ticket.title}</span>
+	<a class="main" href={resolve('/l/[key]', { key: labour.key })}>
+		<span class="key">{labour.key}</span>
+		<span class="title">{labour.title}</span>
 	</a>
 	<span class="state">
 		<StatePill def={where.state ?? FALLBACK_STATE} variant="badge" />

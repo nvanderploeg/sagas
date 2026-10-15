@@ -1,4 +1,4 @@
-const BASE = 'http://workload.invalid';
+const BASE = 'http://sagas.invalid';
 
 // A path on this site to come back to after signing in. Anything that could leave the site, or
 // lead back to signing in, is '/'.

@@ -43,13 +43,13 @@ The server prunes Events older than `EVENT_RETENTION_DAYS` (7 by default). The r
 - Every Event of a write carries state as of the end of that write.
 - A view's `L` always falls between writes, never within one.
 
-| Write                         | Events, in order                                                                                                                   |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| The first Substate of a State | `substate.created`; `ticket.updated` for each Ticket in the State, which moves into the Substate                                   |
-| Renaming a Project key        | `project.updated`; `ticket.rekeyed` when the Project has Tickets                                                                   |
-| Deleting a Ticket             | `ticket.deleted`; `ticket.reparented` for each of its Children; `quest.tickets_removed` for each Quest it was in                   |
-| Deleting a Project            | `project.deleted`; `ticket.reparented` for each Child in another Project; `quest.tickets_removed` for each Quest that lost Tickets |
-| Any other write               | One Event                                                                                                                          |
+| Write                         | Events, in order                                                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| The first Substate of a State | `substate.created`; `labour.updated` for each Labour in the State, which moves into the Substate                               |
+| Renaming a Realm key          | `realm.updated`; `labour.rekeyed` when the Realm has Labours                                                                   |
+| Deleting a Labour             | `labour.deleted`; `labour.reparented` for each of its Children; `quest.labours_removed` for each Quest it was in               |
+| Deleting a Realm              | `realm.deleted`; `labour.reparented` for each Child in another Realm; `quest.labours_removed` for each Quest that lost Labours |
+| Any other write               | One Event                                                                                                                      |
 
 ## The Event
 
@@ -68,52 +68,58 @@ The server prunes Events older than `EVENT_RETENTION_DAYS` (7 by default). The r
 }
 ```
 
-An Event does not list the Projects it touches. It names the entities it changed and carries their view after the write. Apply it to every view that shows those entities, matching by id.
+An Event does not list the Realms it touches. It names the entities it changed and carries their view after the write. Apply it to every view that shows those entities, matching by id.
 
 Views, with dates as ISO strings:
 
-- **ProjectView**: `{ id, name, key, initialStateId, states }`. Each State carries its `substates`. Both are in position order.
-- **TicketView**: the Ticket's fields, plus `key`, its current Ticket key, and `closed`, which is true when its State is Closed.
-- **QuestView**: the Quest's fields, plus `tickets`, its members as TicketViews in Quest order, and `progress: { closed, total }`.
+- **RealmView**: `{ id, name, key, initialStateId, states }`. Each State carries its `substates`. Both are in position order.
+- **LabourView**: the Labour's fields, plus `key`, its current Labour key, and `closed`, which is true when its State is Closed.
+- **CommentView**: the Comment's fields: `{ id, labourId, authorId, body, createdAt, updatedAt }`, `updatedAt` null until edited.
+- **QuestView**: the Quest's fields, plus `labours`, its members as LabourViews in Quest order, and `progress: { closed, total }`.
 
-| Type                    | `data`                                               | Recorded when                                                         |
-| ----------------------- | ---------------------------------------------------- | --------------------------------------------------------------------- |
-| `project.created`       | `{ project }`                                        | A Project is created.                                                 |
-| `project.updated`       | `{ project }`                                        | Its name, key or Initial State changes.                               |
-| `project.deleted`       | `{ projectId, ticketIds }`                           | A Project is deleted. `ticketIds` lists every Ticket deleted with it. |
-| `state.created`         | `{ project, stateId }`                               | A State is added.                                                     |
-| `state.updated`         | `{ project, stateId }`                               | A State is restyled or reordered, or its default Substate changes.    |
-| `state.deleted`         | `{ project, stateId }`                               | A State is removed.                                                   |
-| `substate.created`      | `{ project, stateId, substateId }`                   | A Substate is added.                                                  |
-| `substate.updated`      | `{ project, stateId, substateId }`                   | A Substate is restyled or reordered.                                  |
-| `substate.deleted`      | `{ project, stateId, substateId }`                   | A Substate is removed.                                                |
-| `ticket.created`        | `{ ticket }`                                         | A Ticket is created.                                                  |
-| `ticket.updated`        | `{ ticket }`                                         | Its fields, State or Substate change.                                 |
-| `ticket.moved`          | `{ ticket }`                                         | It moves to another Project, which gives it a new key.                |
-| `ticket.reparented`     | `{ ticket }`                                         | Its Parent is set or cleared.                                         |
-| `ticket.ranked`         | `{ id, stateId, rank }`                              | Only its Rank changes.                                                |
-| `ticket.rekeyed`        | `{ projectId, tickets: [{ id, previousKey, key }] }` | Its Project's key is renamed. Lists every Ticket in the Project.      |
-| `ticket.deleted`        | `{ id, projectId }`                                  | A Ticket is deleted.                                                  |
-| `quest.created`         | `{ quest }`                                          | A Quest is created.                                                   |
-| `quest.updated`         | `{ quest }`                                          | Its name, description or Owner changes.                               |
-| `quest.deleted`         | `{ id }`                                             | A Quest is deleted.                                                   |
-| `quest.tickets_added`   | `{ quest, ticketIds }`                               | Tickets are added to it.                                              |
-| `quest.tickets_removed` | `{ quest, ticketIds }`                               | Tickets leave it, whether removed or deleted.                         |
-| `quest.ticket_ranked`   | `{ quest, ticketId }`                                | A member is reordered.                                                |
+| Type                     | `data`                                             | Recorded when                                                       |
+| ------------------------ | -------------------------------------------------- | ------------------------------------------------------------------- |
+| `realm.created`          | `{ realm }`                                        | A Realm is created.                                                 |
+| `realm.updated`          | `{ realm }`                                        | Its name, key or Initial State changes.                             |
+| `realm.deleted`          | `{ realmId, labourIds }`                           | A Realm is deleted. `labourIds` lists every Labour deleted with it. |
+| `state.created`          | `{ realm, stateId }`                               | A State is added.                                                   |
+| `state.updated`          | `{ realm, stateId }`                               | A State is restyled or reordered, or its default Substate changes.  |
+| `state.deleted`          | `{ realm, stateId }`                               | A State is removed.                                                 |
+| `substate.created`       | `{ realm, stateId, substateId }`                   | A Substate is added.                                                |
+| `substate.updated`       | `{ realm, stateId, substateId }`                   | A Substate is restyled or reordered.                                |
+| `substate.deleted`       | `{ realm, stateId, substateId }`                   | A Substate is removed.                                              |
+| `labour.created`         | `{ labour }`                                       | A Labour is created.                                                |
+| `labour.updated`         | `{ labour }`                                       | Its fields, State or Substate change.                               |
+| `labour.moved`           | `{ labour }`                                       | It moves to another Realm, which gives it a new key.                |
+| `labour.reparented`      | `{ labour }`                                       | Its Parent is set or cleared.                                       |
+| `labour.ranked`          | `{ id, stateId, rank }`                            | Only its Rank changes.                                              |
+| `labour.rekeyed`         | `{ realmId, labours: [{ id, previousKey, key }] }` | Its Realm's key is renamed. Lists every Labour in the Realm.        |
+| `labour.deleted`         | `{ id, realmId }`                                  | A Labour is deleted.                                                |
+| `labour.commented`       | `{ comment }`                                      | A Comment is added to a Labour.                                     |
+| `labour.comment_edited`  | `{ comment }`                                      | A Comment's body changes.                                           |
+| `labour.comment_deleted` | `{ id, labourId }`                                 | A Comment is deleted.                                               |
+| `quest.created`          | `{ quest }`                                        | A Quest is created.                                                 |
+| `quest.updated`          | `{ quest }`                                        | Its name, description or Owner changes.                             |
+| `quest.deleted`          | `{ id }`                                           | A Quest is deleted.                                                 |
+| `quest.labours_added`    | `{ quest, labourIds }`                             | Labours are added to it.                                            |
+| `quest.labours_removed`  | `{ quest, labourIds }`                             | Labours leave it, whether removed or deleted.                       |
+| `quest.labour_ranked`    | `{ quest, labourId }`                              | A member is reordered.                                              |
 
 ## Applying Events
 
-A board of Project `P` (`readBoard`: `{ project, tickets }`):
+A board of Realm `P` (`readBoard`: `{ realm, labours }`):
 
-- A `project.*`, `state.*` or `substate.*` Event whose `project.id` is `P`: replace `project`.
-- `ticket.created`, `ticket.updated`, `ticket.moved` or `ticket.reparented`: if `ticket.projectId` is `P`, upsert the Ticket; otherwise remove it by id.
-- `ticket.ranked`: set `stateId` and `rank`. `ticket.rekeyed`: set each `key`.
-- `ticket.deleted`, or the `ticketIds` of `project.deleted`: remove those Tickets. A `project.deleted` for `P` ends the board.
+- A `realm.*`, `state.*` or `substate.*` Event whose `realm.id` is `P`: replace `realm`.
+- `labour.created`, `labour.updated`, `labour.moved` or `labour.reparented`: if `labour.realmId` is `P`, upsert the Labour; otherwise remove it by id.
+- `labour.ranked`: set `stateId` and `rank`. `labour.rekeyed`: set each `key`.
+- `labour.deleted`, or the `labourIds` of `realm.deleted`: remove those Labours. A `realm.deleted` for `P` ends the board.
 
 A Quest view of Quest `Q` (`readQuest`):
 
 - A `quest.*` Event whose `quest.id` is `Q`: replace the view. `quest.deleted` with id `Q` ends it.
-- `ticket.updated`, `ticket.moved`, `ticket.reparented`, `ticket.ranked` or `ticket.rekeyed` for a member: update that member.
+- `labour.updated`, `labour.moved`, `labour.reparented`, `labour.ranked` or `labour.rekeyed` for a member: update that member.
 - Recompute `progress` from the members' `closed` after any member changes. A member's change does not record a Quest Event.
 
-A list of a Ticket's Children follows each Child's `parentId`. A new Parent named by `ticket.reparented` is not in its data; load it.
+A Labour page (`readLabourPage`) holds the Labour's `comments`, oldest first. `labour.commented` for that Labour appends its `comment` unless one with that `id` is already there. `labour.comment_edited` replaces the Comment with that `id`; `labour.comment_deleted` removes it. No other view shows Comments, and they go with their Labour.
+
+A list of a Labour's Children follows each Child's `parentId`. A new Parent named by `labour.reparented` is not in its data; load it.

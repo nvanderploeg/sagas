@@ -1,22 +1,22 @@
 import type { Db } from '../../apps/web/src/lib/server/db/client.ts';
 import { acceptInvite, createInvite } from '../../apps/web/src/lib/server/auth/invites.ts';
 import { createAgentUser, findUser } from '../../apps/web/src/lib/server/auth/users.ts';
-import { createProject, readProject } from '../../apps/web/src/lib/server/domain/projects.ts';
+import { createRealm, readRealm } from '../../apps/web/src/lib/server/domain/realms.ts';
 import {
-	addQuestTicket,
+	addQuestLabour,
 	createQuest,
 	readQuest
 } from '../../apps/web/src/lib/server/domain/quests.ts';
 import { createState, createSubstate } from '../../apps/web/src/lib/server/domain/states.ts';
 import {
-	createTicket,
-	readTicket,
-	updateTicket
-} from '../../apps/web/src/lib/server/domain/tickets.ts';
+	createLabour,
+	readLabour,
+	updateLabour
+} from '../../apps/web/src/lib/server/domain/labours.ts';
 
 let counter = 0;
 
-// A Project key no other spec has used in this run.
+// A Realm key no other spec has used in this run.
 export function freshKey(prefix = 'U'): string {
 	counter += 1;
 	const tail = (Date.now().toString(36) + counter.toString(36)).toUpperCase().slice(-5);
@@ -30,34 +30,34 @@ export function createUiSeed(db: Db, actorId: number) {
 	if (!actor) throw new Error(`no user ${actorId} in the run database`);
 
 	const self = {
-		// A Project with To do, In progress and Closed.
-		project(input: { key?: string; name?: string } = {}) {
+		// A Realm with To do, In progress and Closed.
+		realm(input: { key?: string; name?: string } = {}) {
 			const key = input.key ?? freshKey();
-			const project = createProject(db, actor, {
+			const realm = createRealm(db, actor, {
 				name: input.name ?? `Board ${key}`,
 				key,
 				initialState: { key: 'todo', label: 'To do', color: '#94a3b8', icon: 'circle' }
 			});
-			const doing = createState(db, actor, project.id, {
+			const doing = createState(db, actor, realm.id, {
 				key: 'doing',
 				label: 'In progress',
 				color: '#eab308',
 				icon: 'half'
 			});
-			const view = readProject(db, project.id);
+			const view = readRealm(db, realm.id);
 			const closed = view.states.find((s) => s.isClosed)!;
 			return {
-				id: project.id,
-				key: project.key,
+				id: realm.id,
+				key: realm.key,
 				name: view.name,
-				todo: project.initialStateId!,
+				todo: realm.initialStateId!,
 				doing: doing.id,
 				closed: closed.id
 			};
 		},
 
-		ticket(
-			projectId: number,
+		labour(
+			realmId: number,
 			input: {
 				title?: string;
 				stateId?: number;
@@ -66,9 +66,9 @@ export function createUiSeed(db: Db, actorId: number) {
 				description?: string;
 			} = {}
 		) {
-			return createTicket(db, actor, {
-				projectId,
-				title: input.title ?? 'Ticket',
+			return createLabour(db, actor, {
+				realmId,
+				title: input.title ?? 'Labour',
 				ownerId: actor.id,
 				stateId: input.stateId,
 				parentId: input.parentId ?? null,
@@ -82,20 +82,20 @@ export function createUiSeed(db: Db, actorId: number) {
 			return createSubstate(db, actor, stateId, { key, label, color, icon: 'eye' });
 		},
 
-		close(ticketId: number, closedStateId: number) {
-			return updateTicket(db, actor, ticketId, { stateId: closedStateId });
+		close(labourId: number, closedStateId: number) {
+			return updateLabour(db, actor, labourId, { stateId: closedStateId });
 		},
 
 		quest(name = 'Quest', description = '') {
 			return createQuest(db, actor, { name, description, ownerId: actor.id });
 		},
 
-		addToQuest(questId: number, ticketId: number) {
-			return addQuestTicket(db, actor, questId, ticketId);
+		addToQuest(questId: number, labourId: number) {
+			return addQuestLabour(db, actor, questId, labourId);
 		},
 
 		readQuest: (questId: number) => readQuest(db, questId),
-		readTicket: (ticketId: number) => readTicket(db, ticketId),
+		readLabour: (labourId: number) => readLabour(db, labourId),
 
 		agent(username: string, displayName: string) {
 			return createAgentUser(db, actor, { username, displayName });

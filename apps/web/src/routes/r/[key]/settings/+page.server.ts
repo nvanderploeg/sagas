@@ -2,12 +2,12 @@ import { error, isActionFailure, redirect } from '@sveltejs/kit';
 import { getDb } from '#lib/server/db/index.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import {
-	deleteProject,
-	readProject,
-	renameProjectKey,
+	deleteRealm,
+	readRealm,
+	renameRealmKey,
 	setInitialState,
-	updateProject
-} from '#lib/server/domain/projects.ts';
+	updateRealm
+} from '#lib/server/domain/realms.ts';
 import {
 	createState,
 	createSubstate,
@@ -22,23 +22,23 @@ import {
 } from '#lib/server/domain/states.ts';
 import { readAtSeq } from '#lib/server/events/log.ts';
 import { int, perform, signedIn, text } from '#lib/server/ui/form.ts';
-import { findProjectByKey, toJson } from '#lib/server/ui/reads.ts';
+import { findRealmByKey, toJson } from '#lib/server/ui/reads.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-function projectFor(key: string) {
-	const project = findProjectByKey(getDb(), key);
-	if (!project) error(404, 'No Project has that key');
-	return project;
+function realmFor(key: string) {
+	const realm = findRealmByKey(getDb(), key);
+	if (!realm) error(404, 'No Realm has that key');
+	return realm;
 }
 
 export const load: PageServerLoad = ({ params }) => {
-	const project = projectFor(params.key);
-	if (project.key !== params.key) redirect(307, `/p/${project.key}/settings`);
+	const realm = realmFor(params.key);
+	if (realm.key !== params.key) redirect(307, `/r/${realm.key}/settings`);
 	try {
-		const { seq, value } = readAtSeq(getDb(), (tx) => ({ project: readProject(tx, project.id) }));
+		const { seq, value } = readAtSeq(getDb(), (tx) => ({ realm: readRealm(tx, realm.id) }));
 		return { seq, settings: toJson(value) };
 	} catch (e) {
-		if (e instanceof DomainError && e.code === 'not_found') error(404, 'No Project has that key');
+		if (e instanceof DomainError && e.code === 'not_found') error(404, 'No Realm has that key');
 		throw e;
 	}
 };
@@ -79,22 +79,22 @@ export const actions: Actions = {
 	rename: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const project = projectFor(params.key);
+		const realm = realmFor(params.key);
 		return perform('rename', () => {
-			updateProject(getDb(), actor, project.id, { name: text(form, 'name') });
+			updateRealm(getDb(), actor, realm.id, { name: text(form, 'name') });
 		});
 	},
 
 	rekey: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const project = projectFor(params.key);
+		const realm = realmFor(params.key);
 		const result = perform('rekey', () => {
-			const renamed = renameProjectKey(getDb(), actor, project.id, text(form, 'key'));
+			const renamed = renameRealmKey(getDb(), actor, realm.id, text(form, 'key'));
 			return { key: renamed.key };
 		});
 		if ('key' in result && result.key !== params.key) {
-			redirect(303, `/p/${result.key}/settings`);
+			redirect(303, `/r/${result.key}/settings`);
 		}
 		return result;
 	},
@@ -102,20 +102,20 @@ export const actions: Actions = {
 	initial: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const project = projectFor(params.key);
+		const realm = realmFor(params.key);
 		return perform('initial', () => {
-			setInitialState(getDb(), actor, project.id, int(form, 'stateId'));
+			setInitialState(getDb(), actor, realm.id, int(form, 'stateId'));
 		});
 	},
 
 	addState: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const project = projectFor(params.key);
+		const realm = realmFor(params.key);
 		return perform('addState', () => {
 			const db = getDb();
-			const taken = readProject(db, project.id).states.map((s) => s.key);
-			createState(db, actor, project.id, newStyle(form, taken));
+			const taken = readRealm(db, realm.id).states.map((s) => s.key);
+			createState(db, actor, realm.id, newStyle(form, taken));
 		});
 	},
 
@@ -149,11 +149,11 @@ export const actions: Actions = {
 	addSubstate: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const project = projectFor(params.key);
+		const realm = realmFor(params.key);
 		return perform(`substates:${text(form, 'stateId')}`, () => {
 			const id = int(form, 'stateId');
 			const db = getDb();
-			const state = readProject(db, project.id).states.find((s) => s.id === id);
+			const state = readRealm(db, realm.id).states.find((s) => s.id === id);
 			const taken = state?.substates.map((s) => s.key) ?? [];
 			createSubstate(db, actor, id, newStyle(form, taken));
 		});
@@ -195,10 +195,10 @@ export const actions: Actions = {
 		});
 	},
 
-	deleteProject: async ({ locals, params }) => {
+	deleteRealm: async ({ locals, params }) => {
 		const actor = signedIn(locals);
-		const project = projectFor(params.key);
-		const result = perform('deleteProject', () => deleteProject(getDb(), actor, project.id));
+		const realm = realmFor(params.key);
+		const result = perform('deleteRealm', () => deleteRealm(getDb(), actor, realm.id));
 		if (!isActionFailure(result)) redirect(303, '/');
 		return result;
 	}

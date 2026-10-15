@@ -1,9 +1,9 @@
 import { asc, eq, gt, lt, lte, max, min, sql } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { events, users } from '../db/schema.ts';
-import type { WorkloadEvent } from './types.ts';
+import type { SagasEvent } from './types.ts';
 
-export function eventsSince(db: Handle, seq: number, limit = -1): WorkloadEvent[] {
+export function eventsSince(db: Handle, seq: number, limit = -1): SagasEvent[] {
 	return db
 		.select({
 			seq: events.seq,
@@ -22,7 +22,7 @@ export function eventsSince(db: Handle, seq: number, limit = -1): WorkloadEvent[
 		.where(gt(events.seq, seq))
 		.orderBy(asc(events.seq))
 		.limit(limit)
-		.all() as WorkloadEvent[];
+		.all() as SagasEvent[];
 }
 
 // Read the seq in the view's transaction: a client drops every Event at or below it.
@@ -67,7 +67,7 @@ export function schedulePruning(
 		try {
 			pruneEvents(db, retentionMs);
 		} catch (error) {
-			console.error('workload event pruning failed', error);
+			console.error('sagas event pruning failed', error);
 		}
 	};
 	prune();

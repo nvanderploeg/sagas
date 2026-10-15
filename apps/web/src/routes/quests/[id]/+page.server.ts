@@ -2,15 +2,15 @@ import { error, isActionFailure, redirect } from '@sveltejs/kit';
 import { getDb } from '#lib/server/db/index.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import {
-	addQuestTicket,
-	addQuestTickets,
+	addQuestLabour,
+	addQuestLabours,
 	deleteQuest,
-	rankQuestTicket,
-	removeQuestTicket,
+	rankQuestLabour,
+	removeQuestLabour,
 	updateQuest,
 	type QuestPatch
 } from '#lib/server/domain/quests.ts';
-import { listChildren } from '#lib/server/domain/tickets.ts';
+import { listChildren } from '#lib/server/domain/labours.ts';
 import { readAtSeq } from '#lib/server/events/log.ts';
 import { checked, int, perform, placement, signedIn, text } from '#lib/server/ui/form.ts';
 import { readQuestPage, toJson } from '#lib/server/ui/reads.ts';
@@ -51,15 +51,15 @@ export const actions: Actions = {
 		return perform('add', () => {
 			const db = getDb();
 			const id = questId(params.id);
-			const ticketId = int(form, 'ticketId');
+			const labourId = int(form, 'labourId');
 			if (!checked(form, 'children')) {
-				addQuestTicket(db, actor, id, ticketId);
+				addQuestLabour(db, actor, id, labourId);
 				return;
 			}
-			const children = listChildren(db, ticketId).map((child) => child.id);
-			const added = addQuestTickets(db, actor, id, [ticketId, ...children]);
-			if (added.ticketIds.length === 0) {
-				throw new DomainError('conflict', 'The Ticket and its Children are already in the Quest');
+			const children = listChildren(db, labourId).map((child) => child.id);
+			const added = addQuestLabours(db, actor, id, [labourId, ...children]);
+			if (added.labourIds.length === 0) {
+				throw new DomainError('conflict', 'The Labour and its Children are already in the Quest');
 			}
 		});
 	},
@@ -68,7 +68,7 @@ export const actions: Actions = {
 		const actor = signedIn(locals);
 		const form = await request.formData();
 		return perform('members', () => {
-			removeQuestTicket(getDb(), actor, questId(params.id), int(form, 'ticketId'));
+			removeQuestLabour(getDb(), actor, questId(params.id), int(form, 'labourId'));
 		});
 	},
 
@@ -76,7 +76,7 @@ export const actions: Actions = {
 		const actor = signedIn(locals);
 		const form = await request.formData();
 		return perform('members', () => {
-			rankQuestTicket(getDb(), actor, questId(params.id), int(form, 'ticketId'), placement(form));
+			rankQuestLabour(getDb(), actor, questId(params.id), int(form, 'labourId'), placement(form));
 		});
 	},
 

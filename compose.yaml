@@ -3,9 +3,9 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - '${WORKLOAD_PORT:-3290}:3000'
+      - '${SAGAS_PORT:-3290}:3000'
     environment:
-      PROTOCOL_HEADER: ${WORKLOAD_PROTOCOL_HEADER-x-forwarded-proto}
-      HOST_HEADER: ${WORKLOAD_HOST_HEADER-x-forwarded-host}
+      PROTOCOL_HEADER: ${SAGAS_PROTOCOL_HEADER-x-forwarded-proto}
+      HOST_HEADER: ${SAGAS_HOST_HEADER-x-forwarded-host}
     volumes:
       - ./data:/data

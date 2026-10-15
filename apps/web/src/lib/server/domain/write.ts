@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { events, users } from '../db/schema.ts';
 import { publish } from '../events/bus.ts';
-import type { EventActor, EventSpec, WorkloadEvent } from '../events/types.ts';
+import type { EventActor, EventSpec, SagasEvent } from '../events/types.ts';
 
 export type Actor = { id: number };
 
@@ -20,7 +20,7 @@ export function write<T>(db: Db, actor: Actor, body: (tx: Handle) => Outcome<T>)
 	return value;
 }
 
-function recordEvents(tx: Handle, actor: Actor, specs: EventSpec[]): WorkloadEvent[] {
+function recordEvents(tx: Handle, actor: Actor, specs: EventSpec[]): SagasEvent[] {
 	if (specs.length === 0) return [];
 	const by = eventActor(tx, actor.id);
 	return specs.map((spec) => {
@@ -35,7 +35,7 @@ function recordEvents(tx: Handle, actor: Actor, specs: EventSpec[]): WorkloadEve
 			actor: by,
 			createdAt: row.createdAt,
 			data: row.data
-		} as WorkloadEvent;
+		} as SagasEvent;
 	});
 }
 

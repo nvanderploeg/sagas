@@ -25,7 +25,7 @@
 
 <header class="bar">
 	<a class="brand" href={resolve('/')}>
-		<span class="dot conn-{stream.status}" aria-hidden="true"></span>workload
+		<span class="dot conn-{stream.status}" aria-hidden="true"></span>sagas
 	</a>
 	<nav aria-label="Main">
 		{#each links as link (link.href)}

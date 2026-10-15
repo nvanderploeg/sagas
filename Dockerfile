@@ -13,7 +13,7 @@ FROM node:22-alpine AS runtime
 RUN apk add --no-cache su-exec
 ENV NODE_ENV=production \
 	PORT=3000 \
-	DATABASE_PATH=/data/workload.db
+	DATABASE_PATH=/data/sagas.db
 WORKDIR /app
 COPY --from=build /deploy/package.json ./
 COPY --from=build /deploy/node_modules ./node_modules

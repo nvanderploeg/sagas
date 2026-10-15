@@ -3,10 +3,10 @@ import { returnPath, signInPath } from './return-path.ts';
 
 describe('returnPath', () => {
 	it('keeps a path on this site, with its query and fragment', () => {
-		expect(returnPath('/p/AM?filter=1#top')).toBe('/p/AM?filter=1#top');
+		expect(returnPath('/r/AM?filter=1#top')).toBe('/r/AM?filter=1#top');
 		expect(
-			returnPath(new URL(`http://x${signInPath('/t/AM-1?x=1')}`).searchParams.get('next'))
-		).toBe('/t/AM-1?x=1');
+			returnPath(new URL(`http://x${signInPath('/l/AM-1?x=1')}`).searchParams.get('next'))
+		).toBe('/l/AM-1?x=1');
 	});
 
 	it('never leads off the site', () => {

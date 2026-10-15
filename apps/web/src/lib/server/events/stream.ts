@@ -1,7 +1,7 @@
 import type { Db } from '../db/client.ts';
 import { subscribe } from './bus.ts';
 import { canReplayFrom, eventsSince, eventWindow } from './log.ts';
-import type { WorkloadEvent } from './types.ts';
+import type { SagasEvent } from './types.ts';
 
 export const DEFAULT_MAX_BACKLOG_BYTES = 8 * 1024 * 1024;
 
@@ -39,7 +39,7 @@ export function parseSince(request: Request, url: URL): number | undefined {
 	return Number(raw.trim());
 }
 
-export function eventFrame(event: WorkloadEvent): string {
+export function eventFrame(event: SagasEvent): string {
 	return `id: ${event.seq}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
@@ -117,7 +117,7 @@ export function openEventStream(db: Db, options: StreamOptions): ReadableStream<
 		}
 	}
 
-	function emit(event: WorkloadEvent): void {
+	function emit(event: SagasEvent): void {
 		if (event.seq <= lastSeq) return;
 		lastSeq = event.seq;
 		send(encoder.encode(eventFrame(event)));

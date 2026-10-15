@@ -7,7 +7,7 @@ import type { AuthUser } from './users.ts';
 
 export type Auth = { user: AuthUser; credential: Credential };
 
-export const SESSION_COOKIE = 'workload_session';
+export const SESSION_COOKIE = 'sagas_session';
 
 // A Bearer header decides alone: a malformed or revoked token never falls back to the cookie.
 // Any other scheme, such as a reverse proxy's Basic, leaves the decision to the cookie.

@@ -5,12 +5,12 @@ test.describe('board', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.project();
-		const a = ui.ticket(p.id, { title: 'Write the brief' });
-		const b = ui.ticket(p.id, { title: 'Ship it', stateId: p.doing });
+		const p = ui.realm();
+		const a = ui.labour(p.id, { title: 'Write the brief' });
+		const b = ui.labour(p.id, { title: 'Ship it', stateId: p.doing });
 		ui.substate(p.doing, 'Review');
 
-		await page.goto(`/p/${p.key}`);
+		await page.goto(`/r/${p.key}`);
 		await expect(page.getByRole('heading', { name: p.name, level: 1 })).toBeVisible();
 		await expect(page.getByTestId('column')).toHaveCount(3);
 		expect(
@@ -21,30 +21,27 @@ test.describe('board', () => {
 		await expect(card(page, b.key).getByTestId('state-pill')).toHaveText(/Review/);
 	});
 
-	test('a former Project key redirects to the board under the current key', async ({
-		page,
-		ui
-	}) => {
-		const p = ui.project();
-		await page.goto(`/p/${p.key}/settings`);
+	test('a former Realm key redirects to the board under the current key', async ({ page, ui }) => {
+		const p = ui.realm();
+		await page.goto(`/r/${p.key}/settings`);
 		const next = `${p.key.slice(0, 5)}X`;
 		await page.getByLabel('Key').fill(next);
 		await page.getByRole('button', { name: 'Rename key' }).click();
-		await expect(page).toHaveURL(new RegExp(`/p/${next}/settings$`));
+		await expect(page).toHaveURL(new RegExp(`/r/${next}/settings$`));
 
-		await page.goto(`/p/${p.key.toLowerCase()}`);
-		await expect(page).toHaveURL(new RegExp(`/p/${next}$`));
+		await page.goto(`/r/${p.key.toLowerCase()}`);
+		await expect(page).toHaveURL(new RegExp(`/r/${next}$`));
 	});
 
 	test('dragging a card to another column changes its State, and it stays after a reload', async ({
 		page,
 		ui
 	}) => {
-		const p = ui.project();
-		const a = ui.ticket(p.id, { title: 'Move me' });
-		ui.ticket(p.id, { title: 'Stay', stateId: p.doing });
+		const p = ui.realm();
+		const a = ui.labour(p.id, { title: 'Move me' });
+		ui.labour(p.id, { title: 'Stay', stateId: p.doing });
 
-		await page.goto(`/p/${p.key}`);
+		await page.goto(`/r/${p.key}`);
 		await live(page);
 		const target = (await column(page, 'In progress')
 			.locator('[data-card]')
@@ -54,7 +51,7 @@ test.describe('board', () => {
 
 		await expect(column(page, 'In progress').locator('[data-card]')).toHaveCount(2);
 		expect(await cardKeys(column(page, 'In progress'))).toEqual([a.key, expect.any(String)]);
-		await expect.poll(() => ui.readTicket(a.id).stateId).toBe(p.doing);
+		await expect.poll(() => ui.readLabour(a.id).stateId).toBe(p.doing);
 
 		await page.reload();
 		expect(await cardKeys(column(page, 'In progress'))).toContain(a.key);
@@ -65,10 +62,10 @@ test.describe('board', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.project();
-		const [a, b, c] = ['First', 'Second', 'Third'].map((title) => ui.ticket(p.id, { title }));
+		const p = ui.realm();
+		const [a, b, c] = ['First', 'Second', 'Third'].map((title) => ui.labour(p.id, { title }));
 
-		await page.goto(`/p/${p.key}`);
+		await page.goto(`/r/${p.key}`);
 		await live(page);
 		const todo = column(page, 'To do');
 		expect(await cardKeys(todo)).toEqual([a.key, b.key, c.key]);
@@ -82,34 +79,34 @@ test.describe('board', () => {
 	});
 
 	test('moves a card with the keyboard alone', async ({ page, ui }) => {
-		const p = ui.project();
-		const a = ui.ticket(p.id, { title: 'Keyboard' });
-		const b = ui.ticket(p.id, { title: 'Other' });
+		const p = ui.realm();
+		const a = ui.labour(p.id, { title: 'Keyboard' });
+		const b = ui.labour(p.id, { title: 'Other' });
 
-		await page.goto(`/p/${p.key}`);
+		await page.goto(`/r/${p.key}`);
 		await live(page);
-		await page.locator(`a[href="/t/${b.key}"]`).focus();
+		await page.locator(`a[href="/l/${b.key}"]`).focus();
 		await page.keyboard.press('Space');
 		await page.keyboard.press('ArrowUp');
 		await page.keyboard.press('Space');
 		await expect.poll(() => cardKeys(column(page, 'To do'))).toEqual([b.key, a.key]);
 
-		await page.locator(`a[href="/t/${a.key}"]`).focus();
+		await page.locator(`a[href="/l/${a.key}"]`).focus();
 		await page.keyboard.press('Space');
 		await page.keyboard.press('ArrowRight');
 		await page.keyboard.press('ArrowRight');
 		await page.keyboard.press('Enter');
 		await expect.poll(() => cardKeys(column(page, 'Closed'))).toEqual([a.key]);
 		await expect(page.getByTestId('loot-burst')).toHaveCount(1);
-		await expect.poll(() => ui.readTicket(a.id).closed).toBe(true);
+		await expect.poll(() => ui.readLabour(a.id).closed).toBe(true);
 	});
 
-	test('quick-creates a Ticket into a column', async ({ page, ui }) => {
-		const p = ui.project();
-		await page.goto(`/p/${p.key}`);
+	test('quick-creates a Labour into a column', async ({ page, ui }) => {
+		const p = ui.realm();
+		await page.goto(`/r/${p.key}`);
 		await live(page);
-		await page.getByRole('button', { name: 'Add a Ticket to In progress' }).click();
-		await page.getByLabel('New Ticket title in In progress').fill('Born in progress');
+		await page.getByRole('button', { name: 'Add a Labour to In progress' }).click();
+		await page.getByLabel('New Labour title in In progress').fill('Born in progress');
 		await page.keyboard.press('Enter');
 
 		const lane = column(page, 'In progress');
@@ -120,14 +117,14 @@ test.describe('board', () => {
 	});
 
 	test('filters by owner and by assignee', async ({ page, ui }) => {
-		const p = ui.project();
+		const p = ui.realm();
 		const tag = Date.now().toString(36);
 		const name = `Filter Bot ${tag}`;
 		const bot = ui.agent(`bot${tag}`, name);
-		ui.ticket(p.id, { title: 'Mine, unassigned' });
-		ui.ticket(p.id, { title: 'For the bot', assigneeId: bot.id });
+		ui.labour(p.id, { title: 'Mine, unassigned' });
+		ui.labour(p.id, { title: 'For the bot', assigneeId: bot.id });
 
-		await page.goto(`/p/${p.key}`);
+		await page.goto(`/r/${p.key}`);
 		const todo = column(page, 'To do');
 		await expect(todo.locator('[data-card]')).toHaveCount(2);
 		await page.getByLabel('Assignee').selectOption({ label: name });
@@ -145,10 +142,10 @@ test.describe('board', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.project();
-		const a = ui.ticket(p.id, { title: 'Held' });
-		ui.ticket(p.id, { title: 'Target', stateId: p.doing });
-		await page.goto(`/p/${p.key}`);
+		const p = ui.realm();
+		const a = ui.labour(p.id, { title: 'Held' });
+		ui.labour(p.id, { title: 'Target', stateId: p.doing });
+		await page.goto(`/r/${p.key}`);
 		await live(page);
 		const moves: string[] = [];
 		page.on('request', (request) => {
@@ -172,14 +169,14 @@ test.describe('board', () => {
 		await page.waitForTimeout(400);
 
 		expect(moves).toEqual([]);
-		expect(ui.readTicket(a.id).stateId).toBe(p.todo);
+		expect(ui.readLabour(a.id).stateId).toBe(p.todo);
 	});
 
 	test.describe('with reduced motion', () => {
 		test('moves land at once and nothing animates or transitions', async ({ page, ui }) => {
-			const p = ui.project();
-			const a = ui.ticket(p.id, { title: 'Calm' });
-			ui.ticket(p.id, { title: 'Neighbour' });
+			const p = ui.realm();
+			const a = ui.labour(p.id, { title: 'Calm' });
+			ui.labour(p.id, { title: 'Neighbour' });
 			await page.emulateMedia({ reducedMotion: 'reduce' });
 			await page.addInitScript(() => {
 				const seen: string[] = [];
@@ -197,10 +194,10 @@ test.describe('board', () => {
 					seen.push(`transition ${e.propertyName}`)
 				);
 			});
-			await page.goto(`/p/${p.key}`);
+			await page.goto(`/r/${p.key}`);
 			await live(page);
 
-			await page.locator(`a[href="/t/${a.key}"]`).focus();
+			await page.locator(`a[href="/l/${a.key}"]`).focus();
 			await page.keyboard.press('Space');
 			await page.keyboard.press('ArrowDown');
 			await page.keyboard.press('ArrowRight');

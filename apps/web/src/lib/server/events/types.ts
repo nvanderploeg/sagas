@@ -1,64 +1,71 @@
-import type { ProjectView } from '../domain/project-view.ts';
+import type { RealmView } from '../domain/realm-view.ts';
 import type { QuestView } from '../domain/quest-view.ts';
-import type { TicketView } from '../domain/ticket-view.ts';
+import type { CommentView } from '../domain/comments.ts';
+import type { LabourView } from '../domain/labour-view.ts';
 
 // The contract is docs/events.md: change both together.
 //
-// No Event lists the Projects it touches. Each names the entities it changed and carries their
+// No Event lists the Realms it touches. Each names the entities it changed and carries their
 // view after the write, and a client applies it to every view that shows those entities.
 export type EventData = {
-	'project.created': { project: ProjectView };
-	'project.updated': { project: ProjectView };
-	'project.deleted': { projectId: number; ticketIds: number[] };
-	'state.created': { project: ProjectView; stateId: number };
-	'state.updated': { project: ProjectView; stateId: number };
-	'state.deleted': { project: ProjectView; stateId: number };
-	'substate.created': { project: ProjectView; stateId: number; substateId: number };
-	'substate.updated': { project: ProjectView; stateId: number; substateId: number };
-	'substate.deleted': { project: ProjectView; stateId: number; substateId: number };
-	'ticket.created': { ticket: TicketView };
-	'ticket.updated': { ticket: TicketView };
-	'ticket.moved': { ticket: TicketView };
-	'ticket.reparented': { ticket: TicketView };
-	'ticket.ranked': { id: number; stateId: number; rank: string };
-	'ticket.rekeyed': {
-		projectId: number;
-		tickets: { id: number; previousKey: string; key: string }[];
+	'realm.created': { realm: RealmView };
+	'realm.updated': { realm: RealmView };
+	'realm.deleted': { realmId: number; labourIds: number[] };
+	'state.created': { realm: RealmView; stateId: number };
+	'state.updated': { realm: RealmView; stateId: number };
+	'state.deleted': { realm: RealmView; stateId: number };
+	'substate.created': { realm: RealmView; stateId: number; substateId: number };
+	'substate.updated': { realm: RealmView; stateId: number; substateId: number };
+	'substate.deleted': { realm: RealmView; stateId: number; substateId: number };
+	'labour.created': { labour: LabourView };
+	'labour.updated': { labour: LabourView };
+	'labour.moved': { labour: LabourView };
+	'labour.reparented': { labour: LabourView };
+	'labour.ranked': { id: number; stateId: number; rank: string };
+	'labour.rekeyed': {
+		realmId: number;
+		labours: { id: number; previousKey: string; key: string }[];
 	};
-	'ticket.deleted': { id: number; projectId: number };
+	'labour.deleted': { id: number; realmId: number };
+	'labour.commented': { comment: CommentView };
+	'labour.comment_edited': { comment: CommentView };
+	'labour.comment_deleted': { id: number; labourId: number };
 	'quest.created': { quest: QuestView };
 	'quest.updated': { quest: QuestView };
 	'quest.deleted': { id: number };
-	'quest.tickets_added': { quest: QuestView; ticketIds: number[] };
-	'quest.tickets_removed': { quest: QuestView; ticketIds: number[] };
-	'quest.ticket_ranked': { quest: QuestView; ticketId: number };
+	'quest.labours_added': { quest: QuestView; labourIds: number[] };
+	'quest.labours_removed': { quest: QuestView; labourIds: number[] };
+	'quest.labour_ranked': { quest: QuestView; labourId: number };
 };
 
 export type EventType = keyof EventData;
 
 const TYPES: { [K in EventType]: true } = {
-	'project.created': true,
-	'project.updated': true,
-	'project.deleted': true,
+	'realm.created': true,
+	'realm.updated': true,
+	'realm.deleted': true,
 	'state.created': true,
 	'state.updated': true,
 	'state.deleted': true,
 	'substate.created': true,
 	'substate.updated': true,
 	'substate.deleted': true,
-	'ticket.created': true,
-	'ticket.updated': true,
-	'ticket.moved': true,
-	'ticket.reparented': true,
-	'ticket.ranked': true,
-	'ticket.rekeyed': true,
-	'ticket.deleted': true,
+	'labour.created': true,
+	'labour.updated': true,
+	'labour.moved': true,
+	'labour.reparented': true,
+	'labour.ranked': true,
+	'labour.rekeyed': true,
+	'labour.deleted': true,
+	'labour.commented': true,
+	'labour.comment_edited': true,
+	'labour.comment_deleted': true,
 	'quest.created': true,
 	'quest.updated': true,
 	'quest.deleted': true,
-	'quest.tickets_added': true,
-	'quest.tickets_removed': true,
-	'quest.ticket_ranked': true
+	'quest.labours_added': true,
+	'quest.labours_removed': true,
+	'quest.labour_ranked': true
 };
 
 export const EVENT_TYPES = Object.keys(TYPES) as [EventType, ...EventType[]];
@@ -81,7 +88,7 @@ export type Json<T> = T extends Date
 
 export type EventSpec = { [K in EventType]: { type: K; data: EventData[K] } }[EventType];
 
-export type WorkloadEvent = {
+export type SagasEvent = {
 	[K in EventType]: {
 		seq: number;
 		type: K;

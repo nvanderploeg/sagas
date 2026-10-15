@@ -18,7 +18,7 @@ describe('session cookie', () => {
 	it.each([
 		['http://localhost:3290/login', false],
 		['http://192.168.1.20:3290/login', false],
-		['https://workload.example.com/login', true]
+		['https://sagas.example.com/login', true]
 	])('is Secure exactly when the request protocol is https (%s)', (href, secure) => {
 		const { cookies, calls } = recordingCookies();
 

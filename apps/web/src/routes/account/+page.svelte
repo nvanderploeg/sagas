@@ -12,7 +12,7 @@
 </script>
 
 <svelte:head>
-	<title>Account · workload</title>
+	<title>Account · sagas</title>
 </svelte:head>
 
 <main class="mx-auto grid max-w-3xl gap-6 px-4 pt-4 pb-16">

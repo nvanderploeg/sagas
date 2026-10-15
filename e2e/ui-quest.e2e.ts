@@ -3,18 +3,18 @@ import { drag, expect, live, recordText, test } from './fixtures/ui.ts';
 const members = (page: import('@playwright/test').Page) =>
 	page
 		.getByTestId('members')
-		.getByTestId('ticket-row')
-		.evaluateAll((rows) => rows.map((row) => (row as HTMLElement).dataset.ticketKey));
+		.getByTestId('labour-row')
+		.evaluateAll((rows) => rows.map((row) => (row as HTMLElement).dataset.labourKey));
 
 test.describe('quests', () => {
-	test('creates a Quest, adds a Ticket with its Children, and shows progress', async ({
+	test('creates a Quest, adds a Labour with its Children, and shows progress', async ({
 		page,
 		ui
 	}) => {
-		const p = ui.project();
-		const epic = ui.ticket(p.id, { title: 'Epic' });
-		const done = ui.ticket(p.id, { title: 'Done part', parentId: epic.id, stateId: p.closed });
-		const open = ui.ticket(p.id, { title: 'Open part', parentId: epic.id });
+		const p = ui.realm();
+		const epic = ui.labour(p.id, { title: 'Epic' });
+		const done = ui.labour(p.id, { title: 'Done part', parentId: epic.id, stateId: p.closed });
+		const open = ui.labour(p.id, { title: 'Open part', parentId: epic.id });
 		const name = `Launch ${Date.now().toString(36)}`;
 
 		await page.goto('/quests');
@@ -23,7 +23,7 @@ test.describe('quests', () => {
 		await expect(page.getByRole('heading', { level: 1 })).toHaveText(name);
 		await live(page);
 
-		await page.getByLabel('Find a Ticket').fill(epic.key);
+		await page.getByLabel('Find a Labour').fill(epic.key);
 		await page.getByRole('option', { name: new RegExp(`${epic.key}.*2 Children`) }).click();
 		await page.getByLabel('Also add its 2 Children').check();
 		await page.getByRole('button', { name: 'Add to Quest' }).click();
@@ -38,13 +38,13 @@ test.describe('quests', () => {
 		await expect.poll(() => members(page)).toEqual([epic.key, done.key, open.key]);
 	});
 
-	test('adding without Children adds the Ticket alone', async ({ page, ui }) => {
-		const p = ui.project();
-		const epic = ui.ticket(p.id, { title: 'Lonely epic' });
-		ui.ticket(p.id, { title: 'Left out', parentId: epic.id });
+	test('adding without Children adds the Labour alone', async ({ page, ui }) => {
+		const p = ui.realm();
+		const epic = ui.labour(p.id, { title: 'Lonely epic' });
+		ui.labour(p.id, { title: 'Left out', parentId: epic.id });
 		const quest = ui.quest('Alone');
 		await page.goto(`/quests/${quest.id}`);
-		await page.getByLabel('Find a Ticket').fill(epic.key);
+		await page.getByLabel('Find a Labour').fill(epic.key);
 		await page.getByRole('option', { name: new RegExp(epic.key) }).click();
 		await expect(page.getByLabel('Also add its 1 Child')).not.toBeChecked();
 		await page.getByRole('button', { name: 'Add to Quest' }).click();
@@ -56,8 +56,8 @@ test.describe('quests', () => {
 		ui,
 		other
 	}) => {
-		const p = ui.project();
-		const [a, b, c] = ['One', 'Two', 'Three'].map((title) => ui.ticket(p.id, { title }));
+		const p = ui.realm();
+		const [a, b, c] = ['One', 'Two', 'Three'].map((title) => ui.labour(p.id, { title }));
 		const quest = ui.quest('Reorder');
 		for (const t of [a, b, c]) ui.addToQuest(quest.id, t.id);
 
@@ -70,18 +70,18 @@ test.describe('quests', () => {
 		});
 		await expect.poll(() => members(page)).toEqual([c.key, a.key, b.key]);
 		await expect
-			.poll(() => ui.readQuest(quest.id).tickets.map((t) => t.key))
+			.poll(() => ui.readQuest(quest.id).labours.map((t) => t.key))
 			.toEqual([c.key, a.key, b.key]);
 
 		await page.getByRole('button', { name: `Remove ${b.key} from the Quest` }).click();
 		await expect.poll(() => members(page)).toEqual([c.key, a.key]);
 
 		// Another User closes both members; this page fills the bar and celebrates without a reload.
-		await other.page.goto(`/t/${a.key}`);
+		await other.page.goto(`/l/${a.key}`);
 		await live(other.page);
 		await other.page.getByLabel('State', { exact: true }).selectOption({ label: 'Closed' });
 		await expect(page.getByTestId('xp-bar')).toContainText('1 / 2 closed');
-		await other.page.goto(`/t/${c.key}`);
+		await other.page.goto(`/l/${c.key}`);
 		await live(other.page);
 		await other.page.getByLabel('State', { exact: true }).selectOption({ label: 'Closed' });
 		await expect(page.getByTestId('quest-complete')).toBeVisible();
@@ -106,9 +106,9 @@ test.describe('quests', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.project();
-		const done = ui.ticket(p.id, { title: 'Done', stateId: p.closed });
-		const open = ui.ticket(p.id, { title: 'Open' });
+		const p = ui.realm();
+		const done = ui.labour(p.id, { title: 'Done', stateId: p.closed });
+		const open = ui.labour(p.id, { title: 'Open' });
 		const quest = ui.quest('Almost');
 		ui.addToQuest(quest.id, done.id);
 		ui.addToQuest(quest.id, open.id);
@@ -125,7 +125,7 @@ test.describe('quests', () => {
 		await page.goto(`/quests/${empty.id}`);
 		await live(page);
 		const quiet = await recordText(page, '[data-testid="quest-complete"]');
-		await page.getByLabel('Find a Ticket').fill(done.key);
+		await page.getByLabel('Find a Labour').fill(done.key);
 		await page.getByRole('option', { name: new RegExp(done.key) }).click();
 		await page.getByRole('button', { name: 'Add to Quest' }).click();
 		await expect(page.getByTestId('quest-complete-badge')).toBeVisible();

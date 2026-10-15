@@ -1,18 +1,18 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
-import { questTickets, quests } from '../db/schema.ts';
+import { questLabours, quests } from '../db/schema.ts';
 import type { EventSpec } from '../events/types.ts';
 import { DomainError } from './errors.ts';
-import { getTicket, requireUser } from './lookup.ts';
+import { getLabour, requireUser } from './lookup.ts';
 import { getQuest, readQuest, touchQuest, type Quest, type QuestView } from './quest-view.ts';
 import { rankAt, ranksAt, type Placement } from './rank.ts';
-import { ticketName } from './ticket-view.ts';
-import { DESCRIPTION_MAX, listChildren } from './tickets.ts';
+import { labourName } from './labour-view.ts';
+import { DESCRIPTION_MAX, listChildren } from './labours.ts';
 import { requireText } from './validate.ts';
 import { write, type Actor } from './write.ts';
 
 export {
-	listQuestTickets,
+	listQuestLabours,
 	questProgress,
 	readQuest,
 	type Quest,
@@ -25,10 +25,10 @@ export type QuestPatch = Partial<QuestSpec>;
 
 function membersOf(db: Handle, questId: number) {
 	return db
-		.select({ id: questTickets.ticketId, rank: questTickets.rank })
-		.from(questTickets)
-		.where(eq(questTickets.questId, questId))
-		.orderBy(asc(questTickets.rank))
+		.select({ id: questLabours.labourId, rank: questLabours.rank })
+		.from(questLabours)
+		.where(eq(questLabours.questId, questId))
+		.orderBy(asc(questLabours.rank))
 		.all();
 }
 
@@ -41,13 +41,13 @@ export function listQuests(db: Handle): QuestView[] {
 		.map((row) => readQuest(db, row.id));
 }
 
-export function listTicketQuests(db: Handle, ticketId: number): Quest[] {
-	getTicket(db, ticketId);
+export function listLabourQuests(db: Handle, labourId: number): Quest[] {
+	getLabour(db, labourId);
 	return db
 		.select({ quest: quests })
-		.from(questTickets)
-		.innerJoin(quests, eq(quests.id, questTickets.questId))
-		.where(eq(questTickets.ticketId, ticketId))
+		.from(questLabours)
+		.innerJoin(quests, eq(quests.id, questLabours.questId))
+		.where(eq(questLabours.labourId, labourId))
 		.orderBy(asc(quests.id))
 		.all()
 		.map((row) => row.quest);
@@ -112,51 +112,51 @@ export function deleteQuest(db: Db, actor: Actor, questId: number): void {
 	});
 }
 
-// Membership is explicit, per CONTEXT.md: never add the Ticket's Children here.
-export function addQuestTicket(
+// Membership is explicit, per CONTEXT.md: never add the Labour's Children here.
+export function addQuestLabour(
 	db: Db,
 	actor: Actor,
 	questId: number,
-	ticketId: number,
+	labourId: number,
 	placement: Placement = 'bottom'
 ): QuestView {
 	return write(db, actor, (tx) => {
 		getQuest(tx, questId);
-		getTicket(tx, ticketId);
+		getLabour(tx, labourId);
 		const members = membersOf(tx, questId);
-		if (members.some((member) => member.id === ticketId)) {
-			throw new DomainError('conflict', 'The Ticket is already in the Quest');
+		if (members.some((member) => member.id === labourId)) {
+			throw new DomainError('conflict', 'The Labour is already in the Quest');
 		}
 		insertMember(
 			tx,
 			questId,
-			ticketId,
-			rankAt(members, { id: ticketId }, placement, 'Quest', ticketName(tx))
+			labourId,
+			rankAt(members, { id: labourId }, placement, 'Quest', labourName(tx))
 		);
 		touchQuest(tx, questId);
 		return questOutcome(tx, questId, (quest) => ({
-			type: 'quest.tickets_added',
-			data: { quest, ticketIds: [ticketId] }
+			type: 'quest.labours_added',
+			data: { quest, labourIds: [labourId] }
 		}));
 	});
 }
 
-export function addQuestTicketWithChildren(
+export function addQuestLabourWithChildren(
 	db: Db,
 	actor: Actor,
 	questId: number,
-	ticketId: number,
+	labourId: number,
 	placement: Placement = 'bottom'
 ): QuestView {
 	return write(db, actor, (tx) => {
 		getQuest(tx, questId);
-		getTicket(tx, ticketId);
+		getLabour(tx, labourId);
 		const present = new Set(membersOf(tx, questId).map((member) => member.id));
-		const adding = [ticketId, ...listChildren(tx, ticketId).map((child) => child.id)].filter(
+		const adding = [labourId, ...listChildren(tx, labourId).map((child) => child.id)].filter(
 			(id) => !present.has(id)
 		);
 		if (adding.length === 0) {
-			throw new DomainError('conflict', 'The Ticket and its Children are already in the Quest');
+			throw new DomainError('conflict', 'The Labour and its Children are already in the Quest');
 		}
 		let next = placement;
 		for (const id of adding) {
@@ -165,128 +165,128 @@ export function addQuestTicketWithChildren(
 		}
 		touchQuest(tx, questId);
 		return questOutcome(tx, questId, (quest) => ({
-			type: 'quest.tickets_added',
-			data: { quest, ticketIds: adding }
+			type: 'quest.labours_added',
+			data: { quest, labourIds: adding }
 		}));
 	});
 }
 
-// `ticketIds` lists the Tickets the write changed, in the order given; `skipped` lists the ones
-// already as asked. A Ticket listed twice counts once.
-export type QuestTicketsChange = { quest: QuestView; ticketIds: number[]; skipped: number[] };
+// `labourIds` lists the Labours the write changed, in the order given; `skipped` lists the ones
+// already as asked. A Labour listed twice counts once.
+export type QuestLaboursChange = { quest: QuestView; labourIds: number[]; skipped: number[] };
 
-function distinctTickets(db: Handle, ticketIds: number[]): number[] {
-	const distinct = [...new Set(ticketIds)];
-	for (const id of distinct) getTicket(db, id);
+function distinctLabours(db: Handle, labourIds: number[]): number[] {
+	const distinct = [...new Set(labourIds)];
+	for (const id of distinct) getLabour(db, id);
 	return distinct;
 }
 
 // One write and one Event for the whole list. Membership is explicit, per CONTEXT.md: never add
-// the Tickets' Children here.
-export function addQuestTickets(
+// the Labours' Children here.
+export function addQuestLabours(
 	db: Db,
 	actor: Actor,
 	questId: number,
-	ticketIds: number[],
+	labourIds: number[],
 	placement: Placement = 'bottom'
-): QuestTicketsChange {
+): QuestLaboursChange {
 	return write(db, actor, (tx) => {
 		getQuest(tx, questId);
 		const members = membersOf(tx, questId);
 		const present = new Set(members.map((member) => member.id));
-		const wanted = distinctTickets(tx, ticketIds);
+		const wanted = distinctLabours(tx, labourIds);
 		const adding = wanted.filter((id) => !present.has(id));
 		const skipped = wanted.filter((id) => present.has(id));
 		if (adding.length === 0) {
-			return { value: { quest: readQuest(tx, questId), ticketIds: [], skipped }, events: [] };
+			return { value: { quest: readQuest(tx, questId), labourIds: [], skipped }, events: [] };
 		}
-		const ranks = ranksAt(members, placement, 'Quest', adding.length, ticketName(tx));
-		tx.insert(questTickets)
-			.values(adding.map((ticketId, i) => ({ questId, ticketId, rank: ranks[i] })))
+		const ranks = ranksAt(members, placement, 'Quest', adding.length, labourName(tx));
+		tx.insert(questLabours)
+			.values(adding.map((labourId, i) => ({ questId, labourId, rank: ranks[i] })))
 			.run();
 		touchQuest(tx, questId);
 		const quest = readQuest(tx, questId);
 		return {
-			value: { quest, ticketIds: adding, skipped },
-			events: [{ type: 'quest.tickets_added', data: { quest, ticketIds: adding } }]
+			value: { quest, labourIds: adding, skipped },
+			events: [{ type: 'quest.labours_added', data: { quest, labourIds: adding } }]
 		};
 	});
 }
 
-export function removeQuestTickets(
+export function removeQuestLabours(
 	db: Db,
 	actor: Actor,
 	questId: number,
-	ticketIds: number[]
-): QuestTicketsChange {
+	labourIds: number[]
+): QuestLaboursChange {
 	return write(db, actor, (tx) => {
 		getQuest(tx, questId);
 		const present = new Set(membersOf(tx, questId).map((member) => member.id));
-		const wanted = distinctTickets(tx, ticketIds);
+		const wanted = distinctLabours(tx, labourIds);
 		const removing = wanted.filter((id) => present.has(id));
 		const skipped = wanted.filter((id) => !present.has(id));
 		if (removing.length === 0) {
-			return { value: { quest: readQuest(tx, questId), ticketIds: [], skipped }, events: [] };
+			return { value: { quest: readQuest(tx, questId), labourIds: [], skipped }, events: [] };
 		}
-		tx.delete(questTickets)
-			.where(and(eq(questTickets.questId, questId), inArray(questTickets.ticketId, removing)))
+		tx.delete(questLabours)
+			.where(and(eq(questLabours.questId, questId), inArray(questLabours.labourId, removing)))
 			.run();
 		touchQuest(tx, questId);
 		const quest = readQuest(tx, questId);
 		return {
-			value: { quest, ticketIds: removing, skipped },
-			events: [{ type: 'quest.tickets_removed', data: { quest, ticketIds: removing } }]
+			value: { quest, labourIds: removing, skipped },
+			events: [{ type: 'quest.labours_removed', data: { quest, labourIds: removing } }]
 		};
 	});
 }
 
-export function removeQuestTicket(
+export function removeQuestLabour(
 	db: Db,
 	actor: Actor,
 	questId: number,
-	ticketId: number
+	labourId: number
 ): QuestView {
 	return write(db, actor, (tx) => {
 		getQuest(tx, questId);
 		const removed = tx
-			.delete(questTickets)
-			.where(and(eq(questTickets.questId, questId), eq(questTickets.ticketId, ticketId)))
+			.delete(questLabours)
+			.where(and(eq(questLabours.questId, questId), eq(questLabours.labourId, labourId)))
 			.run();
-		if (removed.changes === 0) throw new DomainError('not_found', 'The Ticket is not in the Quest');
+		if (removed.changes === 0) throw new DomainError('not_found', 'The Labour is not in the Quest');
 		touchQuest(tx, questId);
 		return questOutcome(tx, questId, (quest) => ({
-			type: 'quest.tickets_removed',
-			data: { quest, ticketIds: [ticketId] }
+			type: 'quest.labours_removed',
+			data: { quest, labourIds: [labourId] }
 		}));
 	});
 }
 
-export function rankQuestTicket(
+export function rankQuestLabour(
 	db: Db,
 	actor: Actor,
 	questId: number,
-	ticketId: number,
+	labourId: number,
 	placement: Placement
 ): QuestView {
 	return write(db, actor, (tx) => {
 		getQuest(tx, questId);
 		const members = membersOf(tx, questId);
-		const member = members.find((m) => m.id === ticketId);
-		if (member === undefined) throw new DomainError('not_found', 'The Ticket is not in the Quest');
-		const rank = rankAt(members, member, placement, 'Quest', ticketName(tx));
+		const member = members.find((m) => m.id === labourId);
+		if (member === undefined) throw new DomainError('not_found', 'The Labour is not in the Quest');
+		const rank = rankAt(members, member, placement, 'Quest', labourName(tx));
 		if (rank === member.rank) return { value: readQuest(tx, questId), events: [] };
-		tx.update(questTickets)
+		tx.update(questLabours)
 			.set({ rank })
-			.where(and(eq(questTickets.questId, questId), eq(questTickets.ticketId, ticketId)))
+			.where(and(eq(questLabours.questId, questId), eq(questLabours.labourId, labourId)))
 			.run();
 		touchQuest(tx, questId);
 		return questOutcome(tx, questId, (quest) => ({
-			type: 'quest.ticket_ranked',
-			data: { quest, ticketId }
+			type: 'quest.labour_ranked',
+			data: { quest, labourId }
 		}));
 	});
 }
 
-function insertMember(db: Handle, questId: number, ticketId: number, rank: string): void {
-	db.insert(questTickets).values({ questId, ticketId, rank }).run();
+function insertMember(db: Handle, questId: number, labourId: number, rank: string): void {
+	db.insert(questLabours).values({ questId, labourId, rank }).run();
 }

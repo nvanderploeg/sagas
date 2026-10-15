@@ -2,8 +2,8 @@ import { openDatabase, type Db } from '../../apps/web/src/lib/server/db/client.t
 import { createInvite } from '../../apps/web/src/lib/server/auth/invites.ts';
 import { createApiToken, revokeApiToken } from '../../apps/web/src/lib/server/auth/tokens.ts';
 import { findUser } from '../../apps/web/src/lib/server/auth/users.ts';
-import { createProject } from '../../apps/web/src/lib/server/domain/projects.ts';
-import { createTicket } from '../../apps/web/src/lib/server/domain/tickets.ts';
+import { createRealm } from '../../apps/web/src/lib/server/domain/realms.ts';
+import { createLabour } from '../../apps/web/src/lib/server/domain/labours.ts';
 import { eventWindow, pruneEvents } from '../../apps/web/src/lib/server/events/log.ts';
 import { databasePath } from './env.ts';
 
@@ -31,19 +31,19 @@ export function createSeed(db: Db, adminId: number) {
 	if (!admin) throw new Error(`no user ${adminId} in the run database`);
 
 	return {
-		project(input: { key?: string; name?: string } = {}) {
+		realm(input: { key?: string; name?: string } = {}) {
 			const key = input.key ?? randomKey();
-			return createProject(db, admin, {
-				name: input.name ?? `Project ${key}`,
+			return createRealm(db, admin, {
+				name: input.name ?? `Realm ${key}`,
 				key,
 				initialState: TODO
 			});
 		},
 
-		ticket(projectId: number, input: { title?: string } = {}) {
-			return createTicket(db, admin, {
-				projectId,
-				title: input.title ?? 'Ticket',
+		labour(realmId: number, input: { title?: string } = {}) {
+			return createLabour(db, admin, {
+				realmId,
+				title: input.title ?? 'Labour',
 				ownerId: admin.id
 			});
 		},

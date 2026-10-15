@@ -6,14 +6,14 @@
 </script>
 
 <svelte:head>
-	<title>Set up workload</title>
+	<title>Set up sagas</title>
 </svelte:head>
 
 <main class="mx-auto max-w-sm px-4 py-16">
 	<p class="mb-6 inline-flex items-center gap-2 font-mono font-semibold">
-		<span class="size-2.5 rounded-full bg-[#22c55e]" aria-hidden="true"></span>workload
+		<span class="size-2.5 rounded-full bg-[#22c55e]" aria-hidden="true"></span>sagas
 	</p>
-	<h1 class="text-3xl font-extrabold tracking-tight">Set up workload</h1>
+	<h1 class="text-3xl font-extrabold tracking-tight">Set up sagas</h1>
 	{#if form?.token}
 		<p class="mt-2 text-sm">
 			The first Admin is ready. This is its API token, for the MCP server and other clients. Copy it

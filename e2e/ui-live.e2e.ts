@@ -6,16 +6,16 @@ test.describe('live sync between two browsers', () => {
 		other,
 		ui
 	}) => {
-		const p = ui.project();
-		const a = ui.ticket(p.id, { title: 'Watched' });
-		const b = ui.ticket(p.id, { title: 'Neighbour' });
+		const p = ui.realm();
+		const a = ui.labour(p.id, { title: 'Watched' });
+		const b = ui.labour(p.id, { title: 'Neighbour' });
 
-		await page.goto(`/p/${p.key}`);
-		await other.page.goto(`/p/${p.key}`);
+		await page.goto(`/r/${p.key}`);
+		await other.page.goto(`/r/${p.key}`);
 		await live(page);
 		await live(other.page);
 
-		await other.page.locator(`a[href="/t/${a.key}"]`).focus();
+		await other.page.locator(`a[href="/l/${a.key}"]`).focus();
 		await other.page.keyboard.press('Space');
 		await other.page.keyboard.press('ArrowRight');
 		await other.page.keyboard.press('Space');
@@ -29,20 +29,20 @@ test.describe('live sync between two browsers', () => {
 		await expect(tag).toHaveCount(0, { timeout: 5000 });
 	});
 
-	test('an edit on a Ticket page reaches the other board and Ticket page', async ({
+	test('an edit on a Labour page reaches the other board and Labour page', async ({
 		page,
 		other,
 		ui
 	}) => {
-		const p = ui.project();
-		const t = ui.ticket(p.id, { title: 'Before' });
+		const p = ui.realm();
+		const t = ui.labour(p.id, { title: 'Before' });
 
-		const ticketTab = await page.context().newPage();
-		await page.goto(`/p/${p.key}`);
-		await ticketTab.goto(`/t/${t.key}`);
-		await other.page.goto(`/t/${t.key}`);
+		const labourTab = await page.context().newPage();
+		await page.goto(`/r/${p.key}`);
+		await labourTab.goto(`/l/${t.key}`);
+		await other.page.goto(`/l/${t.key}`);
 		await live(page);
-		await live(ticketTab);
+		await live(labourTab);
 		await live(other.page);
 
 		await other.page.getByRole('button', { name: 'Edit title' }).click();
@@ -52,24 +52,24 @@ test.describe('live sync between two browsers', () => {
 
 		await expect(card(page, t.key)).toContainText('After');
 		await expect.poll(() => cardKeys(column(page, 'Closed'))).toEqual([t.key]);
-		await expect(ticketTab.getByRole('heading', { level: 1 })).toHaveText('After');
+		await expect(labourTab.getByRole('heading', { level: 1 })).toHaveText('After');
 		await expect(
-			ticketTab.getByLabel('State', { exact: true }).locator('option:checked')
+			labourTab.getByLabel('State', { exact: true }).locator('option:checked')
 		).toHaveText('Closed');
-		await expect(ticketTab.getByTestId('remote-editor')).toContainText('Pat Partner');
-		await ticketTab.close();
+		await expect(labourTab.getByTestId('remote-editor')).toContainText('Pat Partner');
+		await labourTab.close();
 	});
 
 	test("one's own create lands once, in both browsers", async ({ page, other, ui }) => {
-		const p = ui.project();
-		await page.goto(`/p/${p.key}`);
-		await other.page.goto(`/p/${p.key}`);
+		const p = ui.realm();
+		await page.goto(`/r/${p.key}`);
+		await other.page.goto(`/r/${p.key}`);
 		await live(page);
 		await live(other.page);
 
-		await page.getByRole('button', { name: 'Add a Ticket to To do' }).click();
+		await page.getByRole('button', { name: 'Add a Labour to To do' }).click();
 		for (const title of ['One', 'Two', 'Three']) {
-			await page.getByLabel('New Ticket title in To do').fill(title);
+			await page.getByLabel('New Labour title in To do').fill(title);
 			await page.keyboard.press('Enter');
 		}
 		const keys = [1, 2, 3].map((n) => `${p.key}-${n}`);
@@ -80,19 +80,19 @@ test.describe('live sync between two browsers', () => {
 		await expect(column(page, 'To do').locator('[data-card]:not([inert])')).toHaveCount(3);
 	});
 
-	test('a Project key rename re-keys open boards and Ticket pages', async ({ page, other, ui }) => {
-		const p = ui.project();
-		const t = ui.ticket(p.id, { title: 'Rekeyed' });
-		await page.goto(`/t/${t.key}`);
+	test('a Realm key rename re-keys open boards and Labour pages', async ({ page, other, ui }) => {
+		const p = ui.realm();
+		const t = ui.labour(p.id, { title: 'Rekeyed' });
+		await page.goto(`/l/${t.key}`);
 		await live(page);
 
 		const next = `${p.key.slice(0, 4)}Q`;
-		await other.page.goto(`/p/${p.key}/settings`);
+		await other.page.goto(`/r/${p.key}/settings`);
 		await other.page.getByLabel('Key').fill(next);
 		await other.page.getByRole('button', { name: 'Rename key' }).click();
 
-		await expect(page.getByTestId('ticket-key')).toHaveText(`${next}-1`);
-		await expect(page).toHaveURL(new RegExp(`/t/${next}-1$`));
+		await expect(page.getByTestId('labour-key')).toHaveText(`${next}-1`);
+		await expect(page).toHaveURL(new RegExp(`/l/${next}-1$`));
 	});
 
 	test('a User who joined after the page loaded shows by name, never blank', async ({
@@ -100,28 +100,28 @@ test.describe('live sync between two browsers', () => {
 		other,
 		ui
 	}) => {
-		const p = ui.project();
-		const t = ui.ticket(p.id, { title: 'Handed over' });
-		await other.page.goto(`/p/${p.key}`);
-		const ticketTab = await other.context.newPage();
-		await ticketTab.goto(`/t/${t.key}`);
+		const p = ui.realm();
+		const t = ui.labour(p.id, { title: 'Handed over' });
+		await other.page.goto(`/r/${p.key}`);
+		const labourTab = await other.context.newPage();
+		await labourTab.goto(`/l/${t.key}`);
 		await live(other.page);
-		await live(ticketTab);
+		await live(labourTab);
 
 		const tag = Date.now().toString(36);
 		const name = `Late Bot ${tag}`;
 		ui.agent(`late${tag}`, name);
-		await page.goto(`/t/${t.key}`);
+		await page.goto(`/l/${t.key}`);
 		await live(page);
 		await page.getByLabel('Owner').selectOption({ label: name });
 		await page.getByLabel('Assignee').selectOption({ label: name });
 
-		await expect(ticketTab.getByLabel('Owner').locator('option:checked')).toHaveText(name);
-		await expect(ticketTab.getByLabel('Assignee').locator('option:checked')).toHaveText(name);
+		await expect(labourTab.getByLabel('Owner').locator('option:checked')).toHaveText(name);
+		await expect(labourTab.getByLabel('Assignee').locator('option:checked')).toHaveText(name);
 		await expect(
-			ticketTab.getByRole('complementary', { name: 'Ticket fields' }).getByTestId('avatar')
+			labourTab.getByRole('complementary', { name: 'Labour fields' }).getByTestId('avatar')
 		).toHaveAttribute('title', name);
 		await expect(card(other.page, t.key).getByTitle(`Assignee: ${name}`)).toBeVisible();
-		await ticketTab.close();
+		await labourTab.close();
 	});
 });

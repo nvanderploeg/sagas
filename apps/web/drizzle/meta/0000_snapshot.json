@@ -1,7 +1,7 @@
 {
 	"version": "6",
 	"dialect": "sqlite",
-	"id": "36e73b0f-7cef-4225-8561-5da5ea001956",
+	"id": "2423656e-130f-4005-ae2e-8d10656209a0",
 	"prevId": "00000000-0000-0000-0000-000000000000",
 	"tables": {
 		"api_tokens": {
@@ -227,8 +227,8 @@
 				}
 			}
 		},
-		"project_keys": {
-			"name": "project_keys",
+		"labour_keys": {
+			"name": "labour_keys",
 			"columns": {
 				"key": {
 					"name": "key",
@@ -237,8 +237,8 @@
 					"notNull": true,
 					"autoincrement": false
 				},
-				"project_id": {
-					"name": "project_id",
+				"labour_id": {
+					"name": "labour_id",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
@@ -253,18 +253,18 @@
 				}
 			},
 			"indexes": {
-				"project_keys_project_idx": {
-					"name": "project_keys_project_idx",
-					"columns": ["project_id"],
+				"labour_keys_labour_idx": {
+					"name": "labour_keys_labour_idx",
+					"columns": ["labour_id"],
 					"isUnique": false
 				}
 			},
 			"foreignKeys": {
-				"project_keys_project_id_projects_id_fk": {
-					"name": "project_keys_project_id_projects_id_fk",
-					"tableFrom": "project_keys",
-					"tableTo": "projects",
-					"columnsFrom": ["project_id"],
+				"labour_keys_labour_id_labours_id_fk": {
+					"name": "labour_keys_labour_id_labours_id_fk",
+					"tableFrom": "labour_keys",
+					"tableTo": "labours",
+					"columnsFrom": ["labour_id"],
 					"columnsTo": ["id"],
 					"onDelete": "cascade",
 					"onUpdate": "no action"
@@ -273,14 +273,14 @@
 			"compositePrimaryKeys": {},
 			"uniqueConstraints": {},
 			"checkConstraints": {
-				"project_keys_format": {
-					"name": "project_keys_format",
-					"value": "\"key\" GLOB '[A-Z]*' AND \"key\" NOT GLOB '*[^A-Z0-9]*' AND length(\"key\") BETWEEN 2 AND 6"
+				"labour_keys_format": {
+					"name": "labour_keys_format",
+					"value": "\"key\" GLOB '[A-Z]*-[1-9]*' AND \"key\" NOT GLOB '*[^A-Z0-9-]*' AND \"key\" NOT GLOB '*-*[^0-9]*'"
 				}
 			}
 		},
-		"projects": {
-			"name": "projects",
+		"labours": {
+			"name": "labours",
 			"columns": {
 				"id": {
 					"name": "id",
@@ -289,50 +289,161 @@
 					"notNull": true,
 					"autoincrement": true
 				},
-				"name": {
-					"name": "name",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"key": {
-					"name": "key",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"ticket_counter": {
-					"name": "ticket_counter",
+				"realm_id": {
+					"name": "realm_id",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
-					"autoincrement": false,
-					"default": 0
+					"autoincrement": false
 				},
-				"initial_state_id": {
-					"name": "initial_state_id",
+				"number": {
+					"name": "number",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"title": {
+					"name": "title",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"description": {
+					"name": "description",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": "''"
+				},
+				"owner_id": {
+					"name": "owner_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"assignee_id": {
+					"name": "assignee_id",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": false,
 					"autoincrement": false
+				},
+				"state_id": {
+					"name": "state_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"substate_id": {
+					"name": "substate_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"parent_id": {
+					"name": "parent_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"rank": {
+					"name": "rank",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"updated_at": {
+					"name": "updated_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
 				}
 			},
 			"indexes": {
-				"projects_key_unique": {
-					"name": "projects_key_unique",
-					"columns": ["key"],
+				"labours_realm_number_uq": {
+					"name": "labours_realm_number_uq",
+					"columns": ["realm_id", "number"],
+					"isUnique": true
+				},
+				"labours_parent_idx": {
+					"name": "labours_parent_idx",
+					"columns": ["parent_id"],
+					"isUnique": false
+				},
+				"labours_state_rank_uq": {
+					"name": "labours_state_rank_uq",
+					"columns": ["state_id", "rank"],
 					"isUnique": true
 				}
 			},
 			"foreignKeys": {
-				"projects_id_initial_state_id_states_project_id_id_fk": {
-					"name": "projects_id_initial_state_id_states_project_id_id_fk",
-					"tableFrom": "projects",
+				"labours_realm_id_realms_id_fk": {
+					"name": "labours_realm_id_realms_id_fk",
+					"tableFrom": "labours",
+					"tableTo": "realms",
+					"columnsFrom": ["realm_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				},
+				"labours_owner_id_users_id_fk": {
+					"name": "labours_owner_id_users_id_fk",
+					"tableFrom": "labours",
+					"tableTo": "users",
+					"columnsFrom": ["owner_id"],
+					"columnsTo": ["id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				},
+				"labours_assignee_id_users_id_fk": {
+					"name": "labours_assignee_id_users_id_fk",
+					"tableFrom": "labours",
+					"tableTo": "users",
+					"columnsFrom": ["assignee_id"],
+					"columnsTo": ["id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				},
+				"labours_parent_id_labours_id_fk": {
+					"name": "labours_parent_id_labours_id_fk",
+					"tableFrom": "labours",
+					"tableTo": "labours",
+					"columnsFrom": ["parent_id"],
+					"columnsTo": ["id"],
+					"onDelete": "set null",
+					"onUpdate": "no action"
+				},
+				"labours_realm_id_state_id_states_realm_id_id_fk": {
+					"name": "labours_realm_id_state_id_states_realm_id_id_fk",
+					"tableFrom": "labours",
 					"tableTo": "states",
-					"columnsFrom": ["id", "initial_state_id"],
-					"columnsTo": ["project_id", "id"],
+					"columnsFrom": ["realm_id", "state_id"],
+					"columnsTo": ["realm_id", "id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				},
+				"labours_state_id_substate_id_substates_state_id_id_fk": {
+					"name": "labours_state_id_substate_id_substates_state_id_id_fk",
+					"tableFrom": "labours",
+					"tableTo": "substates",
+					"columnsFrom": ["state_id", "substate_id"],
+					"columnsTo": ["state_id", "id"],
 					"onDelete": "no action",
 					"onUpdate": "no action"
 				}
@@ -340,18 +451,14 @@
 			"compositePrimaryKeys": {},
 			"uniqueConstraints": {},
 			"checkConstraints": {
-				"projects_key_format": {
-					"name": "projects_key_format",
-					"value": "\"key\" GLOB '[A-Z]*' AND \"key\" NOT GLOB '*[^A-Z0-9]*' AND length(\"key\") BETWEEN 2 AND 6"
-				},
-				"projects_counter_non_negative": {
-					"name": "projects_counter_non_negative",
-					"value": "\"ticket_counter\" >= 0"
+				"labours_number_positive": {
+					"name": "labours_number_positive",
+					"value": "\"number\" >= 1"
 				}
 			}
 		},
-		"quest_tickets": {
-			"name": "quest_tickets",
+		"quest_labours": {
+			"name": "quest_labours",
 			"columns": {
 				"quest_id": {
 					"name": "quest_id",
@@ -360,8 +467,8 @@
 					"notNull": true,
 					"autoincrement": false
 				},
-				"ticket_id": {
-					"name": "ticket_id",
+				"labour_id": {
+					"name": "labour_id",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
@@ -383,41 +490,41 @@
 				}
 			},
 			"indexes": {
-				"quest_tickets_quest_rank_uq": {
-					"name": "quest_tickets_quest_rank_uq",
+				"quest_labours_quest_rank_uq": {
+					"name": "quest_labours_quest_rank_uq",
 					"columns": ["quest_id", "rank"],
 					"isUnique": true
 				},
-				"quest_tickets_ticket_idx": {
-					"name": "quest_tickets_ticket_idx",
-					"columns": ["ticket_id"],
+				"quest_labours_labour_idx": {
+					"name": "quest_labours_labour_idx",
+					"columns": ["labour_id"],
 					"isUnique": false
 				}
 			},
 			"foreignKeys": {
-				"quest_tickets_quest_id_quests_id_fk": {
-					"name": "quest_tickets_quest_id_quests_id_fk",
-					"tableFrom": "quest_tickets",
+				"quest_labours_quest_id_quests_id_fk": {
+					"name": "quest_labours_quest_id_quests_id_fk",
+					"tableFrom": "quest_labours",
 					"tableTo": "quests",
 					"columnsFrom": ["quest_id"],
 					"columnsTo": ["id"],
 					"onDelete": "cascade",
 					"onUpdate": "no action"
 				},
-				"quest_tickets_ticket_id_tickets_id_fk": {
-					"name": "quest_tickets_ticket_id_tickets_id_fk",
-					"tableFrom": "quest_tickets",
-					"tableTo": "tickets",
-					"columnsFrom": ["ticket_id"],
+				"quest_labours_labour_id_labours_id_fk": {
+					"name": "quest_labours_labour_id_labours_id_fk",
+					"tableFrom": "quest_labours",
+					"tableTo": "labours",
+					"columnsFrom": ["labour_id"],
 					"columnsTo": ["id"],
 					"onDelete": "cascade",
 					"onUpdate": "no action"
 				}
 			},
 			"compositePrimaryKeys": {
-				"quest_tickets_quest_id_ticket_id_pk": {
-					"columns": ["quest_id", "ticket_id"],
-					"name": "quest_tickets_quest_id_ticket_id_pk"
+				"quest_labours_quest_id_labour_id_pk": {
+					"columns": ["quest_id", "labour_id"],
+					"name": "quest_labours_quest_id_labour_id_pk"
 				}
 			},
 			"uniqueConstraints": {},
@@ -486,6 +593,129 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
+		"realm_keys": {
+			"name": "realm_keys",
+			"columns": {
+				"key": {
+					"name": "key",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"realm_id": {
+					"name": "realm_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"realm_keys_realm_idx": {
+					"name": "realm_keys_realm_idx",
+					"columns": ["realm_id"],
+					"isUnique": false
+				}
+			},
+			"foreignKeys": {
+				"realm_keys_realm_id_realms_id_fk": {
+					"name": "realm_keys_realm_id_realms_id_fk",
+					"tableFrom": "realm_keys",
+					"tableTo": "realms",
+					"columnsFrom": ["realm_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {
+				"realm_keys_format": {
+					"name": "realm_keys_format",
+					"value": "\"key\" GLOB '[A-Z]*' AND \"key\" NOT GLOB '*[^A-Z0-9]*' AND length(\"key\") BETWEEN 2 AND 6"
+				}
+			}
+		},
+		"realms": {
+			"name": "realms",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "integer",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": true
+				},
+				"name": {
+					"name": "name",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"key": {
+					"name": "key",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"labour_counter": {
+					"name": "labour_counter",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": 0
+				},
+				"initial_state_id": {
+					"name": "initial_state_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"realms_key_unique": {
+					"name": "realms_key_unique",
+					"columns": ["key"],
+					"isUnique": true
+				}
+			},
+			"foreignKeys": {
+				"realms_id_initial_state_id_states_realm_id_id_fk": {
+					"name": "realms_id_initial_state_id_states_realm_id_id_fk",
+					"tableFrom": "realms",
+					"tableTo": "states",
+					"columnsFrom": ["id", "initial_state_id"],
+					"columnsTo": ["realm_id", "id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {
+				"realms_key_format": {
+					"name": "realms_key_format",
+					"value": "\"key\" GLOB '[A-Z]*' AND \"key\" NOT GLOB '*[^A-Z0-9]*' AND length(\"key\") BETWEEN 2 AND 6"
+				},
+				"realms_counter_non_negative": {
+					"name": "realms_counter_non_negative",
+					"value": "\"labour_counter\" >= 0"
+				}
+			}
+		},
 		"sessions": {
 			"name": "sessions",
 			"columns": {
@@ -550,8 +780,8 @@
 					"notNull": true,
 					"autoincrement": true
 				},
-				"project_id": {
-					"name": "project_id",
+				"realm_id": {
+					"name": "realm_id",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
@@ -609,34 +839,34 @@
 				}
 			},
 			"indexes": {
-				"states_project_key_uq": {
-					"name": "states_project_key_uq",
-					"columns": ["project_id", "key"],
+				"states_realm_key_uq": {
+					"name": "states_realm_key_uq",
+					"columns": ["realm_id", "key"],
 					"isUnique": true
 				},
-				"states_project_position_uq": {
-					"name": "states_project_position_uq",
-					"columns": ["project_id", "position"],
+				"states_realm_position_uq": {
+					"name": "states_realm_position_uq",
+					"columns": ["realm_id", "position"],
 					"isUnique": true
 				},
-				"states_project_id_uq": {
-					"name": "states_project_id_uq",
-					"columns": ["project_id", "id"],
+				"states_realm_id_uq": {
+					"name": "states_realm_id_uq",
+					"columns": ["realm_id", "id"],
 					"isUnique": true
 				},
 				"states_one_closed_uq": {
 					"name": "states_one_closed_uq",
-					"columns": ["project_id"],
+					"columns": ["realm_id"],
 					"isUnique": true,
 					"where": "\"is_closed\" = 1"
 				}
 			},
 			"foreignKeys": {
-				"states_project_id_projects_id_fk": {
-					"name": "states_project_id_projects_id_fk",
+				"states_realm_id_realms_id_fk": {
+					"name": "states_realm_id_realms_id_fk",
 					"tableFrom": "states",
-					"tableTo": "projects",
-					"columnsFrom": ["project_id"],
+					"tableTo": "realms",
+					"columnsFrom": ["realm_id"],
 					"columnsTo": ["id"],
 					"onDelete": "cascade",
 					"onUpdate": "no action"
@@ -748,236 +978,6 @@
 			"compositePrimaryKeys": {},
 			"uniqueConstraints": {},
 			"checkConstraints": {}
-		},
-		"ticket_keys": {
-			"name": "ticket_keys",
-			"columns": {
-				"key": {
-					"name": "key",
-					"type": "text",
-					"primaryKey": true,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"ticket_id": {
-					"name": "ticket_id",
-					"type": "integer",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"created_at": {
-					"name": "created_at",
-					"type": "integer",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				}
-			},
-			"indexes": {
-				"ticket_keys_ticket_idx": {
-					"name": "ticket_keys_ticket_idx",
-					"columns": ["ticket_id"],
-					"isUnique": false
-				}
-			},
-			"foreignKeys": {
-				"ticket_keys_ticket_id_tickets_id_fk": {
-					"name": "ticket_keys_ticket_id_tickets_id_fk",
-					"tableFrom": "ticket_keys",
-					"tableTo": "tickets",
-					"columnsFrom": ["ticket_id"],
-					"columnsTo": ["id"],
-					"onDelete": "cascade",
-					"onUpdate": "no action"
-				}
-			},
-			"compositePrimaryKeys": {},
-			"uniqueConstraints": {},
-			"checkConstraints": {
-				"ticket_keys_format": {
-					"name": "ticket_keys_format",
-					"value": "\"key\" GLOB '[A-Z]*-[1-9]*' AND \"key\" NOT GLOB '*[^A-Z0-9-]*' AND \"key\" NOT GLOB '*-*[^0-9]*'"
-				}
-			}
-		},
-		"tickets": {
-			"name": "tickets",
-			"columns": {
-				"id": {
-					"name": "id",
-					"type": "integer",
-					"primaryKey": true,
-					"notNull": true,
-					"autoincrement": true
-				},
-				"project_id": {
-					"name": "project_id",
-					"type": "integer",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"number": {
-					"name": "number",
-					"type": "integer",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"title": {
-					"name": "title",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"description": {
-					"name": "description",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false,
-					"default": "''"
-				},
-				"owner_id": {
-					"name": "owner_id",
-					"type": "integer",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"assignee_id": {
-					"name": "assignee_id",
-					"type": "integer",
-					"primaryKey": false,
-					"notNull": false,
-					"autoincrement": false
-				},
-				"state_id": {
-					"name": "state_id",
-					"type": "integer",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"substate_id": {
-					"name": "substate_id",
-					"type": "integer",
-					"primaryKey": false,
-					"notNull": false,
-					"autoincrement": false
-				},
-				"parent_id": {
-					"name": "parent_id",
-					"type": "integer",
-					"primaryKey": false,
-					"notNull": false,
-					"autoincrement": false
-				},
-				"rank": {
-					"name": "rank",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"created_at": {
-					"name": "created_at",
-					"type": "integer",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"updated_at": {
-					"name": "updated_at",
-					"type": "integer",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				}
-			},
-			"indexes": {
-				"tickets_project_number_uq": {
-					"name": "tickets_project_number_uq",
-					"columns": ["project_id", "number"],
-					"isUnique": true
-				},
-				"tickets_parent_idx": {
-					"name": "tickets_parent_idx",
-					"columns": ["parent_id"],
-					"isUnique": false
-				},
-				"tickets_state_rank_uq": {
-					"name": "tickets_state_rank_uq",
-					"columns": ["state_id", "rank"],
-					"isUnique": true
-				}
-			},
-			"foreignKeys": {
-				"tickets_project_id_projects_id_fk": {
-					"name": "tickets_project_id_projects_id_fk",
-					"tableFrom": "tickets",
-					"tableTo": "projects",
-					"columnsFrom": ["project_id"],
-					"columnsTo": ["id"],
-					"onDelete": "cascade",
-					"onUpdate": "no action"
-				},
-				"tickets_owner_id_users_id_fk": {
-					"name": "tickets_owner_id_users_id_fk",
-					"tableFrom": "tickets",
-					"tableTo": "users",
-					"columnsFrom": ["owner_id"],
-					"columnsTo": ["id"],
-					"onDelete": "no action",
-					"onUpdate": "no action"
-				},
-				"tickets_assignee_id_users_id_fk": {
-					"name": "tickets_assignee_id_users_id_fk",
-					"tableFrom": "tickets",
-					"tableTo": "users",
-					"columnsFrom": ["assignee_id"],
-					"columnsTo": ["id"],
-					"onDelete": "no action",
-					"onUpdate": "no action"
-				},
-				"tickets_parent_id_tickets_id_fk": {
-					"name": "tickets_parent_id_tickets_id_fk",
-					"tableFrom": "tickets",
-					"tableTo": "tickets",
-					"columnsFrom": ["parent_id"],
-					"columnsTo": ["id"],
-					"onDelete": "set null",
-					"onUpdate": "no action"
-				},
-				"tickets_project_id_state_id_states_project_id_id_fk": {
-					"name": "tickets_project_id_state_id_states_project_id_id_fk",
-					"tableFrom": "tickets",
-					"tableTo": "states",
-					"columnsFrom": ["project_id", "state_id"],
-					"columnsTo": ["project_id", "id"],
-					"onDelete": "no action",
-					"onUpdate": "no action"
-				},
-				"tickets_state_id_substate_id_substates_state_id_id_fk": {
-					"name": "tickets_state_id_substate_id_substates_state_id_id_fk",
-					"tableFrom": "tickets",
-					"tableTo": "substates",
-					"columnsFrom": ["state_id", "substate_id"],
-					"columnsTo": ["state_id", "id"],
-					"onDelete": "no action",
-					"onUpdate": "no action"
-				}
-			},
-			"compositePrimaryKeys": {},
-			"uniqueConstraints": {},
-			"checkConstraints": {
-				"tickets_number_positive": {
-					"name": "tickets_number_positive",
-					"value": "\"number\" >= 1"
-				}
-			}
 		},
 		"users": {
 			"name": "users",

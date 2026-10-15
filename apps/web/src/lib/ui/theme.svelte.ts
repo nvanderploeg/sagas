@@ -3,7 +3,7 @@ import { browser } from '$app/env';
 export type Theme = 'system' | 'light' | 'dark';
 
 // app.html applies the stored choice before first paint; keep its key in step with KEY.
-const KEY = 'workload-theme';
+const KEY = 'sagas-theme';
 
 class ThemeChoice {
 	value = $state<Theme>('system');

@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
-import { renameProjectKey } from '#lib/server/domain/projects.ts';
+import { renameRealmKey } from '#lib/server/domain/realms.ts';
 import { createQuest } from '#lib/server/domain/quests.ts';
 import { createSubstate, listStates } from '#lib/server/domain/states.ts';
-import { moveTicket } from '#lib/server/domain/tickets.ts';
+import { moveLabour } from '#lib/server/domain/labours.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedActor, seedProject, seedTicket, seedUser } from '#lib/server/test/fixtures.ts';
+import { seedActor, seedRealm, seedLabour, seedUser } from '#lib/server/test/fixtures.ts';
 import * as refs from './refs.ts';
 
 let db: Db;
@@ -31,25 +31,25 @@ function failure(action: () => unknown): DomainError {
 
 const style = (key: string) => ({ key, label: key, color: '#000000', icon: 'dot' });
 
-describe('ticketId', () => {
+describe('labourId', () => {
 	it('resolves a key in any case, and an id given as a number', () => {
-		const project = seedProject(db, 'AM');
-		const ticket = seedTicket(db, { projectId: project.id });
+		const realm = seedRealm(db, 'AM');
+		const labour = seedLabour(db, { realmId: realm.id });
 
-		expect(refs.ticketId(db, 'AM-1')).toBe(ticket.id);
-		expect(refs.ticketId(db, ' am-1 ')).toBe(ticket.id);
-		expect(refs.ticketId(db, ticket.id)).toBe(ticket.id);
+		expect(refs.labourId(db, 'AM-1')).toBe(labour.id);
+		expect(refs.labourId(db, ' am-1 ')).toBe(labour.id);
+		expect(refs.labourId(db, labour.id)).toBe(labour.id);
 	});
 
 	it('never reads a string as an id', () => {
-		const project = seedProject(db, 'AM');
-		const ticket = seedTicket(db, { projectId: project.id });
+		const realm = seedRealm(db, 'AM');
+		const labour = seedLabour(db, { realmId: realm.id });
 
 		for (const action of [
-			() => refs.ticketId(db, String(ticket.id)),
-			() => refs.projectId(db, String(project.id)),
+			() => refs.labourId(db, String(labour.id)),
+			() => refs.realmId(db, String(realm.id)),
 			() => refs.userId(db, String(seedUser(db)), { id: 0 }),
-			() => refs.stateId(db, project.id, String(project.initialStateId))
+			() => refs.stateId(db, realm.id, String(realm.initialStateId))
 		]) {
 			expect(failure(action)).toMatchObject({
 				code: 'invalid',
@@ -58,43 +58,43 @@ describe('ticketId', () => {
 		}
 	});
 
-	it('resolves a former key after a move and after a Project key rename', () => {
-		const am = seedProject(db, 'AM');
-		const ops = seedProject(db, 'OPS');
-		const ticket = seedTicket(db, { projectId: am.id });
-		moveTicket(db, seedActor(db), ticket.id, { projectId: ops.id });
-		renameProjectKey(db, seedActor(db), ops.id, 'OP');
+	it('resolves a former key after a move and after a Realm key rename', () => {
+		const am = seedRealm(db, 'AM');
+		const ops = seedRealm(db, 'OPS');
+		const labour = seedLabour(db, { realmId: am.id });
+		moveLabour(db, seedActor(db), labour.id, { realmId: ops.id });
+		renameRealmKey(db, seedActor(db), ops.id, 'OP');
 
-		for (const key of ['am-1', 'OPS-1', 'op-1']) expect(refs.ticketId(db, key)).toBe(ticket.id);
+		for (const key of ['am-1', 'OPS-1', 'op-1']) expect(refs.labourId(db, key)).toBe(labour.id);
 	});
 
-	it('tells a malformed reference from a missing Ticket', () => {
-		seedProject(db, 'AM');
+	it('tells a malformed reference from a missing Labour', () => {
+		seedRealm(db, 'AM');
 
-		expect(failure(() => refs.ticketId(db, 'not a key'))).toMatchObject({
+		expect(failure(() => refs.labourId(db, 'not a key'))).toMatchObject({
 			code: 'invalid',
-			message: '"not a key" is not a Ticket key, e.g. "AM-12"'
+			message: '"not a key" is not a Labour key, e.g. "AM-12"'
 		});
-		expect(failure(() => refs.ticketId(db, 'am-9'))).toMatchObject({
+		expect(failure(() => refs.labourId(db, 'am-9'))).toMatchObject({
 			code: 'not_found',
-			message: 'No Ticket has the key AM-9'
+			message: 'No Labour has the key AM-9'
 		});
-		expect(failure(() => refs.ticketId(db, 999))).toMatchObject({
+		expect(failure(() => refs.labourId(db, 999))).toMatchObject({
 			code: 'not_found',
-			message: 'No Ticket has the id 999'
+			message: 'No Labour has the id 999'
 		});
 	});
 });
 
-describe('projectId and userId', () => {
-	it('resolves a Project by current key, former key or id', () => {
-		const project = seedProject(db, 'AM');
-		renameProjectKey(db, seedActor(db), project.id, 'AX');
+describe('realmId and userId', () => {
+	it('resolves a Realm by current key, former key or id', () => {
+		const realm = seedRealm(db, 'AM');
+		renameRealmKey(db, seedActor(db), realm.id, 'AX');
 
-		expect(refs.projectId(db, 'ax')).toBe(project.id);
-		expect(refs.projectId(db, 'am')).toBe(project.id);
-		expect(refs.projectId(db, project.id)).toBe(project.id);
-		expect(failure(() => refs.projectId(db, 'ZZ'))).toMatchObject({ code: 'not_found' });
+		expect(refs.realmId(db, 'ax')).toBe(realm.id);
+		expect(refs.realmId(db, 'am')).toBe(realm.id);
+		expect(refs.realmId(db, realm.id)).toBe(realm.id);
+		expect(failure(() => refs.realmId(db, 'ZZ'))).toMatchObject({ code: 'not_found' });
 	});
 
 	it('resolves a User by username in any case, by id, or as "me"', () => {
@@ -117,21 +117,21 @@ describe('projectId and userId', () => {
 });
 
 describe('stateId and substateId', () => {
-	it('resolves a State key within its Project, and lists the keys when it is missing', () => {
-		const project = seedProject(db, 'AM');
-		const todo = listStates(db, project.id).find((s) => s.key === 'todo')!;
+	it('resolves a State key within its Realm, and lists the keys when it is missing', () => {
+		const realm = seedRealm(db, 'AM');
+		const todo = listStates(db, realm.id).find((s) => s.key === 'todo')!;
 
-		expect(refs.stateId(db, project.id, 'TODO')).toBe(todo.id);
+		expect(refs.stateId(db, realm.id, 'TODO')).toBe(todo.id);
 		expect(refs.stateId(db, undefined, todo.id)).toBe(todo.id);
-		expect(failure(() => refs.stateId(db, project.id, 'doing'))).toMatchObject({
+		expect(failure(() => refs.stateId(db, realm.id, 'doing'))).toMatchObject({
 			code: 'not_found',
 			message: 'No State "doing" in AM; its States are todo, closed'
 		});
 	});
 
-	it('needs the Project for a key, and rejects an id from another Project', () => {
-		const am = seedProject(db, 'AM');
-		const ops = seedProject(db, 'OPS');
+	it('needs the Realm for a key, and rejects an id from another Realm', () => {
+		const am = seedRealm(db, 'AM');
+		const ops = seedRealm(db, 'OPS');
 		const opsTodo = listStates(db, ops.id)[0];
 
 		expect(failure(() => refs.stateId(db, undefined, 'todo'))).toMatchObject({
@@ -139,13 +139,13 @@ describe('stateId and substateId', () => {
 		});
 		expect(failure(() => refs.stateId(db, am.id, opsTodo.id))).toMatchObject({
 			code: 'invalid',
-			message: 'The State belongs to another Project'
+			message: 'The State belongs to another Realm'
 		});
 	});
 
 	it('resolves a Substate key within its State', () => {
-		const project = seedProject(db, 'AM');
-		const todo = listStates(db, project.id)[0];
+		const realm = seedRealm(db, 'AM');
+		const todo = listStates(db, realm.id)[0];
 		const ready = createSubstate(db, seedActor(db), todo.id, style('ready'));
 
 		expect(refs.substateId(db, todo.id, 'ready')).toBe(ready.id);
@@ -161,14 +161,14 @@ describe('stateId and substateId', () => {
 });
 
 describe('placement', () => {
-	it('takes at most one of position, before and after, resolving Ticket references', () => {
-		const project = seedProject(db, 'AM');
-		const ticket = seedTicket(db, { projectId: project.id });
+	it('takes at most one of position, before and after, resolving Labour references', () => {
+		const realm = seedRealm(db, 'AM');
+		const labour = seedLabour(db, { realmId: realm.id });
 
 		expect(refs.placement(db, {})).toBeUndefined();
 		expect(refs.placement(db, { position: 'top' })).toBe('top');
-		expect(refs.placement(db, { before: 'am-1' })).toEqual({ before: ticket.id });
-		expect(refs.placement(db, { after: ticket.id })).toEqual({ after: ticket.id });
+		expect(refs.placement(db, { before: 'am-1' })).toEqual({ before: labour.id });
+		expect(refs.placement(db, { after: labour.id })).toEqual({ after: labour.id });
 		expect(failure(() => refs.placement(db, { position: 'top', after: 'AM-1' }))).toMatchObject({
 			code: 'invalid'
 		});

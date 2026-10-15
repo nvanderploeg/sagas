@@ -1,20 +1,20 @@
 <script lang="ts" module>
-	import type { Ticket } from '../live/types.ts';
+	import type { Labour } from '../live/types.ts';
 
-	export type Match = Ticket & { childCount: number };
+	export type Match = Labour & { childCount: number };
 </script>
 
 <script lang="ts">
 	let {
 		label,
-		placeholder = 'Ticket key or title',
+		placeholder = 'Labour key or title',
 		exclude = [],
 		onpick
 	}: {
 		label: string;
 		placeholder?: string;
 		exclude?: number[];
-		onpick: (ticket: Match) => void;
+		onpick: (labour: Match) => void;
 	} = $props();
 
 	const id = $props.id();
@@ -44,8 +44,8 @@
 		}, 150);
 	}
 
-	function pick(ticket: Match) {
-		onpick(ticket);
+	function pick(labour: Match) {
+		onpick(labour);
 		query = '';
 		results = [];
 		open = false;
@@ -87,26 +87,26 @@
 	/>
 	{#if open}
 		<ul id="{id}-list" role="listbox" class="list" aria-label="{label} results">
-			{#each shown as ticket, i (ticket.id)}
+			{#each shown as labour, i (labour.id)}
 				<!-- The combobox input takes the keys for these options. -->
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				<li
-					id="{id}-{ticket.id}"
+					id="{id}-{labour.id}"
 					role="option"
 					aria-selected={i === active}
 					onmousedown={(e) => e.preventDefault()}
-					onclick={() => pick(ticket)}
+					onclick={() => pick(labour)}
 				>
-					<span class="key">{ticket.key}</span>
-					<span class="title">{ticket.title}</span>
-					{#if ticket.childCount > 0}
+					<span class="key">{labour.key}</span>
+					<span class="title">{labour.title}</span>
+					{#if labour.childCount > 0}
 						<span class="kids"
-							>{ticket.childCount} {ticket.childCount === 1 ? 'Child' : 'Children'}</span
+							>{labour.childCount} {labour.childCount === 1 ? 'Child' : 'Children'}</span
 						>
 					{/if}
 				</li>
 			{:else}
-				<li class="none">No Ticket matches “{query}”.</li>
+				<li class="none">No Labour matches “{query}”.</li>
 			{/each}
 		</ul>
 	{/if}

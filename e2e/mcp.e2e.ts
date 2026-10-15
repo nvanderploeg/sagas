@@ -7,26 +7,30 @@ import {
 	expect,
 	mcpTransport,
 	test,
-	uniqueProjectKey,
+	uniqueRealmKey,
 	type Mcp
 } from './fixtures/mcp.ts';
 
 const TOOLS = [
 	'resolve',
-	'list_tickets',
-	'get_ticket',
-	'create_ticket',
-	'update_ticket',
-	'move_ticket',
-	'rank_ticket',
+	'list_labours',
+	'get_labour',
+	'create_labour',
+	'update_labour',
+	'move_labour',
+	'rank_labour',
 	'set_parent',
-	'delete_ticket',
-	'list_projects',
-	'get_project',
-	'create_project',
-	'update_project',
-	'rename_project_key',
-	'delete_project',
+	'delete_labour',
+	'add_comment',
+	'update_comment',
+	'delete_comment',
+	'list_comments',
+	'list_realms',
+	'get_realm',
+	'create_realm',
+	'update_realm',
+	'rename_realm_key',
+	'delete_realm',
 	'set_initial_state',
 	'create_state',
 	'update_state',
@@ -42,9 +46,9 @@ const TOOLS = [
 	'create_quest',
 	'update_quest',
 	'delete_quest',
-	'add_quest_tickets',
-	'remove_quest_tickets',
-	'rank_quest_ticket',
+	'add_quest_labours',
+	'remove_quest_labours',
+	'rank_quest_labour',
 	'whoami',
 	'list_users',
 	'create_invite',
@@ -55,7 +59,7 @@ const TOOLS = [
 	'revoke_api_token'
 ];
 
-const keysOf = (tickets: { key: string }[]) => tickets.map((t) => t.key);
+const keysOf = (labours: { key: string }[]) => labours.map((t) => t.key);
 
 // The Events recorded after `since`, as the Stream replays them.
 async function eventsAfter(token: string, since: number) {
@@ -80,9 +84,9 @@ const rpcHeaders = (token: string, extra: Record<string, string> = {}) => ({
 
 const ping = (id: number) => ({ jsonrpc: '2.0', id, method: 'ping' });
 
-async function newProject(mcp: Mcp, name = 'MCP'): Promise<string> {
-	const key = uniqueProjectKey();
-	await mcp.ok('create_project', { name, key: key.toLowerCase() });
+async function newRealm(mcp: Mcp, name = 'MCP'): Promise<string> {
+	const key = uniqueRealmKey();
+	await mcp.ok('create_realm', { name, key: key.toLowerCase() });
 	return key;
 }
 
@@ -106,7 +110,7 @@ test.describe('MCP at /mcp', () => {
 			expect(tool.description, tool.name).toBeTruthy();
 			expect(tool.inputSchema.type, tool.name).toBe('object');
 		}
-		expect(mcp.client.getServerVersion()?.name).toBe('workload');
+		expect(mcp.client.getServerVersion()?.name).toBe('sagas');
 	});
 
 	test('acts as the token User, who is the actor of the Events its writes record', async ({
@@ -131,28 +135,28 @@ test.describe('MCP at /mcp', () => {
 		try {
 			const { user: bot } = await agent.ok('whoami');
 			const before = seed.lastSeq();
-			await agent.ok('create_project', { name: 'By the bot', key: uniqueProjectKey() });
+			await agent.ok('create_realm', { name: 'By the bot', key: uniqueRealmKey() });
 
 			const events = await eventsAfter(apiToken.token, before);
 			expect(events.map((e) => [e.type, e.actor])).toEqual([
-				['project.created', { id: bot.id, kind: 'agent', username, displayName: 'Bot' }]
+				['realm.created', { id: bot.id, kind: 'agent', username, displayName: 'Bot' }]
 			]);
 		} finally {
 			await agent.close();
 		}
 	});
 
-	test('runs a Ticket through its lifecycle', async ({ mcp, admin }) => {
-		const key = await newProject(mcp);
+	test('runs a Labour through its lifecycle', async ({ mcp, admin }) => {
+		const key = await newRealm(mcp);
 		await mcp.ok('create_state', {
-			project: key,
+			realm: key,
 			key: 'doing',
 			label: 'Doing',
 			color: '#2563eb',
 			icon: 'play'
 		});
 		await mcp.ok('create_substate', {
-			project: key,
+			realm: key,
 			state: 'doing',
 			key: 'review',
 			label: 'Review',
@@ -160,8 +164,8 @@ test.describe('MCP at /mcp', () => {
 			icon: 'eye'
 		});
 
-		const { ticket: first } = await mcp.ok('create_ticket', {
-			project: key.toLowerCase(),
+		const { labour: first } = await mcp.ok('create_labour', {
+			realm: key.toLowerCase(),
 			title: 'Ship the MCP server',
 			description: 'Over **Streamable HTTP**',
 			assignee: admin.username
@@ -169,7 +173,7 @@ test.describe('MCP at /mcp', () => {
 		expect(first).toMatchObject({
 			key: `${key}-1`,
 			title: 'Ship the MCP server',
-			project: key,
+			realm: key,
 			state: { key: 'todo', label: 'To do' },
 			substate: null,
 			closed: false,
@@ -181,21 +185,21 @@ test.describe('MCP at /mcp', () => {
 			quests: []
 		});
 
-		const child = await mcp.call('create_ticket', {
-			project: key,
+		const child = await mcp.call('create_labour', {
+			realm: key,
 			title: 'Write the docs',
 			parent: first.key.toLowerCase()
 		});
 		expect(child.isError).toBe(false);
-		expect(child.data.ticket).toMatchObject({ key: `${key}-2`, parent: `${key}-1` });
+		expect(child.data.labour).toMatchObject({ key: `${key}-2`, parent: `${key}-1` });
 		expect(child.text.split('\n')[0]).toBe(`${key}-2 [todo: To do] Write the docs`);
 		expect(JSON.parse(child.text.split('\n').slice(1).join('\n'))).toEqual(child.data);
 
-		const { ticket: parent } = await mcp.ok('get_ticket', { ticket: first.id });
+		const { labour: parent } = await mcp.ok('get_labour', { labour: first.id });
 		expect(keysOf(parent.children)).toEqual([`${key}-2`]);
 
-		const { ticket: started } = await mcp.ok('update_ticket', {
-			ticket: `${key}-1`,
+		const { labour: started } = await mcp.ok('update_labour', {
+			labour: `${key}-1`,
 			state: 'doing',
 			title: 'Ship it'
 		});
@@ -205,112 +209,112 @@ test.describe('MCP at /mcp', () => {
 			substate: { key: 'review', label: 'Review' }
 		});
 
-		await mcp.ok('create_ticket', { project: key, title: 'Third' });
-		await mcp.ok('rank_ticket', { ticket: `${key}-3`, position: 'top' });
-		const todo = await mcp.ok('list_tickets', { project: key, state: 'todo' });
-		expect(keysOf(todo.tickets)).toEqual([`${key}-3`, `${key}-2`]);
+		await mcp.ok('create_labour', { realm: key, title: 'Third' });
+		await mcp.ok('rank_labour', { labour: `${key}-3`, position: 'top' });
+		const todo = await mcp.ok('list_labours', { realm: key, state: 'todo' });
+		expect(keysOf(todo.labours)).toEqual([`${key}-3`, `${key}-2`]);
 		expect(todo).toMatchObject({ total: 2, offset: 0, nextOffset: null });
 
-		const paged = await mcp.ok('list_tickets', { project: key, limit: 1 });
+		const paged = await mcp.ok('list_labours', { realm: key, limit: 1 });
 		expect(paged).toMatchObject({ total: 3, nextOffset: 1 });
-		expect(keysOf(paged.tickets)).toEqual([`${key}-3`]);
+		expect(keysOf(paged.labours)).toEqual([`${key}-3`]);
 
-		const { ticket: closed } = await mcp.ok('update_ticket', {
-			ticket: `${key}-1`,
+		const { labour: closed } = await mcp.ok('update_labour', {
+			labour: `${key}-1`,
 			state: 'closed'
 		});
 		expect(closed).toMatchObject({ state: { key: 'closed', label: 'Closed' }, closed: true });
-		const done = await mcp.ok('list_tickets', { project: key, closed: true });
-		expect(keysOf(done.tickets)).toEqual([`${key}-1`]);
+		const done = await mcp.ok('list_labours', { realm: key, closed: true });
+		expect(keysOf(done.labours)).toEqual([`${key}-1`]);
 
-		const unparented = await mcp.ok('set_parent', { ticket: `${key}-2`, parent: null });
-		expect(unparented.ticket.parent).toBeNull();
+		const unparented = await mcp.ok('set_parent', { labour: `${key}-2`, parent: null });
+		expect(unparented.labour.parent).toBeNull();
 
-		const deleted = await mcp.ok('delete_ticket', { ticket: `${key}-2` });
-		expect(deleted).toEqual({ deleted: { id: child.data.ticket.id, key: `${key}-2` } });
-		const gone = await mcp.call('get_ticket', { ticket: `${key}-2` });
-		expect(gone).toMatchObject({ isError: true, text: `No Ticket has the key ${key}-2` });
+		const deleted = await mcp.ok('delete_labour', { labour: `${key}-2` });
+		expect(deleted).toEqual({ deleted: { id: child.data.labour.id, key: `${key}-2` } });
+		const gone = await mcp.call('get_labour', { labour: `${key}-2` });
+		expect(gone).toMatchObject({ isError: true, text: `No Labour has the key ${key}-2` });
 
-		const again = await mcp.ok('create_ticket', { project: key, title: 'Numbers never reused' });
-		expect(again.ticket.key).toBe(`${key}-4`);
+		const again = await mcp.ok('create_labour', { realm: key, title: 'Numbers never reused' });
+		expect(again.labour.key).toBe(`${key}-4`);
 	});
 
-	test('a moved Ticket keeps its old keys as Aliases', async ({ mcp }) => {
-		const from = await newProject(mcp, 'From');
-		const to = await newProject(mcp, 'To');
-		await mcp.ok('create_ticket', { project: from, title: 'Wanderer' });
-		await mcp.ok('update_ticket', { ticket: `${from}-1`, state: 'closed' });
+	test('a moved Labour keeps its old keys as Aliases', async ({ mcp }) => {
+		const from = await newRealm(mcp, 'From');
+		const to = await newRealm(mcp, 'To');
+		await mcp.ok('create_labour', { realm: from, title: 'Wanderer' });
+		await mcp.ok('update_labour', { labour: `${from}-1`, state: 'closed' });
 
-		const { ticket: moved } = await mcp.ok('move_ticket', {
-			ticket: `${from.toLowerCase()}-1`,
-			project: to
+		const { labour: moved } = await mcp.ok('move_labour', {
+			labour: `${from.toLowerCase()}-1`,
+			realm: to
 		});
 		expect(moved).toMatchObject({
 			key: `${to}-1`,
-			project: to,
+			realm: to,
 			state: { key: 'closed' },
 			closed: true,
 			aliases: [`${from}-1`]
 		});
 
-		const resolved = await mcp.ok('resolve', { ticket: `${from.toLowerCase()}-1` });
-		expect(resolved).toMatchObject({ alias: true, ticket: { id: moved.id, key: `${to}-1` } });
-		const current = await mcp.ok('resolve', { ticket: `${to}-1` });
+		const resolved = await mcp.ok('resolve', { labour: `${from.toLowerCase()}-1` });
+		expect(resolved).toMatchObject({ alias: true, labour: { id: moved.id, key: `${to}-1` } });
+		const current = await mcp.ok('resolve', { labour: `${to}-1` });
 		expect(current.alias).toBe(false);
 
-		const renamed = uniqueProjectKey();
-		const { project } = await mcp.ok('rename_project_key', { project: to, key: renamed });
-		expect(project).toMatchObject({ key: renamed, aliases: [to] });
+		const renamed = uniqueRealmKey();
+		const { realm } = await mcp.ok('rename_realm_key', { realm: to, key: renamed });
+		expect(realm).toMatchObject({ key: renamed, aliases: [to] });
 		for (const old of [`${from}-1`, `${to}-1`]) {
-			const { ticket } = await mcp.ok('get_ticket', { ticket: old });
-			expect(ticket.key, old).toBe(`${renamed}-1`);
+			const { labour } = await mcp.ok('get_labour', { labour: old });
+			expect(labour.key, old).toBe(`${renamed}-1`);
 		}
-		const viaOldProjectKey = await mcp.ok('list_tickets', { project: to });
-		expect(keysOf(viaOldProjectKey.tickets)).toEqual([`${renamed}-1`]);
+		const viaOldRealmKey = await mcp.ok('list_labours', { realm: to });
+		expect(keysOf(viaOldRealmKey.labours)).toEqual([`${renamed}-1`]);
 	});
 
-	test('a Quest counts its Closed Tickets and never adds Children', async ({ mcp }) => {
-		const key = await newProject(mcp);
+	test('a Quest counts its Closed Labours and never adds Children', async ({ mcp }) => {
+		const key = await newRealm(mcp);
 		for (const title of ['Epic', 'Part', 'Other']) {
-			await mcp.ok('create_ticket', { project: key, title });
+			await mcp.ok('create_labour', { realm: key, title });
 		}
-		await mcp.ok('set_parent', { ticket: `${key}-2`, parent: `${key}-1` });
+		await mcp.ok('set_parent', { labour: `${key}-2`, parent: `${key}-1` });
 
 		const { quest } = await mcp.ok('create_quest', { name: 'Launch', description: 'Go live' });
-		expect(quest).toMatchObject({ name: 'Launch', tickets: [], progress: { closed: 0, total: 0 } });
+		expect(quest).toMatchObject({ name: 'Launch', labours: [], progress: { closed: 0, total: 0 } });
 
-		const added = await mcp.ok('add_quest_tickets', {
+		const added = await mcp.ok('add_quest_labours', {
 			quest: quest.id,
-			tickets: [`${key}-1`, `${key}-3`]
+			labours: [`${key}-1`, `${key}-3`]
 		});
-		expect(keysOf(added.quest.tickets)).toEqual([`${key}-1`, `${key}-3`]);
+		expect(keysOf(added.quest.labours)).toEqual([`${key}-1`, `${key}-3`]);
 
-		await mcp.ok('update_ticket', { ticket: `${key}-3`, state: 'closed' });
+		await mcp.ok('update_labour', { labour: `${key}-3`, state: 'closed' });
 		const progressed = await mcp.ok('get_quest', { quest: quest.id });
 		expect(progressed.quest.progress).toEqual({ closed: 1, total: 2 });
-		expect(progressed.quest.tickets[1]).toMatchObject({ key: `${key}-3`, closed: true });
+		expect(progressed.quest.labours[1]).toMatchObject({ key: `${key}-3`, closed: true });
 
-		const reordered = await mcp.ok('rank_quest_ticket', {
+		const reordered = await mcp.ok('rank_quest_labour', {
 			quest: quest.id,
-			ticket: `${key}-3`,
+			labour: `${key}-3`,
 			before: `${key}-1`
 		});
-		expect(keysOf(reordered.quest.tickets)).toEqual([`${key}-3`, `${key}-1`]);
-		const members = await mcp.ok('list_tickets', { quest: quest.id });
-		expect(keysOf(members.tickets)).toEqual([`${key}-3`, `${key}-1`]);
+		expect(keysOf(reordered.quest.labours)).toEqual([`${key}-3`, `${key}-1`]);
+		const members = await mcp.ok('list_labours', { quest: quest.id });
+		expect(keysOf(members.labours)).toEqual([`${key}-3`, `${key}-1`]);
 
-		const { ticket } = await mcp.ok('get_ticket', { ticket: `${key}-1` });
-		expect(ticket.quests).toEqual([
+		const { labour } = await mcp.ok('get_labour', { labour: `${key}-1` });
+		expect(labour.quests).toEqual([
 			{ id: quest.id, name: 'Launch', progress: { closed: 1, total: 2 } }
 		]);
 
-		const twice = await mcp.ok('add_quest_tickets', { quest: quest.id, tickets: [`${key}-1`] });
+		const twice = await mcp.ok('add_quest_labours', { quest: quest.id, labours: [`${key}-1`] });
 		expect(twice).toMatchObject({ added: [], skipped: [`${key}-1`] });
-		expect(keysOf(twice.quest.tickets)).toEqual([`${key}-3`, `${key}-1`]);
+		expect(keysOf(twice.quest.labours)).toEqual([`${key}-3`, `${key}-1`]);
 
-		const removed = await mcp.ok('remove_quest_tickets', {
+		const removed = await mcp.ok('remove_quest_labours', {
 			quest: quest.id,
-			tickets: [`${key}-3`]
+			labours: [`${key}-3`]
 		});
 		expect(removed.quest.progress).toEqual({ closed: 0, total: 1 });
 	});
@@ -375,42 +379,42 @@ test.describe('MCP at /mcp', () => {
 		expect(await response.json()).toMatchObject({
 			jsonrpc: '2.0',
 			id: 1,
-			result: { serverInfo: { name: 'workload' } }
+			result: { serverInfo: { name: 'sagas' } }
 		});
 	});
 
-	test('adds 100 Tickets to a Quest with exactly one Event', async ({ mcp, apiToken, seed }) => {
-		const key = await newProject(mcp);
-		const tickets: string[] = [];
+	test('adds 100 Labours to a Quest with exactly one Event', async ({ mcp, apiToken, seed }) => {
+		const key = await newRealm(mcp);
+		const labours: string[] = [];
 		for (let i = 1; i <= 100; i++) {
-			await mcp.ok('create_ticket', { project: key, title: `Bulk ${i}` });
-			tickets.push(`${key}-${i}`);
+			await mcp.ok('create_labour', { realm: key, title: `Bulk ${i}` });
+			labours.push(`${key}-${i}`);
 		}
 		const { quest } = await mcp.ok('create_quest', { name: 'Bulk' });
 
 		const before = seed.lastSeq();
-		const added = await mcp.ok('add_quest_tickets', { quest: quest.id, tickets });
+		const added = await mcp.ok('add_quest_labours', { quest: quest.id, labours });
 
 		expect(added.quest.progress).toEqual({ closed: 0, total: 100 });
 		const events = await eventsAfter(apiToken.token, before);
-		expect(events.map((e) => e.type)).toEqual(['quest.tickets_added']);
+		expect(events.map((e) => e.type)).toEqual(['quest.labours_added']);
 
-		const tooMany = await mcp.call('add_quest_tickets', {
+		const tooMany = await mcp.call('add_quest_labours', {
 			quest: quest.id,
-			tickets: [...tickets, `${key}-101`]
+			labours: [...labours, `${key}-101`]
 		});
 		expect(tooMany.data).toMatchObject({ error: { code: 'invalid' } });
 	});
 
 	test('rejects an unknown argument and an unknown tool in the error contract', async ({ mcp }) => {
-		const unknownArg = await mcp.call('list_projects', { verbose: true });
+		const unknownArg = await mcp.call('list_realms', { verbose: true });
 		expect(unknownArg).toMatchObject({
 			isError: true,
 			data: {
 				error: {
 					code: 'invalid',
 					message:
-						'Invalid arguments for list_projects: unknown argument "verbose"; list_projects takes no arguments'
+						'Invalid arguments for list_realms: unknown argument "verbose"; list_realms takes no arguments'
 				}
 			}
 		});

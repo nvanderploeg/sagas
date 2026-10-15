@@ -34,39 +34,53 @@ CREATE TABLE `invites` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `invites_token_hash_unique` ON `invites` (`token_hash`);--> statement-breakpoint
-CREATE TABLE `project_keys` (
+CREATE TABLE `labour_keys` (
 	`key` text PRIMARY KEY NOT NULL,
-	`project_id` integer NOT NULL,
+	`labour_id` integer NOT NULL,
 	`created_at` integer NOT NULL,
-	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade,
-	CONSTRAINT "project_keys_format" CHECK("key" GLOB '[A-Z]*' AND "key" NOT GLOB '*[^A-Z0-9]*' AND length("key") BETWEEN 2 AND 6)
+	FOREIGN KEY (`labour_id`) REFERENCES `labours`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "labour_keys_format" CHECK("key" GLOB '[A-Z]*-[1-9]*' AND "key" NOT GLOB '*[^A-Z0-9-]*' AND "key" NOT GLOB '*-*[^0-9]*')
 );
 --> statement-breakpoint
-CREATE INDEX `project_keys_project_idx` ON `project_keys` (`project_id`);--> statement-breakpoint
-CREATE TABLE `projects` (
+CREATE INDEX `labour_keys_labour_idx` ON `labour_keys` (`labour_id`);--> statement-breakpoint
+CREATE TABLE `labours` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`name` text NOT NULL,
-	`key` text NOT NULL,
-	`ticket_counter` integer DEFAULT 0 NOT NULL,
-	`initial_state_id` integer,
-	FOREIGN KEY (`id`,`initial_state_id`) REFERENCES `states`(`project_id`,`id`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "projects_key_format" CHECK("key" GLOB '[A-Z]*' AND "key" NOT GLOB '*[^A-Z0-9]*' AND length("key") BETWEEN 2 AND 6),
-	CONSTRAINT "projects_counter_non_negative" CHECK("ticket_counter" >= 0)
+	`realm_id` integer NOT NULL,
+	`number` integer NOT NULL,
+	`title` text NOT NULL,
+	`description` text DEFAULT '' NOT NULL,
+	`owner_id` integer NOT NULL,
+	`assignee_id` integer,
+	`state_id` integer NOT NULL,
+	`substate_id` integer,
+	`parent_id` integer,
+	`rank` text NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`realm_id`) REFERENCES `realms`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`owner_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`assignee_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`parent_id`) REFERENCES `labours`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`realm_id`,`state_id`) REFERENCES `states`(`realm_id`,`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`state_id`,`substate_id`) REFERENCES `substates`(`state_id`,`id`) ON UPDATE no action ON DELETE no action,
+	CONSTRAINT "labours_number_positive" CHECK("number" >= 1)
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `projects_key_unique` ON `projects` (`key`);--> statement-breakpoint
-CREATE TABLE `quest_tickets` (
+CREATE UNIQUE INDEX `labours_realm_number_uq` ON `labours` (`realm_id`,`number`);--> statement-breakpoint
+CREATE INDEX `labours_parent_idx` ON `labours` (`parent_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `labours_state_rank_uq` ON `labours` (`state_id`,`rank`);--> statement-breakpoint
+CREATE TABLE `quest_labours` (
 	`quest_id` integer NOT NULL,
-	`ticket_id` integer NOT NULL,
+	`labour_id` integer NOT NULL,
 	`rank` text NOT NULL,
 	`added_at` integer NOT NULL,
-	PRIMARY KEY(`quest_id`, `ticket_id`),
+	PRIMARY KEY(`quest_id`, `labour_id`),
 	FOREIGN KEY (`quest_id`) REFERENCES `quests`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`ticket_id`) REFERENCES `tickets`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`labour_id`) REFERENCES `labours`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `quest_tickets_quest_rank_uq` ON `quest_tickets` (`quest_id`,`rank`);--> statement-breakpoint
-CREATE INDEX `quest_tickets_ticket_idx` ON `quest_tickets` (`ticket_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `quest_labours_quest_rank_uq` ON `quest_labours` (`quest_id`,`rank`);--> statement-breakpoint
+CREATE INDEX `quest_labours_labour_idx` ON `quest_labours` (`labour_id`);--> statement-breakpoint
 CREATE TABLE `quests` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`name` text NOT NULL,
@@ -77,6 +91,27 @@ CREATE TABLE `quests` (
 	FOREIGN KEY (`owner_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
+CREATE TABLE `realm_keys` (
+	`key` text PRIMARY KEY NOT NULL,
+	`realm_id` integer NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`realm_id`) REFERENCES `realms`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "realm_keys_format" CHECK("key" GLOB '[A-Z]*' AND "key" NOT GLOB '*[^A-Z0-9]*' AND length("key") BETWEEN 2 AND 6)
+);
+--> statement-breakpoint
+CREATE INDEX `realm_keys_realm_idx` ON `realm_keys` (`realm_id`);--> statement-breakpoint
+CREATE TABLE `realms` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`name` text NOT NULL,
+	`key` text NOT NULL,
+	`labour_counter` integer DEFAULT 0 NOT NULL,
+	`initial_state_id` integer,
+	FOREIGN KEY (`id`,`initial_state_id`) REFERENCES `states`(`realm_id`,`id`) ON UPDATE no action ON DELETE no action,
+	CONSTRAINT "realms_key_format" CHECK("key" GLOB '[A-Z]*' AND "key" NOT GLOB '*[^A-Z0-9]*' AND length("key") BETWEEN 2 AND 6),
+	CONSTRAINT "realms_counter_non_negative" CHECK("labour_counter" >= 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `realms_key_unique` ON `realms` (`key`);--> statement-breakpoint
 CREATE TABLE `sessions` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` integer NOT NULL,
@@ -88,7 +123,7 @@ CREATE TABLE `sessions` (
 CREATE INDEX `sessions_user_idx` ON `sessions` (`user_id`);--> statement-breakpoint
 CREATE TABLE `states` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`project_id` integer NOT NULL,
+	`realm_id` integer NOT NULL,
 	`key` text NOT NULL,
 	`label` text NOT NULL,
 	`color` text NOT NULL,
@@ -96,15 +131,15 @@ CREATE TABLE `states` (
 	`position` integer NOT NULL,
 	`is_closed` integer DEFAULT false NOT NULL,
 	`default_substate_id` integer,
-	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`realm_id`) REFERENCES `realms`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`default_substate_id`) REFERENCES `substates`(`id`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (`id`,`default_substate_id`) REFERENCES `substates`(`state_id`,`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `states_project_key_uq` ON `states` (`project_id`,`key`);--> statement-breakpoint
-CREATE UNIQUE INDEX `states_project_position_uq` ON `states` (`project_id`,`position`);--> statement-breakpoint
-CREATE UNIQUE INDEX `states_project_id_uq` ON `states` (`project_id`,`id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `states_one_closed_uq` ON `states` (`project_id`) WHERE "is_closed" = 1;--> statement-breakpoint
+CREATE UNIQUE INDEX `states_realm_key_uq` ON `states` (`realm_id`,`key`);--> statement-breakpoint
+CREATE UNIQUE INDEX `states_realm_position_uq` ON `states` (`realm_id`,`position`);--> statement-breakpoint
+CREATE UNIQUE INDEX `states_realm_id_uq` ON `states` (`realm_id`,`id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `states_one_closed_uq` ON `states` (`realm_id`) WHERE "is_closed" = 1;--> statement-breakpoint
 CREATE TABLE `substates` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`state_id` integer NOT NULL,
@@ -119,41 +154,6 @@ CREATE TABLE `substates` (
 CREATE UNIQUE INDEX `substates_state_key_uq` ON `substates` (`state_id`,`key`);--> statement-breakpoint
 CREATE UNIQUE INDEX `substates_state_position_uq` ON `substates` (`state_id`,`position`);--> statement-breakpoint
 CREATE UNIQUE INDEX `substates_state_id_uq` ON `substates` (`state_id`,`id`);--> statement-breakpoint
-CREATE TABLE `ticket_keys` (
-	`key` text PRIMARY KEY NOT NULL,
-	`ticket_id` integer NOT NULL,
-	`created_at` integer NOT NULL,
-	FOREIGN KEY (`ticket_id`) REFERENCES `tickets`(`id`) ON UPDATE no action ON DELETE cascade,
-	CONSTRAINT "ticket_keys_format" CHECK("key" GLOB '[A-Z]*-[1-9]*' AND "key" NOT GLOB '*[^A-Z0-9-]*' AND "key" NOT GLOB '*-*[^0-9]*')
-);
---> statement-breakpoint
-CREATE INDEX `ticket_keys_ticket_idx` ON `ticket_keys` (`ticket_id`);--> statement-breakpoint
-CREATE TABLE `tickets` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`project_id` integer NOT NULL,
-	`number` integer NOT NULL,
-	`title` text NOT NULL,
-	`description` text DEFAULT '' NOT NULL,
-	`owner_id` integer NOT NULL,
-	`assignee_id` integer,
-	`state_id` integer NOT NULL,
-	`substate_id` integer,
-	`parent_id` integer,
-	`rank` text NOT NULL,
-	`created_at` integer NOT NULL,
-	`updated_at` integer NOT NULL,
-	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`owner_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action,
-	FOREIGN KEY (`assignee_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action,
-	FOREIGN KEY (`parent_id`) REFERENCES `tickets`(`id`) ON UPDATE no action ON DELETE set null,
-	FOREIGN KEY (`project_id`,`state_id`) REFERENCES `states`(`project_id`,`id`) ON UPDATE no action ON DELETE no action,
-	FOREIGN KEY (`state_id`,`substate_id`) REFERENCES `substates`(`state_id`,`id`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "tickets_number_positive" CHECK("number" >= 1)
-);
---> statement-breakpoint
-CREATE UNIQUE INDEX `tickets_project_number_uq` ON `tickets` (`project_id`,`number`);--> statement-breakpoint
-CREATE INDEX `tickets_parent_idx` ON `tickets` (`parent_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `tickets_state_rank_uq` ON `tickets` (`state_id`,`rank`);--> statement-breakpoint
 CREATE TABLE `users` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`kind` text NOT NULL,

@@ -1,9 +1,9 @@
-import type { WorkloadEvent } from './types.ts';
+import type { SagasEvent } from './types.ts';
 
-type Listener = (event: WorkloadEvent) => void;
+type Listener = (event: SagasEvent) => void;
 
 const listeners = new Set<Listener>();
-const queue: WorkloadEvent[] = [];
+const queue: SagasEvent[] = [];
 let delivering = false;
 
 export function subscribe(listener: Listener): () => void {
@@ -18,7 +18,7 @@ export function subscriberCount(): number {
 }
 
 // A publish made while delivering waits its turn, so every listener sees Events in seq order.
-export function publish(event: WorkloadEvent): void {
+export function publish(event: SagasEvent): void {
 	queue.push(event);
 	if (delivering) return;
 	delivering = true;
@@ -28,7 +28,7 @@ export function publish(event: WorkloadEvent): void {
 				try {
 					listener(next);
 				} catch (error) {
-					console.error('workload bus listener failed', error);
+					console.error('sagas bus listener failed', error);
 				}
 			}
 		}

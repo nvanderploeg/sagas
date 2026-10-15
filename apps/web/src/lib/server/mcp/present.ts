@@ -1,36 +1,38 @@
 import { asc, eq } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
-import { projectKeys, ticketKeys, users } from '../db/schema.ts';
-import { getProject, getState, getSubstate } from '../domain/lookup.ts';
-import { readProject } from '../domain/project-view.ts';
+import { realmKeys, labourKeys, users } from '../db/schema.ts';
+import { getRealm, getState, getSubstate } from '../domain/lookup.ts';
+import { readRealm } from '../domain/realm-view.ts';
 import { questProgress, type QuestProgress, type QuestView } from '../domain/quest-view.ts';
-import { listTicketQuests } from '../domain/quests.ts';
-import { readTicket, type TicketView } from '../domain/ticket-view.ts';
-import { listChildren } from '../domain/tickets.ts';
+import { listLabourQuests } from '../domain/quests.ts';
+import { readLabour, type LabourView } from '../domain/labour-view.ts';
+import type { CommentView } from '../domain/comments.ts';
+import { listChildren } from '../domain/labours.ts';
 import type { AuthUser } from '../auth/users.ts';
 
 export type Label = { key: string; label: string };
 
-export type TicketSummary = {
+export type LabourSummary = {
 	id: number;
 	key: string;
 	title: string;
-	project: string;
+	realm: string;
 	state: Label;
 	substate: Label | null;
 	closed: boolean;
 	owner: string;
 	assignee: string | null;
 	parent: string | null;
+	labels: string[];
 };
 
-export type TicketDetail = TicketSummary & {
+export type LabourDetail = LabourSummary & {
 	description: string;
 	aliases: string[];
 	createdAt: string;
 	updatedAt: string;
-	parentTicket: TicketSummary | null;
-	children: TicketSummary[];
+	parentLabour: LabourSummary | null;
+	children: LabourSummary[];
 	quests: { id: number; name: string; progress: QuestProgress }[];
 };
 
@@ -73,39 +75,40 @@ export class Presenter {
 		});
 	}
 
-	private projectKey(id: number): string {
-		return this.once(`project:${id}`, () => getProject(this.db, id).key);
+	private realmKey(id: number): string {
+		return this.once(`realm:${id}`, () => getRealm(this.db, id).key);
 	}
 
-	private ticketKey(id: number): string {
-		return this.once(`ticket:${id}`, () => readTicket(this.db, id).key);
+	private labourKey(id: number): string {
+		return this.once(`labour:${id}`, () => readLabour(this.db, id).key);
 	}
 
-	ticket(view: TicketView): TicketSummary {
+	labour(view: LabourView): LabourSummary {
 		return {
 			id: view.id,
 			key: view.key,
 			title: view.title,
-			project: this.projectKey(view.projectId),
+			realm: this.realmKey(view.realmId),
 			state: this.state(view.stateId),
 			substate: view.substateId === null ? null : this.substate(view.substateId),
 			closed: view.closed,
 			owner: this.username(view.ownerId),
 			assignee: view.assigneeId === null ? null : this.username(view.assigneeId),
-			parent: view.parentId === null ? null : this.ticketKey(view.parentId)
+			parent: view.parentId === null ? null : this.labourKey(view.parentId),
+			labels: view.labels
 		};
 	}
 
-	detail(view: TicketView): TicketDetail {
+	detail(view: LabourView): LabourDetail {
 		return {
-			...this.ticket(view),
+			...this.labour(view),
 			description: view.description,
 			aliases: this.aliases(view),
 			createdAt: view.createdAt.toISOString(),
 			updatedAt: view.updatedAt.toISOString(),
-			parentTicket: view.parentId === null ? null : this.ticket(readTicket(this.db, view.parentId)),
-			children: listChildren(this.db, view.id).map((child) => this.ticket(child)),
-			quests: listTicketQuests(this.db, view.id).map((quest) => ({
+			parentLabour: view.parentId === null ? null : this.labour(readLabour(this.db, view.parentId)),
+			children: listChildren(this.db, view.id).map((child) => this.labour(child)),
+			quests: listLabourQuests(this.db, view.id).map((quest) => ({
 				id: quest.id,
 				name: quest.name,
 				progress: questProgress(this.db, quest.id)
@@ -113,24 +116,35 @@ export class Presenter {
 		};
 	}
 
-	aliases(view: TicketView): string[] {
+	comment(view: CommentView) {
+		return {
+			id: view.id,
+			labour: this.labourKey(view.labourId),
+			author: this.username(view.authorId),
+			body: view.body,
+			createdAt: view.createdAt.toISOString(),
+			updatedAt: view.updatedAt?.toISOString() ?? null
+		};
+	}
+
+	aliases(view: LabourView): string[] {
 		return this.db
-			.select({ key: ticketKeys.key })
-			.from(ticketKeys)
-			.where(eq(ticketKeys.ticketId, view.id))
-			.orderBy(asc(ticketKeys.createdAt), asc(ticketKeys.key))
+			.select({ key: labourKeys.key })
+			.from(labourKeys)
+			.where(eq(labourKeys.labourId, view.id))
+			.orderBy(asc(labourKeys.createdAt), asc(labourKeys.key))
 			.all()
 			.map((row) => row.key)
 			.filter((key) => key !== view.key);
 	}
 
-	project(projectId: number) {
-		const view = readProject(this.db, projectId);
+	realm(realmId: number) {
+		const view = readRealm(this.db, realmId);
 		const formerKeys = this.db
-			.select({ key: projectKeys.key })
-			.from(projectKeys)
-			.where(eq(projectKeys.projectId, projectId))
-			.orderBy(asc(projectKeys.createdAt), asc(projectKeys.key))
+			.select({ key: realmKeys.key })
+			.from(realmKeys)
+			.where(eq(realmKeys.realmId, realmId))
+			.orderBy(asc(realmKeys.createdAt), asc(realmKeys.key))
 			.all()
 			.map((row) => row.key)
 			.filter((key) => key !== view.key);
@@ -172,11 +186,11 @@ export class Presenter {
 	}
 
 	quest(view: QuestView) {
-		return { ...this.questSummary(view), tickets: view.tickets.map((t) => this.ticket(t)) };
+		return { ...this.questSummary(view), labours: view.labours.map((t) => this.labour(t)) };
 	}
 }
 
-export type ProjectSummary = ReturnType<Presenter['project']>;
+export type RealmSummary = ReturnType<Presenter['realm']>;
 
 export function userSummary(user: AuthUser) {
 	return {
@@ -190,12 +204,13 @@ export function userSummary(user: AuthUser) {
 
 const labelled = (x: Label) => `${x.key}: ${x.label}`;
 
-export function ticketLine(t: TicketSummary): string {
+export function labourLine(t: LabourSummary): string {
 	const where = t.substate ? `${labelled(t.state)} › ${labelled(t.substate)}` : labelled(t.state);
-	return `${t.key} [${where}] ${t.title}`;
+	const labels = t.labels.length > 0 ? ` {${t.labels.join(', ')}}` : '';
+	return `${t.key} [${where}] ${t.title}${labels}`;
 }
 
-export function projectLine(p: ProjectSummary): string {
+export function realmLine(p: RealmSummary): string {
 	const states = p.states.map((s) =>
 		s.key === p.initialState ? `${labelled(s)} (initial)` : labelled(s)
 	);

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../db/client.ts';
-import { addQuestTicket, createQuest } from '../domain/quests.ts';
+import { addQuestLabour, createQuest } from '../domain/quests.ts';
 import type { Actor } from '../domain/write.ts';
 import { testDb } from '../test/db.ts';
-import { seedActor, seedProject, seedTicket, seedUser } from '../test/fixtures.ts';
-import { readHome, readTicketPage } from './reads.ts';
+import { seedActor, seedRealm, seedLabour, seedUser } from '../test/fixtures.ts';
+import { readHome, readLabourPage } from './reads.ts';
 
 let db: Db;
 let actor: Actor;
@@ -26,35 +26,35 @@ function statements(read: () => unknown): number {
 	return count;
 }
 
-function questsWithMembers(ownerId: number, count: number, projectId: number) {
+function questsWithMembers(ownerId: number, count: number, realmId: number) {
 	for (let i = 0; i < count; i++) {
 		const quest = createQuest(db, actor, { name: `Quest ${i}`, ownerId });
 		for (let j = 0; j < 3; j++) {
-			addQuestTicket(db, actor, quest.id, seedTicket(db, { projectId, ownerId }).id);
+			addQuestLabour(db, actor, quest.id, seedLabour(db, { realmId, ownerId }).id);
 		}
 	}
 }
 
 describe('page reads', () => {
-	it('read a Ticket page in as many statements however many Quests exist', () => {
-		const project = seedProject(db);
-		const ticket = seedTicket(db, { projectId: project.id, ownerId: actor.id });
-		questsWithMembers(actor.id, 1, project.id);
-		const few = statements(() => readTicketPage(db, ticket.id));
+	it('read a Labour page in as many statements however many Quests exist', () => {
+		const realm = seedRealm(db);
+		const labour = seedLabour(db, { realmId: realm.id, ownerId: actor.id });
+		questsWithMembers(actor.id, 1, realm.id);
+		const few = statements(() => readLabourPage(db, labour.id));
 
-		questsWithMembers(actor.id, 12, project.id);
-		expect(statements(() => readTicketPage(db, ticket.id))).toBe(few);
-		expect(readTicketPage(db, ticket.id).quests).toHaveLength(13);
-		expect(Object.keys(readTicketPage(db, ticket.id).quests[0]).sort()).toEqual(['id', 'name']);
+		questsWithMembers(actor.id, 12, realm.id);
+		expect(statements(() => readLabourPage(db, labour.id))).toBe(few);
+		expect(readLabourPage(db, labour.id).quests).toHaveLength(13);
+		expect(Object.keys(readLabourPage(db, labour.id).quests[0]).sort()).toEqual(['id', 'name']);
 	});
 
 	it('read Home without touching the Quests other Users own', () => {
-		const project = seedProject(db);
+		const realm = seedRealm(db);
 		const other = seedUser(db, 'other');
-		questsWithMembers(actor.id, 2, project.id);
+		questsWithMembers(actor.id, 2, realm.id);
 		const few = statements(() => readHome(db, actor.id));
 
-		questsWithMembers(other, 12, project.id);
+		questsWithMembers(other, 12, realm.id);
 		expect(statements(() => readHome(db, actor.id))).toBe(few);
 		expect(readHome(db, actor.id).quests.map((q) => q.ownerId)).toEqual([actor.id, actor.id]);
 	});

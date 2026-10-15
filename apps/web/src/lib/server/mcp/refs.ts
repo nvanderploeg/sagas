@@ -1,13 +1,13 @@
 import { and, eq } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
-import { projectKeys, states, substates, users } from '../db/schema.ts';
+import { realmKeys, states, substates, users } from '../db/schema.ts';
 import { DomainError } from '../domain/errors.ts';
-import { parseTicketKey } from '../domain/keys.ts';
-import { getProject, getState, getSubstate } from '../domain/lookup.ts';
+import { parseLabourKey } from '../domain/keys.ts';
+import { getRealm, getState, getSubstate } from '../domain/lookup.ts';
 import { getQuest } from '../domain/quest-view.ts';
 import type { Placement } from '../domain/rank.ts';
 import { listStates, listSubstates } from '../domain/states.ts';
-import { readTicket, resolveTicketKey } from '../domain/tickets.ts';
+import { readLabour, resolveLabourKey } from '../domain/labours.ts';
 
 // A number is an id; a string is a key or a username, never an id.
 export type Ref = string | number;
@@ -27,35 +27,35 @@ function text(ref: string, what: string): string {
 	return value;
 }
 
-function ticketById(db: Handle, id: number) {
+function labourById(db: Handle, id: number) {
 	try {
-		return readTicket(db, id);
+		return readLabour(db, id);
 	} catch (error) {
 		if (error instanceof DomainError && error.code === 'not_found') {
-			return notFound(`No Ticket has the id ${id}`);
+			return notFound(`No Labour has the id ${id}`);
 		}
 		throw error;
 	}
 }
 
-export function ticketId(db: Handle, ref: Ref): number {
-	if (typeof ref === 'number') return ticketById(db, ref).id;
-	const key = text(ref, 'a Ticket key');
-	if (parseTicketKey(key) === null) {
-		throw new DomainError('invalid', `"${key}" is not a Ticket key, e.g. "AM-12"`);
+export function labourId(db: Handle, ref: Ref): number {
+	if (typeof ref === 'number') return labourById(db, ref).id;
+	const key = text(ref, 'a Labour key');
+	if (parseLabourKey(key) === null) {
+		throw new DomainError('invalid', `"${key}" is not a Labour key, e.g. "AM-12"`);
 	}
-	return resolveTicketKey(db, key)?.id ?? notFound(`No Ticket has the key ${key.toUpperCase()}`);
+	return resolveLabourKey(db, key)?.id ?? notFound(`No Labour has the key ${key.toUpperCase()}`);
 }
 
-export function ticketKey(db: Handle, id: number): string {
-	return readTicket(db, id).key;
+export function labourKey(db: Handle, id: number): string {
+	return readLabour(db, id).key;
 }
 
-export function projectId(db: Handle, ref: Ref): number {
-	if (typeof ref === 'number') return getProject(db, ref).id;
-	const key = text(ref, 'a Project key').toUpperCase();
-	const row = db.select().from(projectKeys).where(eq(projectKeys.key, key)).get();
-	return row?.projectId ?? notFound(`No Project has the key ${key}`);
+export function realmId(db: Handle, ref: Ref): number {
+	if (typeof ref === 'number') return getRealm(db, ref).id;
+	const key = text(ref, 'a Realm key').toUpperCase();
+	const row = db.select().from(realmKeys).where(eq(realmKeys.key, key)).get();
+	return row?.realmId ?? notFound(`No Realm has the key ${key}`);
 }
 
 // "me" is the caller, whatever the usernames.
@@ -74,27 +74,27 @@ export function questId(db: Handle, id: number): number {
 	return getQuest(db, id).id;
 }
 
-export function stateId(db: Handle, project: number | undefined, ref: Ref): number {
+export function stateId(db: Handle, realm: number | undefined, ref: Ref): number {
 	if (typeof ref === 'number') {
 		const state = getState(db, ref);
-		if (project !== undefined && state.projectId !== project) {
-			throw new DomainError('invalid', 'The State belongs to another Project');
+		if (realm !== undefined && state.realmId !== realm) {
+			throw new DomainError('invalid', 'The State belongs to another Realm');
 		}
 		return state.id;
 	}
 	const key = text(ref, 'a State key').toLowerCase();
-	if (project === undefined) {
-		throw new DomainError('invalid', `Name the Project to look up State "${key}"`);
+	if (realm === undefined) {
+		throw new DomainError('invalid', `Name the Realm to look up State "${key}"`);
 	}
 	const row = db
 		.select({ id: states.id })
 		.from(states)
-		.where(and(eq(states.projectId, project), eq(states.key, key)))
+		.where(and(eq(states.realmId, realm), eq(states.key, key)))
 		.get();
 	if (row) return row.id;
-	const known = listStates(db, project).map((s) => s.key);
+	const known = listStates(db, realm).map((s) => s.key);
 	return notFound(
-		`No State "${key}" in ${getProject(db, project).key}; its States are ${known.join(', ')}`
+		`No State "${key}" in ${getRealm(db, realm).key}; its States are ${known.join(', ')}`
 	);
 }
 
@@ -133,7 +133,7 @@ export function placement(db: Handle, args: PlacementArgs): Placement | undefine
 		throw new DomainError('invalid', 'Give at most one of position, before and after');
 	}
 	if (args.position !== undefined) return args.position;
-	if (args.before !== undefined) return { before: ticketId(db, args.before) };
-	if (args.after !== undefined) return { after: ticketId(db, args.after) };
+	if (args.before !== undefined) return { before: labourId(db, args.before) };
+	if (args.after !== undefined) return { after: labourId(db, args.after) };
 	return undefined;
 }

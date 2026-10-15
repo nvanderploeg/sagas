@@ -53,20 +53,20 @@ const text = (result: CallToolResult) =>
 
 const lastSeq = () => eventWindow(db).last;
 
-async function seedProject(client: Client, ticketCount = 0) {
-	await ok(client, 'create_project', { name: 'Atlas', key: 'am' });
-	for (let i = 1; i <= ticketCount; i++) {
-		await ok(client, 'create_ticket', { project: 'AM', title: `Ticket ${i}` });
+async function seedRealm(client: Client, labourCount = 0) {
+	await ok(client, 'create_realm', { name: 'Atlas', key: 'am' });
+	for (let i = 1; i <= labourCount; i++) {
+		await ok(client, 'create_labour', { realm: 'AM', title: `Labour ${i}` });
 	}
 }
 
 describe('toErrorResult', () => {
 	it('carries a DomainError code and message', () => {
-		expect(toErrorResult(new DomainError('conflict', 'Project key AM is already in use'))).toEqual({
+		expect(toErrorResult(new DomainError('conflict', 'Realm key AM is already in use'))).toEqual({
 			isError: true,
-			content: [{ type: 'text', text: 'Project key AM is already in use' }],
+			content: [{ type: 'text', text: 'Realm key AM is already in use' }],
 			structuredContent: {
-				error: { code: 'conflict', message: 'Project key AM is already in use' }
+				error: { code: 'conflict', message: 'Realm key AM is already in use' }
 			}
 		});
 	});
@@ -85,9 +85,9 @@ describe('the MCP server', () => {
 
 		for (const name of [
 			'resolve',
-			'list_tickets',
-			'create_ticket',
-			'add_quest_tickets',
+			'list_labours',
+			'create_labour',
+			'add_quest_labours',
 			'whoami'
 		]) {
 			expect(names).toContain(name);
@@ -108,25 +108,25 @@ describe('the MCP server', () => {
 	it('acts as the given User, who is the actor of every Event its writes record', async () => {
 		const bob = seedHuman(db, 'bob');
 		const client = await connect(bob);
-		await seedProject(client);
+		await seedRealm(client);
 		const before = lastSeq();
 
-		const result = await call(client, 'create_ticket', { project: 'AM', title: 'First' });
+		const result = await call(client, 'create_labour', { realm: 'AM', title: 'First' });
 
 		expect(result.structuredContent).toMatchObject({
-			ticket: { key: 'AM-1', owner: 'bob', assignee: null }
+			labour: { key: 'AM-1', owner: 'bob', assignee: null }
 		});
 		const recorded = eventsSince(db, before);
 		expect(recorded.map((e) => [e.type, e.actor])).toEqual([
-			['ticket.created', { id: bob.id, kind: 'human', username: 'bob', displayName: 'bob' }]
+			['labour.created', { id: bob.id, kind: 'human', username: 'bob', displayName: 'bob' }]
 		]);
 	});
 
 	it('puts a one-line summary with State keys and labels, then the result as JSON, in the text', async () => {
 		const client = await connect(admin);
-		await seedProject(client);
+		await seedRealm(client);
 
-		const result = await call(client, 'create_ticket', { project: 'AM', title: 'First' });
+		const result = await call(client, 'create_labour', { realm: 'AM', title: 'First' });
 
 		const [summary, ...rest] = text(result).split('\n');
 		expect(summary).toBe('AM-1 [todo: To do] First');
@@ -135,20 +135,20 @@ describe('the MCP server', () => {
 
 	it('maps a DomainError to a tool error with the service message', async () => {
 		const client = await connect(admin);
-		await call(client, 'create_project', { name: 'Atlas', key: 'AM' });
-		const result = await call(client, 'create_project', { name: 'Again', key: 'am' });
+		await call(client, 'create_realm', { name: 'Atlas', key: 'AM' });
+		const result = await call(client, 'create_realm', { name: 'Again', key: 'am' });
 
 		expect(result.isError).toBe(true);
-		expect(text(result)).toBe('Project key AM is already in use');
+		expect(text(result)).toBe('Realm key AM is already in use');
 		expect(result.structuredContent).toEqual({
-			error: { code: 'conflict', message: 'Project key AM is already in use' }
+			error: { code: 'conflict', message: 'Realm key AM is already in use' }
 		});
 	});
 
 	it('reports a missing argument in the error contract', async () => {
-		const result = await call(await connect(admin), 'get_ticket', {});
+		const result = await call(await connect(admin), 'get_labour', {});
 
-		const message = 'Invalid arguments for get_ticket: missing argument "ticket"';
+		const message = 'Invalid arguments for get_labour: missing argument "labour"';
 		expect(result).toMatchObject({
 			isError: true,
 			content: [{ type: 'text', text: message }],
@@ -158,21 +158,21 @@ describe('the MCP server', () => {
 
 	it('rejects an unknown argument, naming it and the arguments the tool takes', async () => {
 		const client = await connect(admin);
-		await seedProject(client, 1);
+		await seedRealm(client, 1);
 
-		const result = await call(client, 'get_ticket', { ticket: 'AM-1', verbose: true });
+		const result = await call(client, 'get_labour', { labour: 'AM-1', verbose: true });
 
 		expect(result.structuredContent).toEqual({
 			error: {
 				code: 'invalid',
 				message:
-					'Invalid arguments for get_ticket: unknown argument "verbose"; get_ticket takes ticket'
+					'Invalid arguments for get_labour: unknown argument "verbose"; get_labour takes labour'
 			}
 		});
 	});
 
 	it('rejects an unknown key inside an object argument', async () => {
-		const result = await call(await connect(admin), 'create_project', {
+		const result = await call(await connect(admin), 'create_realm', {
 			name: 'Atlas',
 			key: 'AM',
 			initialState: { key: 'todo', label: 'To do', color: '#000000', icon: 'circle', x: 1 }
@@ -192,54 +192,77 @@ describe('the MCP server', () => {
 		});
 	});
 
-	it('refuses a digit string where a Ticket is named', async () => {
+	it('refuses a digit string where a Labour is named', async () => {
 		const client = await connect(admin);
-		await seedProject(client, 1);
-		const { ticket } = await ok(client, 'get_ticket', { ticket: 'AM-1' });
+		await seedRealm(client, 1);
+		const { labour } = await ok(client, 'get_labour', { labour: 'AM-1' });
 
-		const result = await call(client, 'get_ticket', { ticket: String(ticket.id) });
+		const result = await call(client, 'get_labour', { labour: String(labour.id) });
 
 		expect(result.structuredContent).toMatchObject({
 			error: { code: 'invalid', message: expect.stringContaining('JSON number') }
 		});
-		expect(await ok(client, 'get_ticket', { ticket: ticket.id })).toMatchObject({
-			ticket: { key: 'AM-1' }
+		expect(await ok(client, 'get_labour', { labour: labour.id })).toMatchObject({
+			labour: { key: 'AM-1' }
 		});
+	});
+
+	it('adds and lists Comments as the calling User', async () => {
+		const bob = seedHuman(db, 'bob');
+		const client = await connect(bob);
+		await seedRealm(client, 1);
+
+		const { comment } = await ok(client, 'add_comment', {
+			labour: 'AM-1',
+			body: 'Resolved: **done**'
+		});
+		const listed = await ok(client, 'list_comments', { labour: 'AM-1' });
+
+		expect(comment).toMatchObject({ labour: 'AM-1', author: 'bob', body: 'Resolved: **done**' });
+		expect(listed.comments).toEqual([comment]);
+		const edited = await ok(client, 'update_comment', { comment: comment.id, body: 'Revised' });
+		expect(edited.comment).toMatchObject({ body: 'Revised' });
+		const forbidden = await call(await connect(admin), 'delete_comment', { comment: comment.id });
+		expect(forbidden.structuredContent).toMatchObject({ error: { code: 'forbidden' } });
+		await ok(client, 'delete_comment', { comment: comment.id });
+		expect((await ok(client, 'list_comments', { labour: 'AM-1' })).comments).toEqual([]);
+		const refused = await call(client, 'add_comment', { labour: 'AM-1', body: ' ' });
+		expect(refused.structuredContent).toMatchObject({ error: { code: 'invalid' } });
 	});
 
 	it('takes "me" for owner and assignee, in writes and filters', async () => {
 		const bob = seedHuman(db, 'bob');
 		const client = await connect(bob);
-		await seedProject(client);
-		await ok(client, 'create_ticket', { project: 'AM', title: 'Mine', owner: 'root' });
+		await seedRealm(client);
+		await ok(client, 'create_labour', { realm: 'AM', title: 'Mine', owner: 'root' });
 
-		const { ticket } = await ok(client, 'update_ticket', {
-			ticket: 'AM-1',
+		const { labour } = await ok(client, 'update_labour', {
+			labour: 'AM-1',
 			owner: 'me',
 			assignee: 'me'
 		});
-		expect(ticket).toMatchObject({ owner: 'bob', assignee: 'bob' });
-		const page = await ok(client, 'list_tickets', { owner: 'me', assignee: 'me' });
+		expect(labour).toMatchObject({ owner: 'bob', assignee: 'bob' });
+		const page = await ok(client, 'list_labours', { owner: 'me', assignee: 'me' });
 		expect(page.total).toBe(1);
 	});
 
-	it('names Tickets by key in errors', async () => {
+	it('names Labours by key in errors', async () => {
 		const client = await connect(admin);
-		await seedProject(client, 2);
+		await seedRealm(client, 2);
 		await ok(client, 'create_state', {
-			project: 'AM',
+			realm: 'AM',
 			key: 'doing',
 			label: 'Doing',
 			color: '#000000',
 			icon: 'play'
 		});
-		await ok(client, 'update_ticket', { ticket: 'AM-2', state: 'doing' });
+		await ok(client, 'update_labour', { labour: 'AM-2', state: 'doing' });
 		const { quest } = await ok(client, 'create_quest', { name: 'Launch' });
 
-		const ranked = await call(client, 'rank_ticket', { ticket: 'AM-1', after: 'AM-2' });
-		const outside = await call(client, 'rank_quest_ticket', {
+		const ranked = await call(client, 'rank_labour', { labour: 'AM-1', after: 'AM-2' });
+		const outside = await call(client, 'rank_quest_labour', {
 			quest: quest.id,
-			ticket: 'AM-1',
+			labour: 'AM-1',
 			position: 'top'
 		});
 
@@ -247,104 +270,104 @@ describe('the MCP server', () => {
 		expect(text(outside)).toBe(`AM-1 is not in Quest ${quest.id}`);
 	});
 
-	it('resolves a Ticket named by the ticket argument', async () => {
+	it('resolves a Labour named by the labour argument', async () => {
 		const client = await connect(admin);
-		await seedProject(client, 1);
+		await seedRealm(client, 1);
 
-		expect(await ok(client, 'resolve', { ticket: 'am-1' })).toMatchObject({
-			ticket: { key: 'AM-1' },
+		expect(await ok(client, 'resolve', { labour: 'am-1' })).toMatchObject({
+			labour: { key: 'AM-1' },
 			alias: false
 		});
 	});
 
 	it('reorders States and Substates by index, never by position', async () => {
 		const client = await connect(admin);
-		await seedProject(client);
+		await seedRealm(client);
 		const style = { color: '#000000', icon: 'dot' };
-		await ok(client, 'create_state', { project: 'AM', key: 'doing', label: 'Doing', ...style });
+		await ok(client, 'create_state', { realm: 'AM', key: 'doing', label: 'Doing', ...style });
 
-		const { project } = await ok(client, 'reorder_state', {
-			project: 'AM',
+		const { realm } = await ok(client, 'reorder_state', {
+			realm: 'AM',
 			state: 'doing',
 			index: 0
 		});
 		const old = await call(client, 'reorder_state', {
-			project: 'AM',
+			realm: 'AM',
 			state: 'doing',
 			position: 0
 		});
 
-		expect(project.states.map((s: { key: string }) => s.key)).toEqual(['doing', 'todo', 'closed']);
+		expect(realm.states.map((s: { key: string }) => s.key)).toEqual(['doing', 'todo', 'closed']);
 		expect(text(old)).toContain('unknown argument "position"');
 	});
 
-	it('adds and removes 100 Tickets of a Quest with one Event each', async () => {
+	it('adds and removes 100 Labours of a Quest with one Event each', async () => {
 		const client = await connect(admin);
-		await seedProject(client, 100);
+		await seedRealm(client, 100);
 		const { quest } = await ok(client, 'create_quest', { name: 'Launch' });
-		const tickets = Array.from({ length: 100 }, (_, i) => `AM-${i + 1}`);
+		const labours = Array.from({ length: 100 }, (_, i) => `AM-${i + 1}`);
 
 		const before = lastSeq();
-		const added = await ok(client, 'add_quest_tickets', { quest: quest.id, tickets });
-		expect(eventsSince(db, before).map((e) => e.type)).toEqual(['quest.tickets_added']);
+		const added = await ok(client, 'add_quest_labours', { quest: quest.id, labours });
+		expect(eventsSince(db, before).map((e) => e.type)).toEqual(['quest.labours_added']);
 		expect(added.quest.progress).toEqual({ closed: 0, total: 100 });
-		expect(added.added).toEqual(tickets);
+		expect(added.added).toEqual(labours);
 
 		const middle = lastSeq();
-		const removed = await ok(client, 'remove_quest_tickets', { quest: quest.id, tickets });
-		expect(eventsSince(db, middle).map((e) => e.type)).toEqual(['quest.tickets_removed']);
+		const removed = await ok(client, 'remove_quest_labours', { quest: quest.id, labours });
+		expect(eventsSince(db, middle).map((e) => e.type)).toEqual(['quest.labours_removed']);
 		expect(removed.quest.progress).toEqual({ closed: 0, total: 0 });
 	});
 
-	it('skips and reports Tickets already as asked, without an error', async () => {
+	it('skips and reports Labours already as asked, without an error', async () => {
 		const client = await connect(admin);
-		await seedProject(client, 3);
+		await seedRealm(client, 3);
 		const { quest } = await ok(client, 'create_quest', { name: 'Launch' });
-		await ok(client, 'add_quest_tickets', { quest: quest.id, tickets: ['AM-1'] });
+		await ok(client, 'add_quest_labours', { quest: quest.id, labours: ['AM-1'] });
 
-		const added = await call(client, 'add_quest_tickets', {
+		const added = await call(client, 'add_quest_labours', {
 			quest: quest.id,
-			tickets: ['AM-2', 'am-1', 'AM-3']
+			labours: ['AM-2', 'am-1', 'AM-3']
 		});
-		const removed = await ok(client, 'remove_quest_tickets', {
+		const removed = await ok(client, 'remove_quest_labours', {
 			quest: quest.id,
-			tickets: ['AM-3', 'AM-2', 'AM-1']
+			labours: ['AM-3', 'AM-2', 'AM-1']
 		});
-		const again = await ok(client, 'remove_quest_tickets', { quest: quest.id, tickets: ['AM-1'] });
+		const again = await ok(client, 'remove_quest_labours', { quest: quest.id, labours: ['AM-1'] });
 
 		expect(added.structuredContent).toMatchObject({
 			added: ['AM-2', 'AM-3'],
 			skipped: ['AM-1']
 		});
 		expect(text(added).split('\n')[0]).toBe(
-			`Quest ${quest.id} Launch: 0/3 closed; added 2 Tickets, skipped 1 already in it`
+			`Quest ${quest.id} Launch: 0/3 closed; added 2 Labours, skipped 1 already in it`
 		);
 		expect(removed).toMatchObject({ removed: ['AM-3', 'AM-2', 'AM-1'], skipped: [] });
 		expect(again).toMatchObject({ removed: [], skipped: ['AM-1'] });
 	});
 
-	it('refuses more than 100 Tickets in one call', async () => {
+	it('refuses more than 100 Labours in one call', async () => {
 		const client = await connect(admin);
 		const { quest } = await ok(client, 'create_quest', { name: 'Launch' });
 
-		const result = await call(client, 'add_quest_tickets', {
+		const result = await call(client, 'add_quest_labours', {
 			quest: quest.id,
-			tickets: Array.from({ length: 101 }, (_, i) => `AM-${i + 1}`)
+			labours: Array.from({ length: 101 }, (_, i) => `AM-${i + 1}`)
 		});
 
 		expect(result.structuredContent).toMatchObject({
-			error: { code: 'invalid', message: expect.stringContaining('argument "tickets"') }
+			error: { code: 'invalid', message: expect.stringContaining('argument "labours"') }
 		});
 	});
 
-	it('summarises a page past the last Ticket without a backwards range', async () => {
+	it('summarises a page past the last Labour without a backwards range', async () => {
 		const client = await connect(admin);
-		await seedProject(client, 3);
+		await seedRealm(client, 3);
 
-		const result = await call(client, 'list_tickets', { offset: 10 });
+		const result = await call(client, 'list_labours', { offset: 10 });
 
-		expect(text(result).split('\n')[0]).toBe('No Tickets at offset 10; 3 Tickets match');
-		expect(result.structuredContent).toMatchObject({ tickets: [], total: 3, nextOffset: null });
+		expect(text(result).split('\n')[0]).toBe('No Labours at offset 10; 3 Labours match');
+		expect(result.structuredContent).toMatchObject({ labours: [], total: 3, nextOffset: null });
 	});
 
 	it('answers an unexpected failure without its details', async () => {
@@ -352,7 +375,7 @@ describe('the MCP server', () => {
 		const client = await connect(admin);
 		db.$client.close();
 
-		const result = await call(client, 'list_projects');
+		const result = await call(client, 'list_realms');
 
 		expect(result).toMatchObject({ isError: true, content: [{ text: 'Internal error' }] });
 		expect(quiet).toHaveBeenCalled();

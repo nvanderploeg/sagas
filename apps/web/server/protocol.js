@@ -1,6 +1,6 @@
 /** @import { IncomingMessage } from 'node:http' */
 
-const SOCKET_PROTOCOL_HEADER = 'x-workload-socket-protocol';
+const SOCKET_PROTOCOL_HEADER = 'x-sagas-socket-protocol';
 
 // adapter-node assumes https when its protocol header is missing. Fill it on every request, or
 // plain-http form POSTs fail the CSRF origin check and the session cookie turns Secure.

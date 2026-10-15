@@ -1,6 +1,6 @@
-# workload
+# sagas
 
-A Jira-like ticket tracker. Work in progress: the web app is a placeholder.
+A Jira-like labour tracker. Work in progress: the web app is a placeholder.
 
 ## Layout
 
@@ -16,7 +16,7 @@ pnpm install
 pnpm --filter web dev
 ```
 
-Open <http://localhost:5173>. The default database path is `/data/workload.db`, which is for the
+Open <http://localhost:5173>. The default database path is `/data/sagas.db`, which is for the
 container; export `DATABASE_PATH` (see `.env.example`) to point at a writable file locally.
 
 ## Run in Docker
@@ -28,17 +28,17 @@ entrypoint hands `/data` to the `node` user and runs the app as `node`, never as
 docker-compose up -d --build
 ```
 
-Open <http://localhost:3290>, or the host's LAN address on the same port. Set `WORKLOAD_PORT` in
+Open <http://localhost:3290>, or the host's LAN address on the same port. Set `SAGAS_PORT` in
 `.env` to change the port.
 
 The app serves plain http and takes each request's origin from its `Host` header. Behind a TLS
 reverse proxy, have the proxy send `X-Forwarded-Proto` and `X-Forwarded-Host`; the session cookie
-is `Secure` exactly when the forwarded protocol is https. `WORKLOAD_PROTOCOL_HEADER` and
-`WORKLOAD_HOST_HEADER` name those headers; set one empty to ignore it (see `.env.example`).
+is `Secure` exactly when the forwarded protocol is https. `SAGAS_PROTOCOL_HEADER` and
+`SAGAS_HOST_HEADER` name those headers; set one empty to ignore it (see `.env.example`).
 
 ## Connect an agent over MCP
 
-workload serves an MCP server at `/mcp` (Streamable HTTP). It authenticates with an API token and
+sagas serves an MCP server at `/mcp` (Streamable HTTP). It authenticates with an API token and
 acts as that token's User. The first Admin's token is shown once, at the end of `/setup`; for more,
 call the `create_api_token` tool (an Admin can also make an Agent user with `create_agent_user` and
 give it its own token).
@@ -46,7 +46,7 @@ give it its own token).
 With Claude Code:
 
 ```sh
-claude mcp add --transport http workload http://localhost:3290/mcp \
+claude mcp add --transport http sagas http://localhost:3290/mcp \
   --header "Authorization: Bearer <token>"
 ```
 

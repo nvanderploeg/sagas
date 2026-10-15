@@ -28,14 +28,14 @@
 </script>
 
 <svelte:head>
-	<title>Quests · workload</title>
+	<title>Quests · sagas</title>
 </svelte:head>
 
 <main class="mx-auto grid max-w-5xl gap-6 px-4 pt-4 pb-16">
 	<div>
 		<h1 class="text-4xl font-extrabold tracking-tight">Quests</h1>
 		<p class="mt-1 max-w-prose text-muted">
-			A Quest gathers Tickets from any Project. It is complete when every one of them is Closed.
+			A Quest gathers Labours from any Realm. It is complete when every one of them is Closed.
 		</p>
 	</div>
 
@@ -54,7 +54,7 @@
 	</form>
 
 	{#if list.quests.length === 0}
-		<p class="panel p-6 text-muted">No Quests yet. Name one above, then add its Tickets.</p>
+		<p class="panel p-6 text-muted">No Quests yet. Name one above, then add its Labours.</p>
 	{:else}
 		<ul class="grid gap-3 md:grid-cols-2">
 			{#each list.quests as quest (quest.id)}

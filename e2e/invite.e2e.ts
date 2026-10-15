@@ -12,7 +12,7 @@ test.describe('invite', () => {
 		const username = uniqueName('joiner');
 
 		await page.goto(`/invite/${token}`);
-		await expect(page.getByRole('heading', { name: 'Join workload' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Join sagas' })).toBeVisible();
 		await page.getByLabel('Username').fill(username);
 		await page.getByLabel('Display name').fill('New Joiner');
 		await page.getByLabel('Password').fill(PASSWORD);

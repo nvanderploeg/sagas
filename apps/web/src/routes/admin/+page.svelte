@@ -19,7 +19,7 @@
 </script>
 
 <svelte:head>
-	<title>Admin · workload</title>
+	<title>Admin · sagas</title>
 </svelte:head>
 
 <main class="mx-auto grid max-w-4xl gap-6 px-4 pt-4 pb-16">
@@ -75,7 +75,7 @@
 	<section class="panel grid gap-4 p-5" aria-labelledby="agents-heading">
 		<h2 id="agents-heading" class="text-lg font-bold tracking-tight">Agent users</h2>
 		<p class="text-sm text-muted">
-			Agents sign in only with API tokens, and can own and be assigned Tickets.
+			Agents sign in only with API tokens, and can own and be assigned Labours.
 		</p>
 		<form method="POST" action="?/agent" use:enhance class="flex flex-wrap items-end gap-2">
 			<label class="grid gap-1">

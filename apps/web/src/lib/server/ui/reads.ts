@@ -1,17 +1,18 @@
 import { and, asc, count, eq, inArray, or, sql } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
-import { projectKeys, projects, quests, states, tickets } from '../db/schema.ts';
-import { getProject } from '../domain/lookup.ts';
-import { listProjects, readProject, type Project, type ProjectView } from '../domain/projects.ts';
-import { listQuests, listTicketQuests, readQuest, type QuestView } from '../domain/quests.ts';
+import { realmKeys, realms, quests, states, labours } from '../db/schema.ts';
+import { listComments } from '../domain/comments.ts';
+import { getRealm } from '../domain/lookup.ts';
+import { listRealms, readRealm, type Realm, type RealmView } from '../domain/realms.ts';
+import { listQuests, listLabourQuests, readQuest, type QuestView } from '../domain/quests.ts';
 import {
 	listChildren,
-	readTicket,
-	resolveTicketKey,
-	selectTicketViews,
-	toTicketView,
-	type TicketView
-} from '../domain/tickets.ts';
+	readLabour,
+	resolveLabourKey,
+	selectLabourViews,
+	toLabourView,
+	type LabourView
+} from '../domain/labours.ts';
 import type { Json } from '../events/types.ts';
 
 // Page loads hand the client the JSON form Events carry, so loaded and live data share one shape.
@@ -19,102 +20,103 @@ export function toJson<T>(value: T): Json<T> {
 	return JSON.parse(JSON.stringify(value)) as Json<T>;
 }
 
-// Resolves a current or former Project key, in any case.
-export function findProjectByKey(db: Handle, input: string): Project | null {
+// Resolves a current or former Realm key, in any case.
+export function findRealmByKey(db: Handle, input: string): Realm | null {
 	const row = db
-		.select({ projectId: projectKeys.projectId })
-		.from(projectKeys)
-		.where(eq(projectKeys.key, input.trim().toUpperCase()))
+		.select({ realmId: realmKeys.realmId })
+		.from(realmKeys)
+		.where(eq(realmKeys.key, input.trim().toUpperCase()))
 		.get();
-	return row ? getProject(db, row.projectId) : null;
+	return row ? getRealm(db, row.realmId) : null;
 }
 
-export function readAllProjects(db: Handle): ProjectView[] {
-	return listProjects(db).map((p) => readProject(db, p.id));
+export function readAllRealms(db: Handle): RealmView[] {
+	return listRealms(db).map((p) => readRealm(db, p.id));
 }
 
 export function readHome(db: Handle, userId: number) {
-	const mine = selectTicketViews(db)
+	const mine = selectLabourViews(db)
 		.where(
 			and(
-				or(eq(tickets.ownerId, userId), eq(tickets.assigneeId, userId)),
+				or(eq(labours.ownerId, userId), eq(labours.assigneeId, userId)),
 				eq(states.isClosed, false)
 			)
 		)
-		.orderBy(asc(tickets.id))
+		.orderBy(asc(labours.id))
 		.all()
-		.map(toTicketView);
+		.map(toLabourView);
 	const owned = db
 		.select({ id: quests.id })
 		.from(quests)
 		.where(eq(quests.ownerId, userId))
 		.orderBy(asc(quests.id))
 		.all();
-	return { projects: readAllProjects(db), mine, quests: owned.map((q) => readQuest(db, q.id)) };
+	return { realms: readAllRealms(db), mine, quests: owned.map((q) => readQuest(db, q.id)) };
 }
 
-export function readTicketPage(db: Handle, ticketId: number) {
-	const ticket = readTicket(db, ticketId);
+export function readLabourPage(db: Handle, labourId: number) {
+	const labour = readLabour(db, labourId);
 	return {
-		ticket,
-		parent: ticket.parentId === null ? null : readTicket(db, ticket.parentId),
-		children: listChildren(db, ticketId),
-		projects: readAllProjects(db),
+		labour,
+		parent: labour.parentId === null ? null : readLabour(db, labour.parentId),
+		children: listChildren(db, labourId),
+		realms: readAllRealms(db),
 		quests: db
 			.select({ id: quests.id, name: quests.name })
 			.from(quests)
 			.orderBy(asc(quests.id))
 			.all(),
-		memberOf: listTicketQuests(db, ticketId).map((q) => q.id)
+		memberOf: listLabourQuests(db, labourId).map((q) => q.id),
+		comments: listComments(db, labourId)
 	};
 }
 
 export function readQuestPage(db: Handle, questId: number) {
-	return { quest: readQuest(db, questId), projects: readAllProjects(db) };
+	return { quest: readQuest(db, questId), realms: readAllRealms(db) };
 }
 
-export function readQuestList(db: Handle): { quests: QuestView[]; projects: ProjectView[] } {
-	return { quests: listQuests(db), projects: readAllProjects(db) };
+export function readQuestList(db: Handle): { quests: QuestView[]; realms: RealmView[] } {
+	return { quests: listQuests(db), realms: readAllRealms(db) };
 }
 
-export type TicketMatch = TicketView & { childCount: number };
+export type LabourMatch = LabourView & { childCount: number };
 
-// Matches a Ticket key, current or former, then key prefixes and titles.
-export function searchTickets(db: Handle, input: string, limit = 12): TicketMatch[] {
+// Matches a Labour key, current or former, then key prefixes and titles.
+export function searchLabours(db: Handle, input: string, limit = 12): LabourMatch[] {
 	const query = input.trim();
 	if (query === '') return [];
-	const exact = resolveTicketKey(db, query);
+	const exact = resolveLabourKey(db, query);
 	const pattern = `%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 	const keyPrefix = `${query.toUpperCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-	const found = selectTicketViews(db)
+	const found = selectLabourViews(db)
 		.where(
 			or(
-				sql`${tickets.title} LIKE ${pattern} ESCAPE '\\'`,
-				sql`(${projects.key} || '-' || ${tickets.number}) LIKE ${keyPrefix} ESCAPE '\\'`
+				sql`${labours.title} LIKE ${pattern} ESCAPE '\\'`,
+				sql`(${realms.key} || '-' || ${labours.number}) LIKE ${keyPrefix} ESCAPE '\\'`
 			)
 		)
-		.orderBy(asc(tickets.id))
+		.orderBy(asc(labours.id))
 		.limit(limit)
 		.all()
-		.map(toTicketView);
+		.map(toLabourView);
 	const matches = exact ? [exact, ...found.filter((t) => t.id !== exact.id)] : found;
 	const shown = matches.slice(0, limit);
 	return withChildCounts(db, shown);
 }
 
-function withChildCounts(db: Handle, list: TicketView[]): TicketMatch[] {
+function withChildCounts(db: Handle, list: LabourView[]): LabourMatch[] {
 	if (list.length === 0) return [];
 	const counts = new Map(
 		db
-			.select({ parentId: tickets.parentId, n: count() })
-			.from(tickets)
+			.select({ parentId: labours.parentId, n: count() })
+			.from(labours)
 			.where(
 				inArray(
-					tickets.parentId,
+					labours.parentId,
 					list.map((t) => t.id)
 				)
 			)
-			.groupBy(tickets.parentId)
+			.groupBy(labours.parentId)
 			.all()
 			.map((row) => [row.parentId, row.n])
 	);

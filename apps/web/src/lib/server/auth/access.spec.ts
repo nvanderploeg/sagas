@@ -44,7 +44,7 @@ describe('gate', () => {
 	it('recognises the public paths', () => {
 		expect(isPublicPath('/invite/x')).toBe(true);
 		expect(isPublicPath('/inviteX')).toBe(false);
-		expect(isPublicPath('/projects')).toBe(false);
+		expect(isPublicPath('/realms')).toBe(false);
 	});
 });
 

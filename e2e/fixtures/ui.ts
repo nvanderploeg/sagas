@@ -95,7 +95,7 @@ export function column(page: Page, label: string): Locator {
 export function card(page: Page, key: string): Locator {
 	return page
 		.locator('[data-card]:not([inert])')
-		.filter({ has: page.locator(`a[href="/t/${key}"]`) });
+		.filter({ has: page.locator(`a[href="/l/${key}"]`) });
 }
 
 export async function cardKeys(lane: Locator): Promise<string[]> {

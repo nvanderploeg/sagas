@@ -100,7 +100,7 @@ body {
 }
 
 /* Unlayered, so it outranks the typography plugin's own colours. */
-.prose.prose-workload {
+.prose.prose-sagas {
 	--tw-prose-body: var(--color-ink);
 	--tw-prose-headings: var(--color-ink);
 	--tw-prose-lead: var(--color-muted);
@@ -119,12 +119,12 @@ body {
 	--tw-prose-td-borders: var(--color-line);
 }
 
-.prose.prose-workload :where(code)::before,
-.prose.prose-workload :where(code)::after {
+.prose.prose-sagas :where(code)::before,
+.prose.prose-sagas :where(code)::after {
 	content: none;
 }
 
-.prose.prose-workload :where(code):not(:where(pre code)) {
+.prose.prose-sagas :where(code):not(:where(pre code)) {
 	padding: 0.1em 0.35em;
 	border-radius: 0.3rem;
 	background: var(--color-panel-2);

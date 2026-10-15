@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { publish, subscribe } from './bus.ts';
-import type { WorkloadEvent } from './types.ts';
+import type { SagasEvent } from './types.ts';
 
 const stops: (() => void)[] = [];
 
@@ -8,7 +8,7 @@ afterEach(() => {
 	for (const stop of stops.splice(0)) stop();
 });
 
-const event = (seq: number) => ({ seq }) as WorkloadEvent;
+const event = (seq: number) => ({ seq }) as SagasEvent;
 
 describe('publish', () => {
 	it('delivers to every listener in seq order when a listener publishes during delivery', () => {

@@ -1,15 +1,15 @@
-import type { Project, State, Substate, Ticket } from '../live/types.ts';
+import type { Realm, State, Substate, Labour } from '../live/types.ts';
 
 export const FALLBACK_STATE = { label: 'Unknown', color: '#9ca3af', icon: 'question' };
 
 export function stateOf(
-	projects: Project[],
-	ticket: Pick<Ticket, 'projectId' | 'stateId' | 'substateId'>
-): { project: Project | undefined; state: State | undefined; substate: Substate | undefined } {
-	const project = projects.find((p) => p.id === ticket.projectId);
-	const state = project?.states.find((s) => s.id === ticket.stateId);
-	const substate = state?.substates.find((s) => s.id === ticket.substateId);
-	return { project, state, substate };
+	realms: Realm[],
+	labour: Pick<Labour, 'realmId' | 'stateId' | 'substateId'>
+): { realm: Realm | undefined; state: State | undefined; substate: Substate | undefined } {
+	const realm = realms.find((p) => p.id === labour.realmId);
+	const state = realm?.states.find((s) => s.id === labour.stateId);
+	const substate = state?.substates.find((s) => s.id === labour.substateId);
+	return { realm, state, substate };
 }
 
 export const byRecent = (a: { updatedAt: string }, b: { updatedAt: string }) =>

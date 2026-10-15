@@ -2,7 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import StatePill from '#lib/components/StatePill.svelte';
-	import TicketRow from '#lib/components/TicketRow.svelte';
+	import LabourRow from '#lib/components/LabourRow.svelte';
 	import XpBar from '#lib/components/XpBar.svelte';
 	import { applyToHome } from '#lib/live/apply.ts';
 	import { LiveView } from '#lib/live/view.svelte.ts';
@@ -27,7 +27,7 @@
 </script>
 
 <svelte:head>
-	<title>workload</title>
+	<title>sagas</title>
 </svelte:head>
 
 <main class="mx-auto grid max-w-6xl gap-8 px-4 pt-4 pb-16">
@@ -43,22 +43,22 @@
 		</form>
 	</div>
 
-	<section aria-labelledby="projects-heading" class="grid gap-3">
+	<section aria-labelledby="realms-heading" class="grid gap-3">
 		<div class="flex items-center justify-between gap-3">
-			<h2 id="projects-heading" class="text-xl font-bold tracking-tight">Projects</h2>
+			<h2 id="realms-heading" class="text-xl font-bold tracking-tight">Realms</h2>
 			<button
 				type="button"
 				class="btn"
 				aria-expanded={creating}
-				aria-controls="new-project"
-				onclick={() => (creating = !creating)}>New Project</button
+				aria-controls="new-realm"
+				onclick={() => (creating = !creating)}>New Realm</button
 			>
 		</div>
-		{#if creating || form?.scope === 'createProject'}
+		{#if creating || form?.scope === 'createRealm'}
 			<form
-				id="new-project"
+				id="new-realm"
 				method="POST"
-				action="?/createProject"
+				action="?/createRealm"
 				use:enhance
 				class="panel flex flex-wrap items-end gap-3 p-4"
 			>
@@ -77,36 +77,36 @@
 						aria-describedby="key-help"
 					/>
 				</label>
-				<button type="submit" class="btn btn-primary">Create Project</button>
+				<button type="submit" class="btn btn-primary">Create Realm</button>
 				<p id="key-help" class="w-full text-xs text-muted">
-					2 to 6 letters or digits, starting with a letter. Tickets are numbered under it, like
+					2 to 6 letters or digits, starting with a letter. Labours are numbered under it, like
 					AM-12.
 				</p>
-				{#if form?.scope === 'createProject' && form.error}
+				{#if form?.scope === 'createRealm' && form.error}
 					<p role="alert" class="error w-full">{form.error}</p>
 				{/if}
 			</form>
 		{/if}
-		{#if home.projects.length === 0}
+		{#if home.realms.length === 0}
 			<p class="panel p-6 text-muted">
-				No Projects yet. Create one to get a board with To do, In progress and Closed.
+				No Realms yet. Create one to get a board with To do, In progress and Closed.
 			</p>
 		{:else}
 			<ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-				{#each home.projects as project (project.id)}
+				{#each home.realms as realm (realm.id)}
 					<li>
 						<a
-							href={resolve('/p/[key]', { key: project.key })}
+							href={resolve('/r/[key]', { key: realm.key })}
 							class="panel group flex h-full flex-col gap-3 p-4 transition-colors hover:border-ink/40"
 						>
 							<span class="flex items-baseline justify-between gap-2">
 								<span class="truncate text-lg font-bold tracking-tight group-hover:underline"
-									>{project.name}</span
+									>{realm.name}</span
 								>
-								<span class="key">{project.key}</span>
+								<span class="key">{realm.key}</span>
 							</span>
 							<span class="flex flex-wrap gap-1" aria-label="States">
-								{#each project.states as state (state.id)}
+								{#each realm.states as state (state.id)}
 									<StatePill def={state} variant="dot" />
 								{/each}
 							</span>
@@ -119,15 +119,15 @@
 
 	<div class="grid items-start gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
 		<section aria-labelledby="mine-heading" class="grid gap-3">
-			<h2 id="mine-heading" class="text-xl font-bold tracking-tight">Your open Tickets</h2>
+			<h2 id="mine-heading" class="text-xl font-bold tracking-tight">Your open Labours</h2>
 			{#if mine.length === 0}
 				<p class="panel p-6 text-muted">
-					Nothing open is yours. Tickets you own or are assigned show up here.
+					Nothing open is yours. Labours you own or are assigned show up here.
 				</p>
 			{:else}
 				<ul class="panel divide-y divide-line overflow-hidden">
-					{#each mine as ticket (ticket.id)}
-						<li><TicketRow {ticket} projects={home.projects} {people} /></li>
+					{#each mine as labour (labour.id)}
+						<li><LabourRow {labour} realms={home.realms} {people} /></li>
 					{/each}
 				</ul>
 			{/if}

@@ -37,7 +37,7 @@
 		aria-valuemin={0}
 		aria-valuemax={total}
 		aria-valuenow={closed}
-		aria-valuetext="{closed} of {total} Tickets closed"
+		aria-valuetext="{closed} of {total} Labours closed"
 		style:--segments={segments}
 	>
 		<div class="fill" style:width="{pct}%"></div>

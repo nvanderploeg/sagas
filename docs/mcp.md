@@ -21,13 +21,13 @@ The MCP server at `/mcp`, for agents. Vocabulary is in `CONTEXT.md`; the decisio
 
 | Kind      | Accepts                                                                                                                      |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Ticket    | Ticket key in any case, former keys (Aliases) included, or id                                                                |
-| Project   | Project key in any case, former keys included, or id                                                                         |
-| State     | State key within the tool's Project, or id                                                                                   |
+| Labour    | Labour key in any case, former keys (Aliases) included, or id                                                                |
+| Realm     | Realm key in any case, former keys included, or id                                                                           |
+| State     | State key within the tool's Realm, or id                                                                                     |
 | Substate  | Substate key within its State, or id                                                                                         |
 | User      | Username in any case, `"me"` for the token's User, or id                                                                     |
 | Quest     | Id                                                                                                                           |
-| Placement | Of a Ticket in its column or in a Quest: at most one of `position: "top" \| "bottom"`, `before: <Ticket>`, `after: <Ticket>` |
+| Placement | Of a Labour in its column or in a Quest: at most one of `position: "top" \| "bottom"`, `before: <Labour>`, `after: <Labour>` |
 | Index     | Of a State or Substate: `index`, 0-based                                                                                     |
 
 - An id is a JSON number. A string is always a key or a username; a string of digits is `invalid`.
@@ -37,56 +37,61 @@ The MCP server at `/mcp`, for agents. Vocabulary is in `CONTEXT.md`; the decisio
 
 ## Results
 
-A result has `structuredContent` and one text item: a one-line summary, a newline, then `structuredContent` as JSON. A Ticket's summary shows its State and Substate keys and labels: `AM-1 [doing: Doing › review: Review] Title`.
+A result has `structuredContent` and one text item: a one-line summary, a newline, then `structuredContent` as JSON. A Labour's summary shows its State and Substate keys and labels: `AM-1 [doing: Doing › review: Review] Title`.
 
-- **Ticket**: `{ id, key, title, project, state: { key, label }, substate: { key, label } | null, closed, owner, assignee, parent }`. `project` is its Project key, `owner` and `assignee` usernames, `parent` the Parent's key.
-- **TicketDetail**: Ticket plus `{ description, aliases, createdAt, updatedAt, parentTicket: Ticket | null, children: Ticket[], quests: [{ id, name, progress }] }`.
-- **Project**: `{ id, key, name, aliases, initialState, states: [{ id, key, label, color, icon, closed, defaultSubstate, substates: [{ id, key, label, color, icon }] }] }`, States and Substates in order. `initialState` and `defaultSubstate` are keys.
-- **Quest**: `{ id, name, description, owner, progress: { closed, total }, tickets: Ticket[] }`, members in Quest order.
+- **Labour**: `{ id, key, title, realm, state: { key, label }, substate: { key, label } | null, closed, owner, assignee, parent, labels }`. `realm` is its Realm key, `owner` and `assignee` usernames, `parent` the Parent's key.
+- **LabourDetail**: Labour plus `{ description, aliases, createdAt, updatedAt, parentLabour: Labour | null, children: Labour[], quests: [{ id, name, progress }] }`.
+- **Comment**: `{ id, labour, author, body, createdAt, updatedAt | null }`. `labour` is the Labour's key, `author` a username, `body` Markdown.
+- **Realm**: `{ id, key, name, aliases, initialState, states: [{ id, key, label, color, icon, closed, defaultSubstate, substates: [{ id, key, label, color, icon }] }] }`, States and Substates in order. `initialState` and `defaultSubstate` are keys.
+- **Quest**: `{ id, name, description, owner, progress: { closed, total }, labours: Labour[] }`, members in Quest order.
 - **User**: `{ id, username, displayName, kind, isAdmin }`.
 
-An error is a result with `isError: true`, its message as text, and `structuredContent: { error: { code, message } }`. `code` is `invalid` (bad or unknown arguments included), `not_found` (an unknown tool included), `conflict` or `forbidden`; any other failure is `internal`, with no detail. Messages name Tickets by key.
+An error is a result with `isError: true`, its message as text, and `structuredContent: { error: { code, message } }`. `code` is `invalid` (bad or unknown arguments included), `not_found` (an unknown tool included), `conflict` or `forbidden`; any other failure is `internal`, with no detail. Messages name Labours by key.
 
 ## Tools
 
-### Tickets
+### Labours
 
-| Tool            | Input                                                                                                                         | Output                                                     |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `resolve`       | `ticket`                                                                                                                      | `{ ticket: Ticket, alias }`                                |
-| `list_tickets`  | `project?, state?, substate?, owner?, assignee? \| null, closed?, quest?, parent? \| null, limit? (50, max 200), offset? (0)` | `{ tickets: Ticket[], total, offset, nextOffset \| null }` |
-| `get_ticket`    | `ticket`                                                                                                                      | `{ ticket: TicketDetail }`                                 |
-| `create_ticket` | `project, title, description?, owner? (you), assignee?, state?, substate?, parent?, placement`                                | `{ ticket: TicketDetail }`                                 |
-| `update_ticket` | `ticket, title?, description?, owner?, assignee? \| null, state?, substate? \| null, placement`                               | `{ ticket: TicketDetail }`                                 |
-| `move_ticket`   | `ticket, project, state?, substate?, placement`                                                                               | `{ ticket: TicketDetail }`                                 |
-| `rank_ticket`   | `ticket, placement` (required)                                                                                                | `{ ticket: TicketDetail }`                                 |
-| `set_parent`    | `ticket, parent \| null`                                                                                                      | `{ ticket: TicketDetail }`                                 |
-| `delete_ticket` | `ticket`                                                                                                                      | `{ deleted: { id, key } }`                                 |
+| Tool             | Input                                                                                                                                 | Output                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `resolve`        | `labour`                                                                                                                              | `{ labour: Labour, alias }`                                |
+| `list_labours`   | `realm?, state?, substate?, owner?, assignee? \| null, closed?, quest?, parent? \| null, labels?, limit? (50, max 200), offset? (0)`  | `{ labours: Labour[], total, offset, nextOffset \| null }` |
+| `get_labour`     | `labour`                                                                                                                              | `{ labour: LabourDetail }`                                 |
+| `create_labour`  | `realm, title, description?, owner? (you), assignee?, state?, substate?, parent?, labels?, placement`                                 | `{ labour: LabourDetail }`                                 |
+| `update_labour`  | `labour, title?, description?, owner?, assignee? \| null, state?, substate? \| null, labels?, add_labels?, remove_labels?, placement` | `{ labour: LabourDetail }`                                 |
+| `move_labour`    | `labour, realm, state?, substate?, placement`                                                                                         | `{ labour: LabourDetail }`                                 |
+| `rank_labour`    | `labour, placement` (required)                                                                                                        | `{ labour: LabourDetail }`                                 |
+| `set_parent`     | `labour, parent \| null`                                                                                                              | `{ labour: LabourDetail }`                                 |
+| `delete_labour`  | `labour`                                                                                                                              | `{ deleted: { id, key } }`                                 |
+| `add_comment`    | `labour, body`                                                                                                                        | `{ comment: Comment }`                                     |
+| `update_comment` | `comment, body`                                                                                                                       | `{ comment: Comment }`                                     |
+| `delete_comment` | `comment`                                                                                                                             | `{ deleted: { id, labour } }`                              |
+| `list_comments`  | `labour`                                                                                                                              | `{ comments: Comment[] }`                                  |
 
-`list_tickets` orders by Project, then State order, then Rank; with `quest`, by Quest order. A State key needs `project`; a Substate key needs `state`.
+`list_labours` orders by Realm, then State order, then Rank; with `quest`, by Quest order. A State key needs `realm`; a Substate key needs `state`; `labels` keeps Labours carrying every one given. On `update_labour`, `labels` replaces the set, then `add_labels` and `remove_labels` adjust it. Comments list oldest first; only a Comment's author can change or delete it (`forbidden` otherwise); `comment` is its id.
 
-### Projects, States and Substates
+### Realms, States and Substates
 
-The Project's `state` and `substate` arguments resolve within `project`. Every write returns `{ project: Project }`.
+The Realm's `state` and `substate` arguments resolve within `realm`. Every write returns `{ realm: Realm }`.
 
-| Tool                   | Input                                                                   | Output                                       |
-| ---------------------- | ----------------------------------------------------------------------- | -------------------------------------------- |
-| `list_projects`        |                                                                         | `{ projects: [{ id, key, name, aliases }] }` |
-| `get_project`          | `project`                                                               | `{ project: Project }`                       |
-| `create_project`       | `name, key, initialState? { key, label, color, icon }` (default `todo`) | `{ project }`                                |
-| `update_project`       | `project, name`                                                         | `{ project }`                                |
-| `rename_project_key`   | `project, key`                                                          | `{ project }`                                |
-| `delete_project`       | `project`                                                               | `{ deleted: { id, key } }`                   |
-| `set_initial_state`    | `project, state`                                                        | `{ project }`                                |
-| `create_state`         | `project, key, label, color, icon, index?` (among open States; last)    | `{ project }`                                |
-| `update_state`         | `project, state, label?, color?, icon?`                                 | `{ project }`                                |
-| `reorder_state`        | `project, state, index`                                                 | `{ project }`                                |
-| `delete_state`         | `project, state`                                                        | `{ project }`                                |
-| `create_substate`      | `project, state, key, label, color, icon, index?` (last)                | `{ project }`                                |
-| `update_substate`      | `project, state, substate, label?, color?, icon?`                       | `{ project }`                                |
-| `reorder_substate`     | `project, state, substate, index`                                       | `{ project }`                                |
-| `delete_substate`      | `project, state, substate`                                              | `{ project }`                                |
-| `set_default_substate` | `project, state, substate`                                              | `{ project }`                                |
+| Tool                   | Input                                                                   | Output                                     |
+| ---------------------- | ----------------------------------------------------------------------- | ------------------------------------------ |
+| `list_realms`          |                                                                         | `{ realms: [{ id, key, name, aliases }] }` |
+| `get_realm`            | `realm`                                                                 | `{ realm: Realm }`                         |
+| `create_realm`         | `name, key, initialState? { key, label, color, icon }` (default `todo`) | `{ realm }`                                |
+| `update_realm`         | `realm, name`                                                           | `{ realm }`                                |
+| `rename_realm_key`     | `realm, key`                                                            | `{ realm }`                                |
+| `delete_realm`         | `realm`                                                                 | `{ deleted: { id, key } }`                 |
+| `set_initial_state`    | `realm, state`                                                          | `{ realm }`                                |
+| `create_state`         | `realm, key, label, color, icon, index?` (among open States; last)      | `{ realm }`                                |
+| `update_state`         | `realm, state, label?, color?, icon?`                                   | `{ realm }`                                |
+| `reorder_state`        | `realm, state, index`                                                   | `{ realm }`                                |
+| `delete_state`         | `realm, state`                                                          | `{ realm }`                                |
+| `create_substate`      | `realm, state, key, label, color, icon, index?` (last)                  | `{ realm }`                                |
+| `update_substate`      | `realm, state, substate, label?, color?, icon?`                         | `{ realm }`                                |
+| `reorder_substate`     | `realm, state, substate, index`                                         | `{ realm }`                                |
+| `delete_substate`      | `realm, state, substate`                                                | `{ realm }`                                |
+| `set_default_substate` | `realm, state, substate`                                                | `{ realm }`                                |
 
 ### Quests
 
@@ -97,11 +102,11 @@ The Project's `state` and `substate` arguments resolve within `project`. Every w
 | `create_quest`         | `name, description?, owner? (you)`            | `{ quest: Quest }`                                         |
 | `update_quest`         | `quest, name?, description?, owner?`          | `{ quest: Quest }`                                         |
 | `delete_quest`         | `quest`                                       | `{ deleted: { id, name } }`                                |
-| `add_quest_tickets`    | `quest, tickets: Ticket[] (1–100), placement` | `{ quest: Quest, added, skipped }`                         |
-| `remove_quest_tickets` | `quest, tickets: Ticket[] (1–100)`            | `{ quest: Quest, removed, skipped }`                       |
-| `rank_quest_ticket`    | `quest, ticket, placement` (required)         | `{ quest: Quest }`                                         |
+| `add_quest_labours`    | `quest, labours: Labour[] (1–100), placement` | `{ quest: Quest, added, skipped }`                         |
+| `remove_quest_labours` | `quest, labours: Labour[] (1–100)`            | `{ quest: Quest, removed, skipped }`                       |
+| `rank_quest_labour`    | `quest, labour, placement` (required)         | `{ quest: Quest }`                                         |
 
-`add_quest_tickets` and `remove_quest_tickets` are one write each, recording one `quest.tickets_added` or `quest.tickets_removed` that names only the Tickets that changed. `added`, `removed` and `skipped` are Ticket keys. A Ticket already as asked is skipped, never an error, so a repeated call is safe; a Ticket listed twice counts once; an unknown Ticket fails the whole call. Tickets are added in the order given, and never with their Children.
+`add_quest_labours` and `remove_quest_labours` are one write each, recording one `quest.labours_added` or `quest.labours_removed` that names only the Labours that changed. `added`, `removed` and `skipped` are Labour keys. A Labour already as asked is skipped, never an error, so a repeated call is safe; a Labour listed twice counts once; an unknown Labour fails the whole call. Labours are added in the order given, and never with their Children.
 
 ### Users, Invites and API tokens
 

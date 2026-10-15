@@ -34,8 +34,8 @@ test.describe('theme', () => {
 
 test.describe('content security policy', () => {
 	test('pages carry it, and it lets the app and its theme script run', async ({ page, ui }) => {
-		const p = ui.project();
-		const t = ui.ticket(p.id, {
+		const p = ui.realm();
+		const t = ui.labour(p.id, {
 			title: 'Pictures',
 			description: '![chart](https://tracker.example/pixel.png) and [a link](https://example.com)'
 		});
@@ -51,7 +51,7 @@ test.describe('content security policy', () => {
 			if (request.url().includes('tracker.example')) tracked.push(request.url());
 		});
 
-		const response = await page.goto(`/t/${t.key}`);
+		const response = await page.goto(`/l/${t.key}`);
 		const policy = response!.headers()['content-security-policy'];
 		expect(policy).toContain("img-src 'self' data:");
 		expect(policy).toContain("connect-src 'self'");
@@ -65,7 +65,7 @@ test.describe('content security policy', () => {
 			'href',
 			'https://tracker.example/pixel.png'
 		);
-		await page.goto(`/p/${p.key}`);
+		await page.goto(`/r/${p.key}`);
 		await live(page);
 		await page.goto('/');
 		await live(page);
@@ -76,7 +76,7 @@ test.describe('content security policy', () => {
 	});
 
 	test('the theme script runs before the app does', async ({ page }) => {
-		await page.addInitScript(() => localStorage.setItem('workload-theme', 'dark'));
+		await page.addInitScript(() => localStorage.setItem('sagas-theme', 'dark'));
 		await page.route('**/_app/**', (route) => route.abort());
 		await page.goto('/');
 		await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
@@ -106,9 +106,9 @@ test.describe('session', () => {
 		other,
 		ui
 	}) => {
-		const p = ui.project();
+		const p = ui.realm();
 		const { page, context, person } = other;
-		await page.goto(`/p/${p.key}?filter=1`);
+		await page.goto(`/r/${p.key}?filter=1`);
 		await live(page);
 
 		const tab = await context.newPage();
@@ -117,12 +117,12 @@ test.describe('session', () => {
 		await expect(tab).toHaveURL(/\/login$/);
 		await tab.close();
 
-		const back = encodeURIComponent(`/p/${p.key}?filter=1`);
+		const back = encodeURIComponent(`/r/${p.key}?filter=1`);
 		await expect(page).toHaveURL(new RegExp(`/login\\?next=${back}$`), { timeout: 10_000 });
 		await page.getByLabel('Username').fill(person.username);
 		await page.getByLabel('Password').fill(person.password);
 		await page.getByRole('button', { name: 'Sign in' }).click();
-		await expect(page).toHaveURL(new RegExp(`/p/${p.key}\\?filter=1$`));
+		await expect(page).toHaveURL(new RegExp(`/r/${p.key}\\?filter=1$`));
 		await live(page);
 	});
 

@@ -1,20 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db, Handle } from '#lib/server/db/client.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
+import { addComment, deleteComment, editComment } from '#lib/server/domain/comments.ts';
 import {
-	createProject,
-	deleteProject,
+	createRealm,
+	deleteRealm,
 	readBoard,
-	readProject,
-	renameProjectKey
-} from '#lib/server/domain/projects.ts';
+	readRealm,
+	renameRealmKey
+} from '#lib/server/domain/realms.ts';
 import {
-	addQuestTicket,
-	addQuestTicketWithChildren,
+	addQuestLabour,
+	addQuestLabourWithChildren,
 	createQuest,
 	deleteQuest,
-	rankQuestTicket,
-	removeQuestTicket,
+	rankQuestLabour,
+	removeQuestLabour,
 	updateQuest
 } from '#lib/server/domain/quests.ts';
 import {
@@ -25,14 +26,14 @@ import {
 	updateState
 } from '#lib/server/domain/states.ts';
 import {
-	createTicket,
-	deleteTicket,
-	moveTicket,
-	rankTicket,
-	readTicket,
+	createLabour,
+	deleteLabour,
+	moveLabour,
+	rankLabour,
+	readLabour,
 	setParent,
-	updateTicket
-} from '#lib/server/domain/tickets.ts';
+	updateLabour
+} from '#lib/server/domain/labours.ts';
 import type { Actor } from '#lib/server/domain/write.ts';
 import { eventsSince, readAtSeq } from '#lib/server/events/log.ts';
 import { testDb } from '#lib/server/test/db.ts';
@@ -41,7 +42,7 @@ import {
 	readHome,
 	readQuestList,
 	readQuestPage,
-	readTicketPage,
+	readLabourPage,
 	toJson
 } from '#lib/server/ui/reads.ts';
 import {
@@ -50,13 +51,13 @@ import {
 	applyToQuestList,
 	applyToQuestPage,
 	applyToSettings,
-	applyToTicketPage,
+	applyToLabourPage,
 	byRank,
 	RELOAD,
 	type Apply
 } from './apply.ts';
 import { FeedCore, LiveCore } from './core.ts';
-import type { BoardView, LiveEvent, Ticket, TicketPageView } from './types.ts';
+import type { BoardView, LiveEvent, Labour, LabourPageView } from './types.ts';
 
 // The scenario of events/replica.spec.ts, run through the client's own views and Feed.
 
@@ -118,7 +119,7 @@ function view<T>(
 const boardOrder = (board: BoardView | null) =>
 	board && {
 		...board,
-		tickets: [...board.tickets].sort((a, b) =>
+		labours: [...board.labours].sort((a, b) =>
 			a.stateId !== b.stateId ? a.stateId - b.stateId : byRank(a, b)
 		)
 	};
@@ -126,16 +127,17 @@ const boardOrder = (board: BoardView | null) =>
 describe('the client views, fed by the Stream', () => {
 	it('equal a fresh load after every write of the replica scenario', () => {
 		const style = (key: string) => ({ key, label: key, color: '#000000', icon: 'dot' });
-		const project = (key: string) =>
-			createProject(db, actor, { name: key, key, initialState: TODO });
-		const ticket = (projectId: number, parentId: number | null = null) =>
-			createTicket(db, actor, { projectId, title: 't', ownerId: actor.id, parentId });
+		const realm = (key: string) => createRealm(db, actor, { name: key, key, initialState: TODO });
+		const labour = (realmId: number, parentId: number | null = null) =>
+			createLabour(db, actor, { realmId, title: 't', ownerId: actor.id, parentId });
 		const other = seedUser(db, 'other');
-		const am = project('AM');
-		const bl = project('BL');
-		const cc = project('CC');
+		let firstComment = 0;
+		let secondComment = 0;
+		const am = realm('AM');
+		const bl = realm('BL');
+		const cc = realm('CC');
 		const quest = createQuest(db, actor, { name: 'Launch', ownerId: actor.id });
-		const closedOf = (projectId: number) => listStates(db, projectId).find((s) => s.isClosed)!.id;
+		const closedOf = (realmId: number) => listStates(db, realmId).find((s) => s.isClosed)!.id;
 
 		const feed = new FeedCore();
 		feed.start(0);
@@ -154,7 +156,7 @@ describe('the client views, fed by the Stream', () => {
 			view(feed, 'quest page', (tx) => readQuestPage(tx, quest.id), applyToQuestPage),
 			view(feed, 'quest list', (tx) => readQuestList(tx), applyToQuestList),
 			view(feed, 'home', (tx) => readHome(tx, actor.id), applyToHome(actor.id)),
-			view(feed, 'settings AM', (tx) => ({ project: readProject(tx, am.id) }), applyToSettings)
+			view(feed, 'settings AM', (tx) => ({ realm: readRealm(tx, am.id) }), applyToSettings)
 		];
 
 		let a = 0;
@@ -164,49 +166,53 @@ describe('the client views, fed by the Stream', () => {
 		let e = 0;
 		const writes: [string, () => unknown][] = [
 			[
-				'create Tickets across Projects',
+				'create Labours across Realms',
 				() => {
-					a = ticket(am.id).id;
-					b = ticket(bl.id, a).id;
-					c = ticket(cc.id, a).id;
-					d = ticket(am.id).id;
-					e = ticket(am.id, d).id;
+					a = labour(am.id).id;
+					b = labour(bl.id, a).id;
+					c = labour(cc.id, a).id;
+					d = labour(am.id).id;
+					e = labour(am.id, d).id;
 				}
 			],
 			[
-				'open Ticket pages',
+				'open Labour pages',
 				() => {
 					for (const id of [a, b, d, e]) {
 						probes.push(
-							view(feed, `ticket ${id}`, (tx) => readTicketPage(tx, id), applyToTicketPage)
+							view(feed, `labour ${id}`, (tx) => readLabourPage(tx, id), applyToLabourPage)
 						);
 					}
 				}
 			],
-			['add to the Quest', () => addQuestTicket(db, actor, quest.id, a)],
-			['add with Children', () => addQuestTicketWithChildren(db, actor, quest.id, d)],
-			['add across Projects', () => addQuestTicket(db, actor, quest.id, c, 'top')],
+			['add to the Quest', () => addQuestLabour(db, actor, quest.id, a)],
+			['add with Children', () => addQuestLabourWithChildren(db, actor, quest.id, d)],
+			['add across Realms', () => addQuestLabour(db, actor, quest.id, c, 'top')],
 			['a second Quest', () => createQuest(db, actor, { name: 'Other', ownerId: other })],
-			['edit a member', () => updateTicket(db, actor, a, { title: 'renamed' })],
-			['assign away', () => updateTicket(db, actor, b, { assigneeId: other })],
-			['hand over', () => updateTicket(db, actor, b, { ownerId: other })],
-			['close a member', () => updateTicket(db, actor, d, { stateId: closedOf(am.id) })],
+			['edit a member', () => updateLabour(db, actor, a, { title: 'renamed' })],
+			['assign away', () => updateLabour(db, actor, b, { assigneeId: other })],
+			['hand over', () => updateLabour(db, actor, b, { ownerId: other })],
+			['close a member', () => updateLabour(db, actor, d, { stateId: closedOf(am.id) })],
 			['first Substate', () => createSubstate(db, actor, am.initialStateId!, style('review'))],
 			['add a State', () => createState(db, actor, am.id, style('doing'))],
 			['move a State', () => moveState(db, actor, listStates(db, am.id)[1].id, 0)],
 			['restyle a State', () => updateState(db, actor, am.initialStateId!, { label: 'Next' })],
-			['rank a member', () => rankTicket(db, actor, e, 'top')],
-			['rank through an update', () => updateTicket(db, actor, a, { placement: 'top' })],
-			['a new Child', () => ticket(bl.id, d)],
-			['rename a Project key', () => renameProjectKey(db, actor, am.id, 'AX')],
-			['move a Parent across Projects', () => moveTicket(db, actor, a, { projectId: bl.id })],
-			['move a Child across Projects', () => moveTicket(db, actor, e, { projectId: cc.id })],
+			['rank a member', () => rankLabour(db, actor, e, 'top')],
+			['rank through an update', () => updateLabour(db, actor, a, { placement: 'top' })],
+			['a new Child', () => labour(bl.id, d)],
+			['rename a Realm key', () => renameRealmKey(db, actor, am.id, 'AX')],
+			['move a Parent across Realms', () => moveLabour(db, actor, a, { realmId: bl.id })],
+			['move a Child across Realms', () => moveLabour(db, actor, e, { realmId: cc.id })],
 			['reparent', () => setParent(db, actor, d, b)],
 			['clear a Parent', () => setParent(db, actor, c, null)],
-			['rank in the Quest', () => rankQuestTicket(db, actor, quest.id, a, 'top')],
-			['remove from the Quest', () => removeQuestTicket(db, actor, quest.id, e)],
-			['delete a Parent and member', () => deleteTicket(db, actor, d)],
-			['delete a Project', () => deleteProject(db, actor, bl.id)],
+			['rank in the Quest', () => rankQuestLabour(db, actor, quest.id, a, 'top')],
+			['comment', () => (firstComment = addComment(db, actor, a, 'first').id)],
+			['comment on a Child', () => (secondComment = addComment(db, { id: other }, d, 'second').id)],
+			['edit a comment', () => editComment(db, actor, firstComment, 'edited')],
+			['delete a comment', () => deleteComment(db, { id: other }, secondComment)],
+			['remove from the Quest', () => removeQuestLabour(db, actor, quest.id, e)],
+			['delete a Parent and member', () => deleteLabour(db, actor, d)],
+			['delete a Realm', () => deleteRealm(db, actor, bl.id)],
 			['edit the Quest', () => updateQuest(db, actor, quest.id, { name: 'Ship' })],
 			['give the Quest away', () => updateQuest(db, actor, quest.id, { ownerId: other })],
 			['delete the Quest', () => deleteQuest(db, actor, quest.id)]
@@ -229,25 +235,25 @@ describe('the client views, fed by the Stream', () => {
 });
 
 describe('applyToBoard', () => {
-	it('hands back the same board for every Event about another Project', () => {
-		const am = createProject(db, actor, { name: 'AM', key: 'AM', initialState: TODO });
-		const bl = createProject(db, actor, { name: 'BL', key: 'BL', initialState: TODO });
-		createTicket(db, actor, { projectId: am.id, title: 'here', ownerId: actor.id });
+	it('hands back the same board for every Event about another Realm', () => {
+		const am = createRealm(db, actor, { name: 'AM', key: 'AM', initialState: TODO });
+		const bl = createRealm(db, actor, { name: 'BL', key: 'BL', initialState: TODO });
+		createLabour(db, actor, { realmId: am.id, title: 'here', ownerId: actor.id });
 		const loaded = loadOrNull((tx) => readBoard(tx, am.id))!;
 		const style = { key: 'doing', label: 'Doing', color: '#000000', icon: 'dot' };
 
-		const there = createTicket(db, actor, { projectId: bl.id, title: 'there', ownerId: actor.id });
-		const sibling = createTicket(db, actor, { projectId: bl.id, title: 'x', ownerId: actor.id });
-		updateTicket(db, actor, there.id, { title: 'renamed' });
-		updateTicket(db, actor, there.id, { placement: 'top' });
-		rankTicket(db, actor, sibling.id, 'top');
+		const there = createLabour(db, actor, { realmId: bl.id, title: 'there', ownerId: actor.id });
+		const sibling = createLabour(db, actor, { realmId: bl.id, title: 'x', ownerId: actor.id });
+		updateLabour(db, actor, there.id, { title: 'renamed' });
+		updateLabour(db, actor, there.id, { placement: 'top' });
+		rankLabour(db, actor, sibling.id, 'top');
 		setParent(db, actor, sibling.id, there.id);
 		createState(db, actor, bl.id, style);
 		const quest = createQuest(db, actor, { name: 'Q', ownerId: actor.id });
-		addQuestTicket(db, actor, quest.id, there.id);
-		renameProjectKey(db, actor, bl.id, 'BX');
-		deleteTicket(db, actor, sibling.id);
-		deleteProject(db, actor, bl.id);
+		addQuestLabour(db, actor, quest.id, there.id);
+		renameRealmKey(db, actor, bl.id, 'BX');
+		deleteLabour(db, actor, sibling.id);
+		deleteRealm(db, actor, bl.id);
 
 		const events = toJson(eventsSince(db, loaded.seq)) as LiveEvent[];
 		expect(new Set(events.map((e) => e.type)).size).toBeGreaterThan(8);
@@ -257,27 +263,27 @@ describe('applyToBoard', () => {
 	});
 });
 
-describe('applyToTicketPage', () => {
+describe('applyToLabourPage', () => {
 	it("applies one's own new Parent from the view it shows, and reloads for any other", () => {
-		const am = createProject(db, actor, { name: 'AM', key: 'AM', initialState: TODO });
-		const ticket = (title: string) =>
-			createTicket(db, actor, { projectId: am.id, title, ownerId: actor.id });
-		const [kid, a, b] = [ticket('kid'), ticket('a'), ticket('b')];
-		const loaded = loadOrNull((tx) => readTicketPage(tx, kid.id))!;
-		const page = loaded.value as unknown as TicketPageView;
+		const am = createRealm(db, actor, { name: 'AM', key: 'AM', initialState: TODO });
+		const labour = (title: string) =>
+			createLabour(db, actor, { realmId: am.id, title, ownerId: actor.id });
+		const [kid, a, b] = [labour('kid'), labour('a'), labour('b')];
+		const loaded = loadOrNull((tx) => readLabourPage(tx, kid.id))!;
+		const page = loaded.value as unknown as LabourPageView;
 		setParent(db, actor, kid.id, a.id);
 		const [event] = toJson(eventsSince(db, loaded.seq)) as LiveEvent[];
-		const parent = (id: number) => toJson(readTicket(db, id)) as Ticket;
-		const showing = (p: Ticket) => ({
+		const parent = (id: number) => toJson(readLabour(db, id)) as Labour;
+		const showing = (p: Labour) => ({
 			...page,
-			ticket: { ...page.ticket, parentId: p.id },
+			labour: { ...page.labour, parentId: p.id },
 			parent: p
 		});
 
-		expect(applyToTicketPage(page, event)).toBe(RELOAD);
-		expect(applyToTicketPage(page, event, showing(parent(b.id)))).toBe(RELOAD);
-		expect(applyToTicketPage(page, event, showing(parent(a.id)))).toMatchObject({
-			ticket: { id: kid.id, parentId: a.id },
+		expect(applyToLabourPage(page, event)).toBe(RELOAD);
+		expect(applyToLabourPage(page, event, showing(parent(b.id)))).toBe(RELOAD);
+		expect(applyToLabourPage(page, event, showing(parent(a.id)))).toMatchObject({
+			labour: { id: kid.id, parentId: a.id },
 			parent: parent(a.id)
 		});
 	});

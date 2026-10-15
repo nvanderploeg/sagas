@@ -4,7 +4,7 @@
 </script>
 
 <svelte:head>
-	<title>{page.status} · workload</title>
+	<title>{page.status} · sagas</title>
 </svelte:head>
 
 <main class="mx-auto max-w-xl px-4 py-16">

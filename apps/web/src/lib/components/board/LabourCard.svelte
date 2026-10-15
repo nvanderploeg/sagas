@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { State, Substate, Ticket } from '../../live/types.ts';
+	import type { State, Substate, Labour } from '../../live/types.ts';
 	import { personColor, type Person } from '../../ui/people.ts';
 	import Avatar from '../Avatar.svelte';
 	import Burst from '../Burst.svelte';
 	import StatePill from '../StatePill.svelte';
 
 	let {
-		ticket,
+		labour,
 		state,
 		substate,
 		assignee,
@@ -20,7 +20,7 @@
 		onhandledown,
 		onkeydown
 	}: {
-		ticket: Ticket;
+		labour: Labour;
 		state: State | undefined;
 		substate: Substate | undefined;
 		assignee: Person | null | undefined;
@@ -34,13 +34,13 @@
 		onkeydown?: (event: KeyboardEvent) => void;
 	} = $props();
 
-	const draft = $derived(ticket.id < 0);
+	const draft = $derived(labour.id < 0);
 	const color = $derived(state?.color ?? '#9ca3af');
 </script>
 
 <div
 	class="card"
-	class:closed={ticket.closed}
+	class:closed={labour.closed}
 	class:lifted
 	class:floating
 	class:draft
@@ -49,25 +49,30 @@
 >
 	{#if draft}
 		<span class="key">New</span>
-		<p class="title">{ticket.title}</p>
+		<p class="title">{labour.title}</p>
 	{:else}
 		<a
 			class="hit"
-			href={resolve('/t/[key]', { key: ticket.key })}
+			href={resolve('/l/[key]', { key: labour.key })}
 			draggable="false"
 			aria-describedby={describedby}
-			data-card-link={ticket.id}
+			data-card-link={labour.id}
 			{onpointerdown}
 			{onkeydown}
 			ondragstart={(e) => e.preventDefault()}
 		>
-			<span class="sr-only">{ticket.key}: {ticket.title}</span>
+			<span class="sr-only">{labour.key}: {labour.title}</span>
 		</a>
 		<div class="top" aria-hidden="true">
-			<span class="key">{ticket.key}</span>
+			<span class="key">{labour.key}</span>
 			{#if substate}<StatePill def={substate} variant="badge" />{/if}
 		</div>
-		<p class="title" aria-hidden="true">{ticket.title}</p>
+		<p class="title" aria-hidden="true">{labour.title}</p>
+		{#if labour.labels.length > 0}
+			<ul class="labels" aria-label="Labels">
+				{#each labour.labels as label (label)}<li>{label}</li>{/each}
+			</ul>
+		{/if}
 		<div class="foot">
 			<span class="grow"></span>
 			{#if assignee}<Avatar
@@ -78,7 +83,7 @@
 			<button
 				type="button"
 				class="handle"
-				aria-label="Drag {ticket.key}"
+				aria-label="Drag {labour.key}"
 				tabindex="-1"
 				onpointerdown={onhandledown}>⠿</button
 			>
@@ -163,6 +168,26 @@
 		font-size: 0.92rem;
 		font-weight: 600;
 		line-height: 1.3;
+		overflow-wrap: anywhere;
+	}
+
+	.labels {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.labels li {
+		padding: 0 0.45rem;
+		border: 1px solid var(--color-line);
+		border-radius: 999px;
+		background: var(--color-panel-2);
+		color: var(--color-muted);
+		font-size: 0.7rem;
+		line-height: 1.4;
 		overflow-wrap: anywhere;
 	}
 

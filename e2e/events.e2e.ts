@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures/index.ts';
-import { connectMcp, uniqueProjectKey } from './fixtures/mcp.ts';
+import { connectMcp, uniqueRealmKey } from './fixtures/mcp.ts';
 import { cookieHeader, getNoFollow } from './support/http.ts';
 import { openStream, type Frame } from './support/stream.ts';
 
@@ -35,7 +35,7 @@ test.describe('GET /api/events', () => {
 		apiToken,
 		seed
 	}) => {
-		seed.project();
+		seed.realm();
 		const stream = await openStream({ authorization: `Bearer ${apiToken.token}` });
 		try {
 			const frames = await stream.until((f) => pings(f) >= 2);
@@ -52,8 +52,8 @@ test.describe('GET /api/events', () => {
 		admin
 	}) => {
 		const before = seed.lastSeq();
-		const project = seed.project({ key: `R${Date.now().toString(36).slice(-4)}`.toUpperCase() });
-		const ticket = seed.ticket(project.id, { title: 'Replayed' });
+		const realm = seed.realm({ key: `R${Date.now().toString(36).slice(-4)}`.toUpperCase() });
+		const labour = seed.labour(realm.id, { title: 'Replayed' });
 
 		const stream = await openStream(
 			{ authorization: `Bearer ${apiToken.token}` },
@@ -61,14 +61,14 @@ test.describe('GET /api/events', () => {
 		);
 		try {
 			const frames = await stream.until(ready);
-			expect(types(frames)).toEqual(['project.created', 'ticket.created']);
+			expect(types(frames)).toEqual(['realm.created', 'labour.created']);
 			expect(ids(frames)).toEqual([before + 1, before + 2]);
 			expect(frames.filter((f) => f.event).at(-1)).toEqual(control('ready', before + 2));
 
-			const created = JSON.parse(frames.find((f) => f.event === 'ticket.created')!.data!);
+			const created = JSON.parse(frames.find((f) => f.event === 'labour.created')!.data!);
 			expect(created).toMatchObject({
 				seq: before + 2,
-				type: 'ticket.created',
+				type: 'labour.created',
 				actor: {
 					id: admin.id,
 					kind: 'human',
@@ -76,10 +76,10 @@ test.describe('GET /api/events', () => {
 					displayName: admin.displayName
 				},
 				data: {
-					ticket: {
-						id: ticket.id,
-						projectId: project.id,
-						key: `${project.key}-1`,
+					labour: {
+						id: labour.id,
+						realmId: realm.id,
+						key: `${realm.key}-1`,
 						title: 'Replayed',
 						closed: false
 					}
@@ -96,9 +96,9 @@ test.describe('GET /api/events', () => {
 	}) => {
 		const headers = { authorization: `Bearer ${apiToken.token}` };
 		const before = seed.lastSeq();
-		const project = seed.project();
-		seed.ticket(project.id, { title: 'one' });
-		seed.ticket(project.id, { title: 'two' });
+		const realm = seed.realm();
+		seed.labour(realm.id, { title: 'one' });
+		seed.labour(realm.id, { title: 'two' });
 
 		const first = await openStream(headers, `?since=${before}`);
 		const seen = await first.until(eventCount(3));
@@ -126,8 +126,8 @@ test.describe('GET /api/events', () => {
 
 	test('Last-Event-ID wins over ?since', async ({ apiToken, seed }) => {
 		const before = seed.lastSeq();
-		const project = seed.project();
-		seed.ticket(project.id);
+		const realm = seed.realm();
+		seed.labour(realm.id);
 
 		const stream = await openStream(
 			{ authorization: `Bearer ${apiToken.token}`, 'last-event-id': String(before + 1) },
@@ -145,7 +145,7 @@ test.describe('GET /api/events', () => {
 
 	test('a session cookie replays the same way', async ({ signedInPage: page, seed }) => {
 		const before = seed.lastSeq();
-		seed.project();
+		seed.realm();
 
 		const stream = await openStream(
 			{ cookie: await cookieHeader(page.context()) },
@@ -153,7 +153,7 @@ test.describe('GET /api/events', () => {
 		);
 		try {
 			const frames = await stream.until(eventCount(1));
-			expect(types(frames)).toEqual(['project.created']);
+			expect(types(frames)).toEqual(['realm.created']);
 		} finally {
 			await stream.close();
 		}
@@ -161,8 +161,8 @@ test.describe('GET /api/events', () => {
 
 	test('a browser EventSource gets the replay', async ({ signedInPage: page, seed }) => {
 		const before = seed.lastSeq();
-		const project = seed.project();
-		seed.ticket(project.id);
+		const realm = seed.realm();
+		seed.labour(realm.id);
 		await page.goto('/');
 
 		const received = await page.evaluate(
@@ -174,7 +174,7 @@ test.describe('GET /api/events', () => {
 						source.close();
 						resolve(got);
 					};
-					for (const type of ['project.created', 'ticket.created']) {
+					for (const type of ['realm.created', 'labour.created']) {
 						source.addEventListener(type, (e) => {
 							got.push(`${e.type}:${(e as MessageEvent).lastEventId}`);
 							if (got.length === 2) done();
@@ -185,7 +185,7 @@ test.describe('GET /api/events', () => {
 			before
 		);
 
-		expect(received).toEqual([`project.created:${before + 1}`, `ticket.created:${before + 2}`]);
+		expect(received).toEqual([`realm.created:${before + 1}`, `labour.created:${before + 2}`]);
 	});
 
 	test('rejects a seq that is not a non-negative integer with a 400', async ({
@@ -209,7 +209,7 @@ test.describe('GET /api/events', () => {
 		apiToken,
 		seed
 	}) => {
-		seed.project();
+		seed.realm();
 		const last = seed.lastSeq();
 
 		const stream = await openStream(
@@ -228,7 +228,7 @@ test.describe('GET /api/events', () => {
 	});
 
 	test('goes live after a reset without replaying the log', async ({ apiToken, seed }) => {
-		seed.project();
+		seed.realm();
 		const last = seed.lastSeq();
 
 		const stream = await openStream(
@@ -252,13 +252,13 @@ test.describe('GET /api/events', () => {
 		const mcp = await connectMcp(apiToken.token);
 		try {
 			await stream.until(ready);
-			const { project } = await mcp.ok('create_project', {
+			const { realm } = await mcp.ok('create_realm', {
 				name: 'Live',
-				key: uniqueProjectKey()
+				key: uniqueRealmKey()
 			});
 			const frames = await stream.until(eventCount(1));
-			expect(frames.find(isEvent)).toMatchObject({ event: 'project.created' });
-			expect(JSON.parse(frames.find(isEvent)!.data!).data.project.id).toBe(project.id);
+			expect(frames.find(isEvent)).toMatchObject({ event: 'realm.created' });
+			expect(JSON.parse(frames.find(isEvent)!.data!).data.realm.id).toBe(realm.id);
 		} finally {
 			await mcp.close();
 			await stream.close();
@@ -266,7 +266,7 @@ test.describe('GET /api/events', () => {
 	});
 
 	test('replays the whole log from zero', async ({ apiToken, seed }) => {
-		seed.project();
+		seed.realm();
 		const last = seed.lastSeq();
 
 		const stream = await openStream({ authorization: `Bearer ${apiToken.token}` }, '?since=0');
@@ -285,7 +285,7 @@ test.describe('GET /api/events', () => {
 			apiToken,
 			seed
 		}) => {
-			seed.project();
+			seed.realm();
 			seed.pruneAllEvents();
 			const last = seed.lastSeq();
 
@@ -306,7 +306,7 @@ test.describe('GET /api/events', () => {
 			seed
 		}) => {
 			const last = seed.lastSeq();
-			seed.project();
+			seed.realm();
 
 			const stream = await openStream(
 				{ authorization: `Bearer ${apiToken.token}` },
@@ -314,7 +314,7 @@ test.describe('GET /api/events', () => {
 			);
 			try {
 				const frames = await stream.until(eventCount(1));
-				expect(types(frames)).toEqual(['project.created']);
+				expect(types(frames)).toEqual(['realm.created']);
 				expect(ids(frames)).toEqual([last + 1]);
 			} finally {
 				await stream.close();

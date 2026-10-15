@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import type { Actor } from './write.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedActor, seedProject, seedTicket, seedUser } from '#lib/server/test/fixtures.ts';
+import { seedActor, seedRealm, seedLabour, seedUser } from '#lib/server/test/fixtures.ts';
 import { DomainError } from './errors.ts';
 import {
 	createState,
@@ -18,7 +18,7 @@ import {
 	updateSubstate
 } from './states.ts';
 import { getState } from './lookup.ts';
-import { createTicket, updateTicket } from './tickets.ts';
+import { createLabour, updateLabour } from './labours.ts';
 
 let db: Db;
 let actor: Actor;
@@ -45,84 +45,84 @@ function expectDomainError(action: () => unknown, code: DomainError['code']) {
 
 const spec = (key: string) => ({ key, label: key, color: '#abcdef', icon: 'dot' });
 
-const order = (projectId: number) => listStates(db, projectId).map((s) => s.key);
+const order = (realmId: number) => listStates(db, realmId).map((s) => s.key);
 
 describe('State order', () => {
 	it('places a new State before Closed, and Closed stays last', () => {
-		const project = seedProject(db, 'AM');
+		const realm = seedRealm(db, 'AM');
 
-		createState(db, actor, project.id, spec('doing'));
-		createState(db, actor, project.id, spec('review'));
+		createState(db, actor, realm.id, spec('doing'));
+		createState(db, actor, realm.id, spec('review'));
 
-		expect(order(project.id)).toEqual(['todo', 'doing', 'review', 'closed']);
+		expect(order(realm.id)).toEqual(['todo', 'doing', 'review', 'closed']);
 	});
 
 	it('inserts a State at the given index among the open States', () => {
-		const project = seedProject(db, 'AM');
+		const realm = seedRealm(db, 'AM');
 
-		createState(db, actor, project.id, spec('doing'), 0);
+		createState(db, actor, realm.id, spec('doing'), 0);
 
-		expect(order(project.id)).toEqual(['doing', 'todo', 'closed']);
+		expect(order(realm.id)).toEqual(['doing', 'todo', 'closed']);
 	});
 
 	it('rejects an index past the open States, which would land after Closed', () => {
-		const project = seedProject(db, 'AM');
+		const realm = seedRealm(db, 'AM');
 
-		expectDomainError(() => createState(db, actor, project.id, spec('doing'), 2), 'invalid');
-		expect(order(project.id)).toEqual(['todo', 'closed']);
+		expectDomainError(() => createState(db, actor, realm.id, spec('doing'), 2), 'invalid');
+		expect(order(realm.id)).toEqual(['todo', 'closed']);
 	});
 
-	it('rejects a key already used in the Project, and the built-in Closed key', () => {
-		const project = seedProject(db, 'AM');
+	it('rejects a key already used in the Realm, and the built-in Closed key', () => {
+		const realm = seedRealm(db, 'AM');
 
-		expectDomainError(() => createState(db, actor, project.id, spec('todo')), 'conflict');
-		expectDomainError(() => createState(db, actor, project.id, spec('closed')), 'conflict');
+		expectDomainError(() => createState(db, actor, realm.id, spec('todo')), 'conflict');
+		expectDomainError(() => createState(db, actor, realm.id, spec('closed')), 'conflict');
 	});
 
 	it('rejects a malformed key, color or icon', () => {
-		const project = seedProject(db, 'AM');
+		const realm = seedRealm(db, 'AM');
 
-		expectDomainError(() => createState(db, actor, project.id, { ...spec('Doing') }), 'invalid');
+		expectDomainError(() => createState(db, actor, realm.id, { ...spec('Doing') }), 'invalid');
 		expectDomainError(
-			() => createState(db, actor, project.id, { ...spec('doing'), color: 'red' }),
+			() => createState(db, actor, realm.id, { ...spec('doing'), color: 'red' }),
 			'invalid'
 		);
 		expectDomainError(
-			() => createState(db, actor, project.id, { ...spec('doing'), icon: 'Dot Icon' }),
+			() => createState(db, actor, realm.id, { ...spec('doing'), icon: 'Dot Icon' }),
 			'invalid'
 		);
 	});
 
 	it('moves an open State to another open position', () => {
-		const project = seedProject(db, 'AM');
-		createState(db, actor, project.id, spec('doing'));
-		createState(db, actor, project.id, spec('review'));
+		const realm = seedRealm(db, 'AM');
+		createState(db, actor, realm.id, spec('doing'));
+		createState(db, actor, realm.id, spec('review'));
 
-		moveState(db, actor, listStates(db, project.id).find((s) => s.key === 'review')!.id, 0);
+		moveState(db, actor, listStates(db, realm.id).find((s) => s.key === 'review')!.id, 0);
 
-		expect(order(project.id)).toEqual(['review', 'todo', 'doing', 'closed']);
+		expect(order(realm.id)).toEqual(['review', 'todo', 'doing', 'closed']);
 	});
 
 	it('refuses to move Closed', () => {
-		const project = seedProject(db, 'AM');
-		const closed = listStates(db, project.id).find((s) => s.isClosed)!;
+		const realm = seedRealm(db, 'AM');
+		const closed = listStates(db, realm.id).find((s) => s.isClosed)!;
 
 		expectDomainError(() => moveState(db, actor, closed.id, 0), 'forbidden');
 	});
 
 	it('refuses to move an open State past Closed', () => {
-		const project = seedProject(db, 'AM');
-		const todo = listStates(db, project.id)[0];
+		const realm = seedRealm(db, 'AM');
+		const todo = listStates(db, realm.id)[0];
 
 		expectDomainError(() => moveState(db, actor, todo.id, 1), 'invalid');
-		expect(order(project.id)).toEqual(['todo', 'closed']);
+		expect(order(realm.id)).toEqual(['todo', 'closed']);
 	});
 });
 
 describe('updateState', () => {
 	it('renames an open State and recolors it', () => {
-		const project = seedProject(db, 'AM');
-		const todo = listStates(db, project.id)[0];
+		const realm = seedRealm(db, 'AM');
+		const todo = listStates(db, realm.id)[0];
 
 		const updated = updateState(db, actor, todo.id, { label: 'Backlog', color: '#010203' });
 
@@ -130,16 +130,16 @@ describe('updateState', () => {
 	});
 
 	it('refuses to rename Closed', () => {
-		const project = seedProject(db, 'AM');
-		const closed = listStates(db, project.id).find((s) => s.isClosed)!;
+		const realm = seedRealm(db, 'AM');
+		const closed = listStates(db, realm.id).find((s) => s.isClosed)!;
 
 		expectDomainError(() => updateState(db, actor, closed.id, { label: 'Done' }), 'forbidden');
 		expect(getState(db, closed.id).label).toBe('Closed');
 	});
 
 	it('still recolors and re-icons Closed', () => {
-		const project = seedProject(db, 'AM');
-		const closed = listStates(db, project.id).find((s) => s.isClosed)!;
+		const realm = seedRealm(db, 'AM');
+		const closed = listStates(db, realm.id).find((s) => s.isClosed)!;
 
 		const updated = updateState(db, actor, closed.id, {
 			label: 'Closed',
@@ -153,96 +153,95 @@ describe('updateState', () => {
 
 describe('deleteState', () => {
 	it('removes an open State and closes the gap in positions', () => {
-		const project = seedProject(db, 'AM');
-		const doing = createState(db, actor, project.id, spec('doing'));
-		createState(db, actor, project.id, spec('review'));
+		const realm = seedRealm(db, 'AM');
+		const doing = createState(db, actor, realm.id, spec('doing'));
+		createState(db, actor, realm.id, spec('review'));
 
 		deleteState(db, actor, doing.id);
 
-		expect(order(project.id)).toEqual(['todo', 'review', 'closed']);
-		expect(listStates(db, project.id).map((s) => s.position)).toEqual([0, 1, 2]);
+		expect(order(realm.id)).toEqual(['todo', 'review', 'closed']);
+		expect(listStates(db, realm.id).map((s) => s.position)).toEqual([0, 1, 2]);
 	});
 
 	it('refuses to remove Closed', () => {
-		const project = seedProject(db, 'AM');
-		const closed = listStates(db, project.id).find((s) => s.isClosed)!;
+		const realm = seedRealm(db, 'AM');
+		const closed = listStates(db, realm.id).find((s) => s.isClosed)!;
 
 		expectDomainError(() => deleteState(db, actor, closed.id), 'forbidden');
 	});
 
 	it('refuses to remove the Initial State', () => {
-		const project = seedProject(db, 'AM');
-		const todo = listStates(db, project.id)[0];
+		const realm = seedRealm(db, 'AM');
+		const todo = listStates(db, realm.id)[0];
 
 		expectDomainError(() => deleteState(db, actor, todo.id), 'conflict');
 	});
 
-	it('refuses to remove a State that still holds Tickets', () => {
-		const project = seedProject(db, 'AM');
-		const doing = createState(db, actor, project.id, spec('doing'));
-		seedTicket(db, { projectId: project.id, stateId: doing.id });
+	it('refuses to remove a State that still holds Labours', () => {
+		const realm = seedRealm(db, 'AM');
+		const doing = createState(db, actor, realm.id, spec('doing'));
+		seedLabour(db, { realmId: realm.id, stateId: doing.id });
 
 		expectDomainError(() => deleteState(db, actor, doing.id), 'conflict');
 	});
 });
 
 describe('Substates', () => {
-	const todoId = (projectId: number) => listStates(db, projectId)[0].id;
+	const todoId = (realmId: number) => listStates(db, realmId)[0].id;
 
-	it('makes the first Substate the default and moves existing Tickets into it', () => {
-		const project = seedProject(db, 'AM');
-		const ticket = seedTicket(db, { projectId: project.id });
-		expect(ticket.substateId).toBeNull();
+	it('makes the first Substate the default and moves existing Labours into it', () => {
+		const realm = seedRealm(db, 'AM');
+		const labour = seedLabour(db, { realmId: realm.id });
+		expect(labour.substateId).toBeNull();
 
-		const review = createSubstate(db, actor, todoId(project.id), spec('review'));
+		const review = createSubstate(db, actor, todoId(realm.id), spec('review'));
 
-		expect(getState(db, todoId(project.id)).defaultSubstateId).toBe(review.id);
+		expect(getState(db, todoId(realm.id)).defaultSubstateId).toBe(review.id);
 		expect(
-			db.$client.prepare('SELECT substate_id FROM tickets WHERE id = ?').pluck().get(ticket.id)
+			db.$client.prepare('SELECT substate_id FROM labours WHERE id = ?').pluck().get(labour.id)
 		).toBe(review.id);
 	});
 
-	it('lands a Ticket without a Substate in the State default, and rejects a Substate of another State', () => {
-		const project = seedProject(db, 'AM');
-		const first = createSubstate(db, actor, todoId(project.id), spec('review'));
-		const doing = createState(db, actor, project.id, spec('doing'));
+	it('lands a Labour without a Substate in the State default, and rejects a Substate of another State', () => {
+		const realm = seedRealm(db, 'AM');
+		const first = createSubstate(db, actor, todoId(realm.id), spec('review'));
+		const doing = createState(db, actor, realm.id, spec('doing'));
 		const other = createSubstate(db, actor, doing.id, spec('qa'));
 
-		const ticket = seedTicket(db, { projectId: project.id });
-		expect(ticket.substateId).toBe(first.id);
+		const labour = seedLabour(db, { realmId: realm.id });
+		expect(labour.substateId).toBe(first.id);
 
 		expectDomainError(
-			() => updateTicket(db, actor, ticket.id, { substateId: other.id }),
+			() => updateLabour(db, actor, labour.id, { substateId: other.id }),
 			'invalid'
 		);
 	});
 
 	it('rejects a Substate on a State that has none, and a Substate of another State on create', () => {
-		const project = seedProject(db, 'AM');
-		const doing = createState(db, actor, project.id, spec('doing'));
+		const realm = seedRealm(db, 'AM');
+		const doing = createState(db, actor, realm.id, spec('doing'));
 		const qa = createSubstate(db, actor, doing.id, spec('qa'));
 		const ownerId = seedUser(db, 'owner');
 
 		expectDomainError(
-			() =>
-				createTicket(db, actor, { projectId: project.id, title: 'x', ownerId, substateId: qa.id }),
+			() => createLabour(db, actor, { realmId: realm.id, title: 'x', ownerId, substateId: qa.id }),
 			'invalid'
 		);
 	});
 
 	it('keeps the default when another Substate is added, and reorders Substates', () => {
-		const project = seedProject(db, 'AM');
-		const review = createSubstate(db, actor, todoId(project.id), spec('review'));
-		const qa = createSubstate(db, actor, todoId(project.id), spec('qa'));
+		const realm = seedRealm(db, 'AM');
+		const review = createSubstate(db, actor, todoId(realm.id), spec('review'));
+		const qa = createSubstate(db, actor, todoId(realm.id), spec('qa'));
 
-		expect(getState(db, todoId(project.id)).defaultSubstateId).toBe(review.id);
+		expect(getState(db, todoId(realm.id)).defaultSubstateId).toBe(review.id);
 		moveSubstate(db, actor, qa.id, 0);
-		expect(listSubstates(db, todoId(project.id)).map((s) => s.key)).toEqual(['qa', 'review']);
+		expect(listSubstates(db, todoId(realm.id)).map((s) => s.key)).toEqual(['qa', 'review']);
 	});
 
 	it('updates a Substate label without changing its key', () => {
-		const project = seedProject(db, 'AM');
-		const review = createSubstate(db, actor, todoId(project.id), spec('review'));
+		const realm = seedRealm(db, 'AM');
+		const review = createSubstate(db, actor, todoId(realm.id), spec('review'));
 
 		expect(updateSubstate(db, actor, review.id, { label: 'Code review' })).toMatchObject({
 			key: 'review',
@@ -251,48 +250,48 @@ describe('Substates', () => {
 	});
 
 	it('sets the default only to one of the State own Substates', () => {
-		const project = seedProject(db, 'AM');
-		const review = createSubstate(db, actor, todoId(project.id), spec('review'));
-		const doing = createState(db, actor, project.id, spec('doing'));
+		const realm = seedRealm(db, 'AM');
+		const review = createSubstate(db, actor, todoId(realm.id), spec('review'));
+		const doing = createState(db, actor, realm.id, spec('doing'));
 		const qa = createSubstate(db, actor, doing.id, spec('qa'));
 
-		expectDomainError(() => setDefaultSubstate(db, actor, todoId(project.id), qa.id), 'invalid');
-		expect(setDefaultSubstate(db, actor, todoId(project.id), review.id).defaultSubstateId).toBe(
+		expectDomainError(() => setDefaultSubstate(db, actor, todoId(realm.id), qa.id), 'invalid');
+		expect(setDefaultSubstate(db, actor, todoId(realm.id), review.id).defaultSubstateId).toBe(
 			review.id
 		);
 	});
 
 	it('refuses to remove the default Substate while others remain', () => {
-		const project = seedProject(db, 'AM');
-		const review = createSubstate(db, actor, todoId(project.id), spec('review'));
-		createSubstate(db, actor, todoId(project.id), spec('qa'));
+		const realm = seedRealm(db, 'AM');
+		const review = createSubstate(db, actor, todoId(realm.id), spec('review'));
+		createSubstate(db, actor, todoId(realm.id), spec('qa'));
 
 		expectDomainError(() => deleteSubstate(db, actor, review.id), 'conflict');
 	});
 
-	it('refuses to remove a Substate that still holds Tickets', () => {
-		const project = seedProject(db, 'AM');
-		const qa = createSubstate(db, actor, todoId(project.id), spec('review'));
-		const extra = createSubstate(db, actor, todoId(project.id), spec('qa'));
-		seedTicket(db, { projectId: project.id });
-		setDefaultSubstate(db, actor, todoId(project.id), extra.id);
+	it('refuses to remove a Substate that still holds Labours', () => {
+		const realm = seedRealm(db, 'AM');
+		const qa = createSubstate(db, actor, todoId(realm.id), spec('review'));
+		const extra = createSubstate(db, actor, todoId(realm.id), spec('qa'));
+		seedLabour(db, { realmId: realm.id });
+		setDefaultSubstate(db, actor, todoId(realm.id), extra.id);
 
 		expectDomainError(() => deleteSubstate(db, actor, qa.id), 'conflict');
 	});
 
 	it('clears the default when the last Substate is removed', () => {
-		const project = seedProject(db, 'AM');
-		const review = createSubstate(db, actor, todoId(project.id), spec('review'));
+		const realm = seedRealm(db, 'AM');
+		const review = createSubstate(db, actor, todoId(realm.id), spec('review'));
 
 		deleteSubstate(db, actor, review.id);
 
-		expect(getState(db, todoId(project.id)).defaultSubstateId).toBeNull();
-		expect(listSubstates(db, todoId(project.id))).toEqual([]);
+		expect(getState(db, todoId(realm.id)).defaultSubstateId).toBeNull();
+		expect(listSubstates(db, todoId(realm.id))).toEqual([]);
 	});
 
 	it('lets Closed hold Substates', () => {
-		const project = seedProject(db, 'AM');
-		const closed = listStates(db, project.id).find((s) => s.isClosed)!;
+		const realm = seedRealm(db, 'AM');
+		const closed = listStates(db, realm.id).find((s) => s.isClosed)!;
 
 		const done = createSubstate(db, actor, closed.id, spec('shipped'));
 

@@ -20,8 +20,8 @@ export function lookFor(ids: Iterable<number | null>, people: Map<number, Person
 	}, 250);
 }
 
-export function usersOf(tickets: Iterable<{ ownerId: number; assigneeId: number | null }>) {
+export function usersOf(labours: Iterable<{ ownerId: number; assigneeId: number | null }>) {
 	const ids: number[] = [];
-	for (const t of tickets) ids.push(t.ownerId, ...(t.assigneeId === null ? [] : [t.assigneeId]));
+	for (const t of labours) ids.push(t.ownerId, ...(t.assigneeId === null ? [] : [t.assigneeId]));
 	return ids;
 }

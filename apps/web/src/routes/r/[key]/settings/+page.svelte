@@ -16,21 +16,21 @@
 	const live = new LiveView<SettingsView>(data.seq, data.settings, applyToSettings);
 	$effect(() => live.load(data.settings, data.seq));
 
-	const project = $derived(live.current?.project);
-	const open = $derived(project?.states.filter((s) => !s.isClosed) ?? []);
+	const realm = $derived(live.current?.realm);
+	const open = $derived(realm?.states.filter((s) => !s.isClosed) ?? []);
 	const failure = (scope: string) =>
 		form && 'error' in form && form.scope === scope ? String(form.error) : null;
 
 	$effect(() => {
-		const key = project?.key;
-		if (key && resolve('/p/[key]/settings', { key }) !== location.pathname) {
-			goto(resolve('/p/[key]/settings', { key }), { replace: true, shallow: true });
+		const key = realm?.key;
+		if (key && resolve('/r/[key]/settings', { key }) !== location.pathname) {
+			goto(resolve('/r/[key]/settings', { key }), { replace: true, shallow: true });
 		}
 	});
 
 	$effect(() => {
 		if (live.ended) {
-			notices.show('This Project was deleted.');
+			notices.show('This Realm was deleted.');
 			goto(resolve('/'));
 		}
 	});
@@ -42,23 +42,23 @@
 </script>
 
 <svelte:head>
-	<title>{project ? `${project.name} settings` : 'Settings'} · workload</title>
+	<title>{realm ? `${realm.name} settings` : 'Settings'} · sagas</title>
 </svelte:head>
 
 {#snippet error(scope: string)}
 	{#if failure(scope)}<p role="alert" class="error w-full">{failure(scope)}</p>{/if}
 {/snippet}
 
-{#if project}
+{#if realm}
 	<main class="mx-auto grid max-w-4xl gap-6 px-4 pt-2 pb-16">
 		<a
 			class="w-fit text-sm text-muted hover:text-ink"
-			href={resolve('/p/[key]', { key: project.key })}>← {project.name}</a
+			href={resolve('/r/[key]', { key: realm.key })}>← {realm.name}</a
 		>
-		<h1 class="text-4xl font-extrabold tracking-tight">Project settings</h1>
+		<h1 class="text-4xl font-extrabold tracking-tight">Realm settings</h1>
 
-		<section class="panel grid gap-4 p-5" aria-labelledby="project-heading">
-			<h2 id="project-heading" class="text-lg font-bold tracking-tight">Project</h2>
+		<section class="panel grid gap-4 p-5" aria-labelledby="realm-heading">
+			<h2 id="realm-heading" class="text-lg font-bold tracking-tight">Realm</h2>
 			<form
 				method="POST"
 				action="?/rename"
@@ -72,7 +72,7 @@
 						class="field w-72 max-w-full"
 						required
 						maxlength="120"
-						value={project.name}
+						value={realm.name}
 					/>
 				</label>
 				<button class="btn" type="submit">Save name</button>
@@ -91,13 +91,13 @@
 						class="field w-28 font-mono uppercase"
 						required
 						maxlength="6"
-						value={project.key}
+						value={realm.key}
 						aria-describedby="rekey-help"
 					/>
 				</label>
 				<button class="btn" type="submit">Rename key</button>
 				<p id="rekey-help" class="w-full text-xs text-muted">
-					Every Ticket takes the new key. Old Ticket keys and links keep working.
+					Every Labour takes the new key. Old Labour keys and links keep working.
 				</p>
 				{@render error('rekey')}
 			</form>
@@ -112,8 +112,8 @@
 				class="flex flex-wrap items-end gap-2"
 			>
 				<label class="grid gap-1">
-					<span class="label">New Tickets land in</span>
-					<select name="stateId" class="field w-56" value={project.initialStateId}>
+					<span class="label">New Labours land in</span>
+					<select name="stateId" class="field w-56" value={realm.initialStateId}>
 						{#each open as state (state.id)}
 							<option value={state.id}>{state.label}</option>
 						{/each}
@@ -131,8 +131,8 @@
 				<p class="text-sm text-muted">The board's columns, left to right. Closed is always last.</p>
 			</div>
 			<ol class="grid gap-3">
-				{#each project.states as state, i (state.id)}
-					{@const isInitial = state.id === project.initialStateId}
+				{#each realm.states as state, i (state.id)}
+					{@const isInitial = state.id === realm.initialStateId}
 					<li
 						class="panel grid gap-4 p-4"
 						style:--sc={state.color}
@@ -197,7 +197,7 @@
 							</h3>
 							{#if state.substates.length === 0}
 								<p class="text-xs text-muted">
-									None. Adding the first moves every Ticket in {state.label} into it.
+									None. Adding the first moves every Labour in {state.label} into it.
 								</p>
 							{:else}
 								<ol class="grid gap-2">
@@ -282,18 +282,18 @@
 		</section>
 
 		<section class="panel grid gap-3 p-5" aria-labelledby="danger-heading">
-			<h2 id="danger-heading" class="text-lg font-bold tracking-tight">Delete Project</h2>
+			<h2 id="danger-heading" class="text-lg font-bold tracking-tight">Delete Realm</h2>
 			<p class="text-sm text-muted">
-				Deletes the Project and every Ticket in it. Quests lose those Tickets.
+				Deletes the Realm and every Labour in it. Quests lose those Labours.
 			</p>
-			<form method="POST" action="?/deleteProject" use:enhance>
+			<form method="POST" action="?/deleteRealm" use:enhance>
 				<ConfirmButton
 					type="submit"
-					label="Delete Project"
-					confirm="Delete {project.name} and its Tickets"
+					label="Delete Realm"
+					confirm="Delete {realm.name} and its Labours"
 				/>
 			</form>
-			{@render error('deleteProject')}
+			{@render error('deleteRealm')}
 		</section>
 	</main>
 {/if}

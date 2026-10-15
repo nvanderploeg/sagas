@@ -2,14 +2,14 @@ import type {
 	BoardView,
 	HomeView,
 	LiveEvent,
-	Project,
+	Realm,
 	Quest,
 	QuestListView,
 	QuestOption,
 	QuestPageView,
 	SettingsView,
-	Ticket,
-	TicketPageView
+	Labour,
+	LabourPageView
 } from './types.ts';
 
 // The rules are "Applying Events" in docs/events.md.
@@ -38,103 +38,101 @@ function upsert<T extends { id: number }>(list: T[], item: T): T[] {
 const without = <T extends { id: number }>(list: T[], ids: number[]) =>
 	list.some((x) => ids.includes(x.id)) ? list.filter((x) => !ids.includes(x.id)) : list;
 
-function changedTicket(event: LiveEvent): Ticket | null {
+function changedLabour(event: LiveEvent): Labour | null {
 	switch (event.type) {
-		case 'ticket.created':
-		case 'ticket.updated':
-		case 'ticket.moved':
-		case 'ticket.reparented':
-			return event.data.ticket;
+		case 'labour.created':
+		case 'labour.updated':
+		case 'labour.moved':
+		case 'labour.reparented':
+			return event.data.labour;
 		default:
 			return null;
 	}
 }
 
-export function touchedTickets(event: LiveEvent): number[] {
-	const ticket = changedTicket(event);
-	if (ticket) return [ticket.id];
-	return event.type === 'ticket.ranked' ? [event.data.id] : [];
+export function touchedLabours(event: LiveEvent): number[] {
+	const labour = changedLabour(event);
+	if (labour) return [labour.id];
+	return event.type === 'labour.ranked' ? [event.data.id] : [];
 }
 
 // Null when the Event is not a rank, rekey or delete.
-function patchTickets(list: Ticket[], event: LiveEvent): Ticket[] | null {
+function patchLabours(list: Labour[], event: LiveEvent): Labour[] | null {
 	switch (event.type) {
-		case 'ticket.ranked': {
+		case 'labour.ranked': {
 			const { id, stateId, rank } = event.data;
 			if (!list.some((t) => t.id === id)) return list;
 			return list.map((t) => (t.id === id ? { ...t, stateId, rank } : t));
 		}
-		case 'ticket.rekeyed': {
-			const keys = new Map(event.data.tickets.map((t) => [t.id, t.key]));
+		case 'labour.rekeyed': {
+			const keys = new Map(event.data.labours.map((t) => [t.id, t.key]));
 			if (!list.some((t) => keys.has(t.id))) return list;
 			return list.map((t) => (keys.has(t.id) ? { ...t, key: keys.get(t.id)! } : t));
 		}
-		case 'ticket.deleted':
+		case 'labour.deleted':
 			return without(list, [event.data.id]);
-		case 'project.deleted':
-			return without(list, event.data.ticketIds);
+		case 'realm.deleted':
+			return without(list, event.data.labourIds);
 		default:
 			return null;
 	}
 }
 
-export function applyToProjects(projects: Project[], event: LiveEvent): Project[] {
+export function applyToRealms(realms: Realm[], event: LiveEvent): Realm[] {
 	switch (event.type) {
-		case 'project.created':
-			return upsert(projects, event.data.project);
-		case 'project.updated':
+		case 'realm.created':
+			return upsert(realms, event.data.realm);
+		case 'realm.updated':
 		case 'state.created':
 		case 'state.updated':
 		case 'state.deleted':
 		case 'substate.created':
 		case 'substate.updated':
 		case 'substate.deleted':
-			return projects.some((p) => p.id === event.data.project.id)
-				? upsert(projects, event.data.project)
-				: projects;
-		case 'project.deleted':
-			return without(projects, [event.data.projectId]);
+			return realms.some((p) => p.id === event.data.realm.id)
+				? upsert(realms, event.data.realm)
+				: realms;
+		case 'realm.deleted':
+			return without(realms, [event.data.realmId]);
 		default:
-			return projects;
+			return realms;
 	}
 }
 
 export function applyToBoard(
-	projectId: number
+	realmId: number
 ): (board: BoardView, e: LiveEvent) => BoardView | null {
 	return (board, event) => {
 		switch (event.type) {
-			case 'project.created':
-			case 'project.updated':
+			case 'realm.created':
+			case 'realm.updated':
 			case 'state.created':
 			case 'state.updated':
 			case 'state.deleted':
 			case 'substate.created':
 			case 'substate.updated':
 			case 'substate.deleted':
-				return event.data.project.id === projectId
-					? { ...board, project: event.data.project }
-					: board;
-			case 'project.deleted':
-				if (event.data.projectId === projectId) return null;
+				return event.data.realm.id === realmId ? { ...board, realm: event.data.realm } : board;
+			case 'realm.deleted':
+				if (event.data.realmId === realmId) return null;
 				break;
 		}
-		const ticket = changedTicket(event);
-		if (ticket) {
-			const rest = without(board.tickets, [ticket.id]);
-			if (ticket.projectId === projectId) return { ...board, tickets: [...rest, ticket] };
-			return rest === board.tickets ? board : { ...board, tickets: rest };
+		const labour = changedLabour(event);
+		if (labour) {
+			const rest = without(board.labours, [labour.id]);
+			if (labour.realmId === realmId) return { ...board, labours: [...rest, labour] };
+			return rest === board.labours ? board : { ...board, labours: rest };
 		}
-		const patched = patchTickets(board.tickets, event);
-		return patched && patched !== board.tickets ? { ...board, tickets: patched } : board;
+		const patched = patchLabours(board.labours, event);
+		return patched && patched !== board.labours ? { ...board, labours: patched } : board;
 	};
 }
 
-function withMembers(quest: Quest, tickets: Ticket[]): Quest {
+function withMembers(quest: Quest, labours: Labour[]): Quest {
 	return {
 		...quest,
-		tickets,
-		progress: { closed: tickets.filter((t) => t.closed).length, total: tickets.length }
+		labours,
+		progress: { closed: labours.filter((t) => t.closed).length, total: labours.length }
 	};
 }
 
@@ -142,25 +140,25 @@ export function applyToQuest(quest: Quest, event: LiveEvent): Quest | null {
 	switch (event.type) {
 		case 'quest.created':
 		case 'quest.updated':
-		case 'quest.tickets_added':
-		case 'quest.tickets_removed':
-		case 'quest.ticket_ranked':
+		case 'quest.labours_added':
+		case 'quest.labours_removed':
+		case 'quest.labour_ranked':
 			return event.data.quest.id === quest.id ? event.data.quest : quest;
 		case 'quest.deleted':
 			return event.data.id === quest.id ? null : quest;
-		case 'ticket.created':
+		case 'labour.created':
 			return quest;
 	}
-	const ticket = changedTicket(event);
-	if (ticket) {
-		if (!quest.tickets.some((t) => t.id === ticket.id)) return quest;
+	const labour = changedLabour(event);
+	if (labour) {
+		if (!quest.labours.some((t) => t.id === labour.id)) return quest;
 		return withMembers(
 			quest,
-			quest.tickets.map((t) => (t.id === ticket.id ? ticket : t))
+			quest.labours.map((t) => (t.id === labour.id ? labour : t))
 		);
 	}
-	const patched = patchTickets(quest.tickets, event);
-	return patched && patched !== quest.tickets ? withMembers(quest, patched) : quest;
+	const patched = patchLabours(quest.labours, event);
+	return patched && patched !== quest.labours ? withMembers(quest, patched) : quest;
 }
 
 // Quests in id order; `keep` decides which Quests the list holds.
@@ -172,9 +170,9 @@ export function applyToQuests(
 	switch (event.type) {
 		case 'quest.created':
 		case 'quest.updated':
-		case 'quest.tickets_added':
-		case 'quest.tickets_removed':
-		case 'quest.ticket_ranked': {
+		case 'quest.labours_added':
+		case 'quest.labours_removed':
+		case 'quest.labour_ranked': {
 			const { quest } = event.data;
 			return keep(quest) ? upsert(quests, quest) : without(quests, [quest.id]);
 		}
@@ -191,58 +189,58 @@ export function applyToQuests(
 }
 
 export function applyToHome(userId: number): (home: HomeView, e: LiveEvent) => HomeView {
-	const mine = (t: Ticket) => !t.closed && (t.ownerId === userId || t.assigneeId === userId);
+	const mine = (t: Labour) => !t.closed && (t.ownerId === userId || t.assigneeId === userId);
 	return (home, event) => {
-		const projects = applyToProjects(home.projects, event);
+		const realms = applyToRealms(home.realms, event);
 		const quests = applyToQuests(home.quests, event, (q) => q.ownerId === userId);
-		let tickets = home.mine;
-		const ticket = changedTicket(event);
-		if (ticket) {
-			tickets = mine(ticket) ? upsert(tickets, ticket) : without(tickets, [ticket.id]);
+		let labours = home.mine;
+		const labour = changedLabour(event);
+		if (labour) {
+			labours = mine(labour) ? upsert(labours, labour) : without(labours, [labour.id]);
 		} else {
-			tickets = patchTickets(tickets, event) ?? tickets;
+			labours = patchLabours(labours, event) ?? labours;
 		}
-		if (projects === home.projects && quests === home.quests && tickets === home.mine) {
+		if (realms === home.realms && quests === home.quests && labours === home.mine) {
 			return home;
 		}
-		return { projects, mine: tickets, quests };
+		return { realms, mine: labours, quests };
 	};
 }
 
 export function applyToQuestPage(page: QuestPageView, event: LiveEvent): QuestPageView | null {
 	const quest = applyToQuest(page.quest, event);
 	if (quest === null) return null;
-	const projects = applyToProjects(page.projects, event);
-	return quest === page.quest && projects === page.projects ? page : { quest, projects };
+	const realms = applyToRealms(page.realms, event);
+	return quest === page.quest && realms === page.realms ? page : { quest, realms };
 }
 
 export function applyToQuestList(list: QuestListView, event: LiveEvent): QuestListView {
 	const quests = applyToQuests(list.quests, event);
-	const projects = applyToProjects(list.projects, event);
-	return quests === list.quests && projects === list.projects ? list : { quests, projects };
+	const realms = applyToRealms(list.realms, event);
+	return quests === list.quests && realms === list.realms ? list : { quests, realms };
 }
 
 export function applyToSettings(view: SettingsView, event: LiveEvent): SettingsView | null {
-	const id = view.project.id;
-	if (event.type === 'project.deleted' && event.data.projectId === id) return null;
-	const [project] = applyToProjects([view.project], event);
-	return project === view.project ? view : { project };
+	const id = view.realm.id;
+	if (event.type === 'realm.deleted' && event.data.realmId === id) return null;
+	const [realm] = applyToRealms([view.realm], event);
+	return realm === view.realm ? view : { realm };
 }
 
 function applyToOptions(
-	page: TicketPageView,
+	page: LabourPageView,
 	event: LiveEvent
-): Pick<TicketPageView, 'quests' | 'memberOf'> {
+): Pick<LabourPageView, 'quests' | 'memberOf'> {
 	const { quests, memberOf } = page;
 	switch (event.type) {
 		case 'quest.created':
 		case 'quest.updated':
-		case 'quest.tickets_added':
-		case 'quest.tickets_removed':
-		case 'quest.ticket_ranked': {
+		case 'quest.labours_added':
+		case 'quest.labours_removed':
+		case 'quest.labour_ranked': {
 			const { quest } = event.data;
 			const option: QuestOption = { id: quest.id, name: quest.name };
-			const member = quest.tickets.some((t) => t.id === page.ticket.id);
+			const member = quest.labours.some((t) => t.id === page.labour.id);
 			const ids = memberOf.filter((id) => id !== quest.id);
 			return {
 				quests: upsert(quests, option),
@@ -259,31 +257,48 @@ function applyToOptions(
 	}
 }
 
-export function applyToTicketPage(
-	page: TicketPageView,
+export function applyToLabourPage(
+	page: LabourPageView,
 	event: LiveEvent,
-	shown?: TicketPageView
-): Applied<TicketPageView> {
-	const id = page.ticket.id;
-	if (event.type === 'ticket.deleted' && event.data.id === id) return null;
-	if (event.type === 'project.deleted' && event.data.ticketIds.includes(id)) return null;
+	shown?: LabourPageView
+): Applied<LabourPageView> {
+	const id = page.labour.id;
+	if (event.type === 'labour.deleted' && event.data.id === id) return null;
+	if (event.type === 'realm.deleted' && event.data.labourIds.includes(id)) return null;
 
-	const next: TicketPageView = {
+	const next: LabourPageView = {
 		...page,
 		...applyToOptions(page, event),
-		projects: applyToProjects(page.projects, event)
+		realms: applyToRealms(page.realms, event)
 	};
 
-	const changed = changedTicket(event);
+	if (event.type === 'labour.commented') {
+		const { comment } = event.data;
+		if (comment.labourId !== id) return page;
+		return page.comments.some((c) => c.id === comment.id)
+			? page
+			: { ...next, comments: [...page.comments, comment] };
+	}
+	if (event.type === 'labour.comment_edited') {
+		const { comment } = event.data;
+		if (comment.labourId !== id) return page;
+		return { ...next, comments: page.comments.map((c) => (c.id === comment.id ? comment : c)) };
+	}
+	if (event.type === 'labour.comment_deleted') {
+		if (event.data.labourId !== id) return page;
+		return { ...next, comments: without(page.comments, [event.data.id]) };
+	}
+
+	const changed = changedLabour(event);
 	if (changed) {
 		if (changed.id === id) {
-			if (changed.parentId !== null && changed.parentId !== page.ticket.parentId) {
+			if (changed.parentId !== null && changed.parentId !== page.labour.parentId) {
 				// The Event names the new Parent but does not carry it; the client's own pending
 				// write may already show it.
 				if (shown?.parent?.id !== changed.parentId) return RELOAD;
 				next.parent = shown.parent;
 			}
-			next.ticket = changed;
+			next.labour = changed;
 			if (changed.parentId === null) next.parent = null;
 		}
 		if (changed.id === page.parent?.id) next.parent = changed;
@@ -292,11 +307,11 @@ export function applyToTicketPage(
 				? upsert(page.children, changed)
 				: without(page.children, [changed.id]);
 	} else {
-		const [ticket] = patchTickets([page.ticket], event) ?? [page.ticket];
-		next.ticket = ticket;
-		if (page.parent) next.parent = (patchTickets([page.parent], event) ?? [page.parent])[0] ?? null;
-		next.children = patchTickets(page.children, event) ?? page.children;
+		const [labour] = patchLabours([page.labour], event) ?? [page.labour];
+		next.labour = labour;
+		if (page.parent) next.parent = (patchLabours([page.parent], event) ?? [page.parent])[0] ?? null;
+		next.children = patchLabours(page.children, event) ?? page.children;
 	}
-	const same = (Object.keys(next) as (keyof TicketPageView)[]).every((k) => next[k] === page[k]);
+	const same = (Object.keys(next) as (keyof LabourPageView)[]).every((k) => next[k] === page[k]);
 	return same ? page : next;
 }

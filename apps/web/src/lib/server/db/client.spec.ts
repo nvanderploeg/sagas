@@ -15,7 +15,7 @@ describe('openDatabase', () => {
 	};
 
 	beforeEach(() => {
-		dir = mkdtempSync(join(tmpdir(), 'workload-db-'));
+		dir = mkdtempSync(join(tmpdir(), 'sagas-db-'));
 		opened = [];
 	});
 
@@ -25,7 +25,7 @@ describe('openDatabase', () => {
 	});
 
 	it('creates a missing parent directory and the database file', () => {
-		const file = join(dir, 'nested', 'deeper', 'workload.db');
+		const file = join(dir, 'nested', 'deeper', 'sagas.db');
 
 		open(file);
 
@@ -33,14 +33,14 @@ describe('openDatabase', () => {
 	});
 
 	it('opens in WAL mode with foreign keys enforced', () => {
-		const db = open(join(dir, 'workload.db'));
+		const db = open(join(dir, 'sagas.db'));
 
 		expect(db.$client.pragma('journal_mode', { simple: true })).toBe('wal');
 		expect(db.$client.pragma('foreign_keys', { simple: true })).toBe(1);
 	});
 
 	it('applies every migration, and reopening the file applies none twice', () => {
-		const file = join(dir, 'workload.db');
+		const file = join(dir, 'sagas.db');
 		open(file).$client.close();
 
 		const db = open(file);
@@ -51,8 +51,8 @@ describe('openDatabase', () => {
 		const applied = db.$client.prepare('SELECT count(*) FROM __drizzle_migrations').pluck().get();
 
 		expect(tables).toEqual(
-			expect.arrayContaining(['users', 'projects', 'states', 'substates', 'tickets'])
+			expect.arrayContaining(['users', 'realms', 'states', 'substates', 'labours'])
 		);
-		expect(applied).toBe(1);
+		expect(applied).toBe(3);
 	});
 });

@@ -1,15 +1,15 @@
 import { asc } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
-import { events, tickets } from '#lib/server/db/schema.ts';
+import { events, labours } from '#lib/server/db/schema.ts';
 import type { Actor } from './write.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedActor, seedProject, seedTicket } from '#lib/server/test/fixtures.ts';
+import { seedActor, seedRealm, seedLabour } from '#lib/server/test/fixtures.ts';
 import { DomainError } from './errors.ts';
-import { getTicket } from './lookup.ts';
+import { getLabour } from './lookup.ts';
 import type { Placement } from './rank.ts';
 import { createState, listStates } from './states.ts';
-import { listColumn, moveTicket, rankTicket, updateTicket } from './tickets.ts';
+import { listColumn, moveLabour, rankLabour, updateLabour } from './labours.ts';
 
 let db: Db;
 let actor: Actor;
@@ -41,38 +41,38 @@ function column(stateId: number): string[] {
 }
 
 function seedColumn(...titles: string[]) {
-	const project = seedProject(db, 'AM');
-	const stateId = project.initialStateId!;
+	const realm = seedRealm(db, 'AM');
+	const stateId = realm.initialStateId!;
 	const byTitle = Object.fromEntries(
-		titles.map((title) => [title, seedTicket(db, { projectId: project.id, title })])
+		titles.map((title) => [title, seedLabour(db, { realmId: realm.id, title })])
 	);
-	return { project, stateId, byTitle };
+	return { realm, stateId, byTitle };
 }
 
-describe('rankTicket', () => {
-	it('places a Ticket before or after another, or at the top or bottom of its State', () => {
+describe('rankLabour', () => {
+	it('places a Labour before or after another, or at the top or bottom of its State', () => {
 		const { stateId, byTitle } = seedColumn('a', 'b', 'c');
 		const { a, c } = byTitle;
 
-		rankTicket(db, actor, c.id, { before: a.id });
+		rankLabour(db, actor, c.id, { before: a.id });
 		expect(column(stateId)).toEqual(['c', 'a', 'b']);
 
-		rankTicket(db, actor, c.id, { after: a.id });
+		rankLabour(db, actor, c.id, { after: a.id });
 		expect(column(stateId)).toEqual(['a', 'c', 'b']);
 
-		rankTicket(db, actor, a.id, 'bottom');
+		rankLabour(db, actor, a.id, 'bottom');
 		expect(column(stateId)).toEqual(['c', 'b', 'a']);
 
-		rankTicket(db, actor, a.id, 'top');
+		rankLabour(db, actor, a.id, 'top');
 		expect(column(stateId)).toEqual(['a', 'c', 'b']);
 	});
 
-	it('writes only the ranked Ticket row', () => {
+	it('writes only the ranked Labour row', () => {
 		const { byTitle } = seedColumn('a', 'b', 'c', 'd');
-		const all = () => db.select().from(tickets).orderBy(asc(tickets.id)).all();
+		const all = () => db.select().from(labours).orderBy(asc(labours.id)).all();
 		const before = all();
 
-		rankTicket(db, actor, byTitle.d.id, { after: byTitle.a.id });
+		rankLabour(db, actor, byTitle.d.id, { after: byTitle.a.id });
 
 		const after = all();
 		const changed = after.filter((row, i) => JSON.stringify(row) !== JSON.stringify(before[i]));
@@ -83,43 +83,43 @@ describe('rankTicket', () => {
 		});
 	});
 
-	it('records no Event and writes nothing when the Ticket already sits there', () => {
+	it('records no Event and writes nothing when the Labour already sits there', () => {
 		const { byTitle } = seedColumn('a', 'b');
 		const seq = () => db.select().from(events).all().length;
 		const count = seq();
 
-		const same = rankTicket(db, actor, byTitle.b.id, { after: byTitle.a.id });
+		const same = rankLabour(db, actor, byTitle.b.id, { after: byTitle.a.id });
 
 		expect(same.rank).toBe(byTitle.b.rank);
 		expect(seq()).toBe(count);
 	});
 
-	it('refuses a Ticket of another State, the Ticket itself, and a malformed placement', () => {
-		const { project, byTitle } = seedColumn('a', 'b');
-		const doing = createState(db, actor, project.id, style('doing'));
-		const elsewhere = seedTicket(db, { projectId: project.id, stateId: doing.id });
+	it('refuses a Labour of another State, the Labour itself, and a malformed placement', () => {
+		const { realm, byTitle } = seedColumn('a', 'b');
+		const doing = createState(db, actor, realm.id, style('doing'));
+		const elsewhere = seedLabour(db, { realmId: realm.id, stateId: doing.id });
 
 		expectDomainError(
-			() => rankTicket(db, actor, byTitle.a.id, { before: elsewhere.id }),
+			() => rankLabour(db, actor, byTitle.a.id, { before: elsewhere.id }),
 			'invalid'
 		);
 		expectDomainError(
-			() => rankTicket(db, actor, byTitle.a.id, { after: byTitle.a.id }),
+			() => rankLabour(db, actor, byTitle.a.id, { after: byTitle.a.id }),
 			'invalid'
 		);
 		expectDomainError(
-			() => rankTicket(db, actor, byTitle.a.id, 'middle' as unknown as Placement),
+			() => rankLabour(db, actor, byTitle.a.id, 'middle' as unknown as Placement),
 			'invalid'
 		);
-		expect(getTicket(db, byTitle.a.id).rank).toBe(byTitle.a.rank);
+		expect(getLabour(db, byTitle.a.id).rank).toBe(byTitle.a.rank);
 	});
 
 	it('names an anchor in another State by its key', () => {
-		const { project, byTitle } = seedColumn('a');
-		const doing = createState(db, actor, project.id, style('doing'));
-		const elsewhere = seedTicket(db, { projectId: project.id, stateId: doing.id });
+		const { realm, byTitle } = seedColumn('a');
+		const doing = createState(db, actor, realm.id, style('doing'));
+		const elsewhere = seedLabour(db, { realmId: realm.id, stateId: doing.id });
 
-		expect(() => rankTicket(db, actor, byTitle.a.id, { after: elsewhere.id })).toThrow(
+		expect(() => rankLabour(db, actor, byTitle.a.id, { after: elsewhere.id })).toThrow(
 			'AM-2 is not in the same State'
 		);
 	});
@@ -135,11 +135,11 @@ describe('rank key length', () => {
 	const MIDDLE_MIN = N / 8;
 	const MIDDLE_MAX = N / 4;
 
-	it(`grows linearly, within ${MIDDLE_MAX} characters, over ${N} inserts right after one Ticket`, () => {
-		const { project, stateId, byTitle } = seedColumn('anchor', 'tail');
+	it(`grows linearly, within ${MIDDLE_MAX} characters, over ${N} inserts right after one Labour`, () => {
+		const { realm, stateId, byTitle } = seedColumn('anchor', 'tail');
 		for (let i = 0; i < N; i++) {
-			seedTicket(db, {
-				projectId: project.id,
+			seedLabour(db, {
+				realmId: realm.id,
 				title: `n${i}`,
 				placement: { after: byTitle.anchor.id }
 			});
@@ -152,11 +152,11 @@ describe('rank key length', () => {
 	});
 
 	it(`grows linearly, within ${MIDDLE_MAX} characters, over ${N} inserts each right after the last`, () => {
-		const { project, stateId, byTitle } = seedColumn('head', 'tail');
+		const { realm, stateId, byTitle } = seedColumn('head', 'tail');
 		let previous = byTitle.head.id;
 		for (let i = 0; i < N; i++) {
-			previous = seedTicket(db, {
-				projectId: project.id,
+			previous = seedLabour(db, {
+				realmId: realm.id,
 				title: `n${i}`,
 				placement: { after: previous }
 			}).id;
@@ -169,10 +169,10 @@ describe('rank key length', () => {
 	});
 
 	it(`stays within 4 characters over ${N} inserts at the top and ${N} at the bottom`, () => {
-		const { project, stateId } = seedColumn('middle');
+		const { realm, stateId } = seedColumn('middle');
 		for (let i = 0; i < N; i++) {
-			seedTicket(db, { projectId: project.id, title: `top${i}`, placement: 'top' });
-			seedTicket(db, { projectId: project.id, title: `bottom${i}` });
+			seedLabour(db, { realmId: realm.id, title: `top${i}`, placement: 'top' });
+			seedLabour(db, { realmId: realm.id, title: `bottom${i}` });
 		}
 
 		const ranks = listColumn(db, stateId);
@@ -183,48 +183,48 @@ describe('rank key length', () => {
 });
 
 describe('default rank', () => {
-	it('puts a created Ticket at the bottom of its column, or where its placement says', () => {
-		const { project, stateId, byTitle } = seedColumn('a', 'b');
-		rankTicket(db, actor, byTitle.b.id, 'top');
+	it('puts a created Labour at the bottom of its column, or where its placement says', () => {
+		const { realm, stateId, byTitle } = seedColumn('a', 'b');
+		rankLabour(db, actor, byTitle.b.id, 'top');
 
-		seedTicket(db, { projectId: project.id, title: 'c' });
-		seedTicket(db, { projectId: project.id, title: 'd', placement: { before: byTitle.a.id } });
+		seedLabour(db, { realmId: realm.id, title: 'c' });
+		seedLabour(db, { realmId: realm.id, title: 'd', placement: { before: byTitle.a.id } });
 
 		expect(column(stateId)).toEqual(['b', 'd', 'a', 'c']);
 	});
 
-	it('puts a Ticket that changes State at the bottom of the new column without a placement', () => {
-		const { project, stateId, byTitle } = seedColumn('a', 'b');
-		const doing = createState(db, actor, project.id, style('doing'));
-		const x = seedTicket(db, { projectId: project.id, stateId: doing.id, title: 'x' });
-		rankTicket(db, actor, x.id, 'top');
+	it('puts a Labour that changes State at the bottom of the new column without a placement', () => {
+		const { realm, stateId, byTitle } = seedColumn('a', 'b');
+		const doing = createState(db, actor, realm.id, style('doing'));
+		const x = seedLabour(db, { realmId: realm.id, stateId: doing.id, title: 'x' });
+		rankLabour(db, actor, x.id, 'top');
 
-		updateTicket(db, actor, byTitle.a.id, { stateId: doing.id });
-		updateTicket(db, actor, byTitle.b.id, { stateId: doing.id, placement: 'top' });
+		updateLabour(db, actor, byTitle.a.id, { stateId: doing.id });
+		updateLabour(db, actor, byTitle.b.id, { stateId: doing.id, placement: 'top' });
 
 		expect(column(doing.id)).toEqual(['b', 'x', 'a']);
 		expect(column(stateId)).toEqual([]);
 	});
 
-	it('keeps the rank when a Ticket changes other fields, and reranks on a placement', () => {
+	it('keeps the rank when a Labour changes other fields, and reranks on a placement', () => {
 		const { stateId, byTitle } = seedColumn('a', 'b');
 
-		updateTicket(db, actor, byTitle.a.id, { title: 'a2', stateId });
+		updateLabour(db, actor, byTitle.a.id, { title: 'a2', stateId });
 		expect(column(stateId)).toEqual(['a2', 'b']);
 
-		updateTicket(db, actor, byTitle.a.id, { placement: 'bottom' });
+		updateLabour(db, actor, byTitle.a.id, { placement: 'bottom' });
 		expect(column(stateId)).toEqual(['b', 'a2']);
 	});
 
-	it('puts a Ticket moved to another Project at the bottom of its target column', () => {
+	it('puts a Labour moved to another Realm at the bottom of its target column', () => {
 		const { byTitle } = seedColumn('a');
-		const bl = seedProject(db, 'BL');
-		seedTicket(db, { projectId: bl.id, title: 'x' });
-		seedTicket(db, { projectId: bl.id, title: 'y' });
+		const bl = seedRealm(db, 'BL');
+		seedLabour(db, { realmId: bl.id, title: 'x' });
+		seedLabour(db, { realmId: bl.id, title: 'y' });
 		const closed = listStates(db, bl.id).at(-1)!;
-		seedTicket(db, { projectId: bl.id, title: 'z', stateId: closed.id });
+		seedLabour(db, { realmId: bl.id, title: 'z', stateId: closed.id });
 
-		moveTicket(db, actor, byTitle.a.id, { projectId: bl.id });
+		moveLabour(db, actor, byTitle.a.id, { realmId: bl.id });
 
 		expect(column(bl.initialStateId!)).toEqual(['x', 'y', 'a']);
 	});

@@ -70,9 +70,9 @@ test.describe('logout', () => {
 	});
 
 	test('invalidates the session token on the server', async ({ signedInPage: page, request }) => {
-		const [session] = (await page.context().cookies()).filter((c) => c.name === 'workload_session');
+		const [session] = (await page.context().cookies()).filter((c) => c.name === 'sagas_session');
 		const before = await request.get('/', {
-			headers: { cookie: `workload_session=${session.value}` },
+			headers: { cookie: `sagas_session=${session.value}` },
 			maxRedirects: 0
 		});
 		expect(before.status()).toBe(200);
@@ -82,7 +82,7 @@ test.describe('logout', () => {
 		await expect(page).toHaveURL(/\/login$/);
 
 		const after = await request.get('/', {
-			headers: { cookie: `workload_session=${session.value}` },
+			headers: { cookie: `sagas_session=${session.value}` },
 			maxRedirects: 0
 		});
 		expect(after.status()).toBe(303);

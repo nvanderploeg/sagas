@@ -1,21 +1,21 @@
 import { z } from 'zod';
 import { DomainError } from '../../domain/errors.ts';
 import {
-	addQuestTickets,
+	addQuestLabours,
 	createQuest,
 	deleteQuest,
 	listQuests,
-	listQuestTickets,
-	rankQuestTicket,
+	listQuestLabours,
+	rankQuestLabour,
 	readQuest,
-	removeQuestTickets,
+	removeQuestLabours,
 	updateQuest,
-	type QuestTicketsChange
+	type QuestLaboursChange
 } from '../../domain/quests.ts';
 import { count, questLine, type Presenter } from '../present.ts';
 import * as refs from '../refs.ts';
 import { reply } from '../result.ts';
-import { placementShape, questRef, ticketRef, userRef, type Tools } from '../tool.ts';
+import { placementShape, questRef, labourRef, userRef, type Tools } from '../tool.ts';
 
 function questReply(present: Presenter, questId: number) {
 	const quest = present.quest(readQuest(present.db, questId));
@@ -24,27 +24,27 @@ function questReply(present: Presenter, questId: number) {
 
 function changeReply(
 	present: Presenter,
-	change: QuestTicketsChange,
+	change: QuestLaboursChange,
 	verb: 'added' | 'removed',
 	skippedBecause: string
 ) {
 	const quest = present.quest(change.quest);
-	const keys = (ids: number[]) => ids.map((id) => refs.ticketKey(present.db, id));
+	const keys = (ids: number[]) => ids.map((id) => refs.labourKey(present.db, id));
 	const skipped = keys(change.skipped);
 	const note = skipped.length > 0 ? `, skipped ${skipped.length} ${skippedBecause}` : '';
 	return reply(
-		{ quest, [verb]: keys(change.ticketIds), skipped },
-		`${questLine(quest)}; ${verb} ${count(change.ticketIds.length, 'Ticket')}${note}`
+		{ quest, [verb]: keys(change.labourIds), skipped },
+		`${questLine(quest)}; ${verb} ${count(change.labourIds.length, 'Labour')}${note}`
 	);
 }
 
 const BULK_MAX = 100;
 
-const ticketList = z
-	.array(ticketRef)
+const labourList = z
+	.array(labourRef)
 	.min(1)
 	.max(BULK_MAX)
-	.describe(`1 to ${BULK_MAX} Tickets; a Ticket listed twice counts once`);
+	.describe(`1 to ${BULK_MAX} Labours; a Labour listed twice counts once`);
 
 export function registerQuestTools({ db, actor, define }: Tools): void {
 	define(
@@ -52,7 +52,7 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'read',
 			description:
-				'List every Quest with its Owner and progress: its Closed Tickets over all its Tickets.',
+				'List every Quest with its Owner and progress: its Closed Labours over all its Labours.',
 			input: {}
 		},
 		(_args, present) => {
@@ -66,7 +66,7 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'read',
 			description:
-				'Get a Quest with its Tickets in Quest order and its progress (Closed over total). A Quest has no State of its own.',
+				'Get a Quest with its Labours in Quest order and its progress (Closed over total). A Quest has no State of its own.',
 			input: { quest: questRef }
 		},
 		(args, present) => questReply(present, refs.questId(db, args.quest))
@@ -77,7 +77,7 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'write',
 			description:
-				'Create a Quest: a named, ordered set of Tickets that may span Projects. Owner defaults to you.',
+				'Create a Quest: a named, ordered set of Labours that may span Realms. Owner defaults to you.',
 			input: {
 				name: z.string().describe('1 to 120 characters'),
 				description: z.string().optional().describe('Markdown'),
@@ -121,7 +121,7 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		'delete_quest',
 		{
 			kind: 'destroy',
-			description: 'Delete a Quest. Its Tickets are untouched.',
+			description: 'Delete a Quest. Its Labours are untouched.',
 			input: { quest: questRef }
 		},
 		(args) => {
@@ -135,60 +135,60 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 	);
 
 	define(
-		'add_quest_tickets',
+		'add_quest_labours',
 		{
 			kind: 'write',
 			description:
-				'Add Tickets to a Quest in one write, in the order given, at the bottom unless a position is given. Tickets already in the Quest are skipped and listed in `skipped`, so repeating a call is safe. Membership is explicit: adding a Ticket never adds its Children; list them too if you want them. An unknown Ticket fails the whole call.',
-			input: { quest: questRef, tickets: ticketList, ...placementShape }
+				'Add Labours to a Quest in one write, in the order given, at the bottom unless a position is given. Labours already in the Quest are skipped and listed in `skipped`, so repeating a call is safe. Membership is explicit: adding a Labour never adds its Children; list them too if you want them. An unknown Labour fails the whole call.',
+			input: { quest: questRef, labours: labourList, ...placementShape }
 		},
 		(args, present) => {
 			const questId = refs.questId(db, args.quest);
-			const ticketIds = args.tickets.map((ref) => refs.ticketId(db, ref));
+			const labourIds = args.labours.map((ref) => refs.labourId(db, ref));
 			const placement = refs.placement(db, args);
-			const change = addQuestTickets(db, actor, questId, ticketIds, placement);
+			const change = addQuestLabours(db, actor, questId, labourIds, placement);
 			return changeReply(present, change, 'added', 'already in it');
 		}
 	);
 
 	define(
-		'remove_quest_tickets',
+		'remove_quest_labours',
 		{
 			kind: 'write',
 			description:
-				'Remove Tickets from a Quest in one write. Tickets not in the Quest are skipped and listed in `skipped`, so repeating a call is safe. The Tickets themselves are untouched. An unknown Ticket fails the whole call.',
-			input: { quest: questRef, tickets: ticketList }
+				'Remove Labours from a Quest in one write. Labours not in the Quest are skipped and listed in `skipped`, so repeating a call is safe. The Labours themselves are untouched. An unknown Labour fails the whole call.',
+			input: { quest: questRef, labours: labourList }
 		},
 		(args, present) => {
 			const questId = refs.questId(db, args.quest);
-			const ticketIds = args.tickets.map((ref) => refs.ticketId(db, ref));
-			const change = removeQuestTickets(db, actor, questId, ticketIds);
+			const labourIds = args.labours.map((ref) => refs.labourId(db, ref));
+			const change = removeQuestLabours(db, actor, questId, labourIds);
 			return changeReply(present, change, 'removed', 'not in it');
 		}
 	);
 
 	define(
-		'rank_quest_ticket',
+		'rank_quest_labour',
 		{
 			kind: 'write',
 			description:
-				"Reorder a Ticket within a Quest. Give exactly one of position, before or after; before and after name another member. Quest order is separate from the Ticket's Rank on its board.",
-			input: { quest: questRef, ticket: ticketRef, ...placementShape }
+				"Reorder a Labour within a Quest. Give exactly one of position, before or after; before and after name another member. Quest order is separate from the Labour's Rank on its board.",
+			input: { quest: questRef, labour: labourRef, ...placementShape }
 		},
 		(args, present) => {
 			const questId = refs.questId(db, args.quest);
-			const ticketId = refs.ticketId(db, args.ticket);
+			const labourId = refs.labourId(db, args.labour);
 			const placement = refs.placement(db, args);
 			if (placement === undefined) {
 				throw new DomainError('invalid', 'Give one of position, before or after');
 			}
-			if (!listQuestTickets(db, questId).some((t) => t.id === ticketId)) {
+			if (!listQuestLabours(db, questId).some((t) => t.id === labourId)) {
 				throw new DomainError(
 					'not_found',
-					`${refs.ticketKey(db, ticketId)} is not in Quest ${questId}`
+					`${refs.labourKey(db, labourId)} is not in Quest ${questId}`
 				);
 			}
-			rankQuestTicket(db, actor, questId, ticketId, placement);
+			rankQuestLabour(db, actor, questId, labourId, placement);
 			return questReply(present, questId);
 		}
 	);

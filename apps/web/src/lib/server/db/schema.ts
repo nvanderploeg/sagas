@@ -87,44 +87,44 @@ export const apiTokens = sqliteTable(
 	(t) => [index('api_tokens_user_idx').on(t.userId)]
 );
 
-export const projects = sqliteTable(
-	'projects',
+export const realms = sqliteTable(
+	'realms',
 	{
 		id: id(),
 		name: text('name').notNull(),
 		key: text('key').notNull().unique(),
-		ticketCounter: integer('ticket_counter').notNull().default(0),
+		labourCounter: integer('labour_counter').notNull().default(0),
 		initialStateId: integer('initial_state_id')
 	},
 	(t) => [
 		check(
-			'projects_key_format',
+			'realms_key_format',
 			sql.raw(
 				`"key" GLOB '[A-Z]*' AND "key" NOT GLOB '*[^A-Z0-9]*' AND length("key") BETWEEN 2 AND 6`
 			)
 		),
-		check('projects_counter_non_negative', sql.raw(`"ticket_counter" >= 0`)),
+		check('realms_counter_non_negative', sql.raw(`"labour_counter" >= 0`)),
 		foreignKey(() => ({
 			columns: [t.id, t.initialStateId],
-			foreignColumns: [states.projectId, states.id]
+			foreignColumns: [states.realmId, states.id]
 		}))
 	]
 );
 
-// Every key a Project has held, its current one included.
-export const projectKeys = sqliteTable(
-	'project_keys',
+// Every key a Realm has held, its current one included.
+export const realmKeys = sqliteTable(
+	'realm_keys',
 	{
 		key: text('key').primaryKey(),
-		projectId: integer('project_id')
+		realmId: integer('realm_id')
 			.notNull()
-			.references((): AnySQLiteColumn => projects.id, { onDelete: 'cascade' }),
+			.references((): AnySQLiteColumn => realms.id, { onDelete: 'cascade' }),
 		createdAt: now()
 	},
 	(t) => [
-		index('project_keys_project_idx').on(t.projectId),
+		index('realm_keys_realm_idx').on(t.realmId),
 		check(
-			'project_keys_format',
+			'realm_keys_format',
 			sql.raw(
 				`"key" GLOB '[A-Z]*' AND "key" NOT GLOB '*[^A-Z0-9]*' AND length("key") BETWEEN 2 AND 6`
 			)
@@ -136,9 +136,9 @@ export const states = sqliteTable(
 	'states',
 	{
 		id: id(),
-		projectId: integer('project_id')
+		realmId: integer('realm_id')
 			.notNull()
-			.references((): AnySQLiteColumn => projects.id, { onDelete: 'cascade' }),
+			.references((): AnySQLiteColumn => realms.id, { onDelete: 'cascade' }),
 		key: text('key').notNull(),
 		label: text('label').notNull(),
 		color: text('color').notNull(),
@@ -153,10 +153,10 @@ export const states = sqliteTable(
 		)
 	},
 	(t) => [
-		uniqueIndex('states_project_key_uq').on(t.projectId, t.key),
-		uniqueIndex('states_project_position_uq').on(t.projectId, t.position),
-		uniqueIndex('states_project_id_uq').on(t.projectId, t.id),
-		uniqueIndex('states_one_closed_uq').on(t.projectId).where(sql.raw(`"is_closed" = 1`)),
+		uniqueIndex('states_realm_key_uq').on(t.realmId, t.key),
+		uniqueIndex('states_realm_position_uq').on(t.realmId, t.position),
+		uniqueIndex('states_realm_id_uq').on(t.realmId, t.id),
+		uniqueIndex('states_one_closed_uq').on(t.realmId).where(sql.raw(`"is_closed" = 1`)),
 		// The column FK clears the default with its Substate; this one keeps it within the State.
 		foreignKey(() => ({
 			columns: [t.id, t.defaultSubstateId],
@@ -185,13 +185,13 @@ export const substates = sqliteTable(
 	]
 );
 
-export const tickets = sqliteTable(
-	'tickets',
+export const labours = sqliteTable(
+	'labours',
 	{
 		id: id(),
-		projectId: integer('project_id')
+		realmId: integer('realm_id')
 			.notNull()
-			.references((): AnySQLiteColumn => projects.id, { onDelete: 'cascade' }),
+			.references((): AnySQLiteColumn => realms.id, { onDelete: 'cascade' }),
 		number: integer('number').notNull(),
 		title: text('title').notNull(),
 		description: text('description').notNull().default(''),
@@ -201,49 +201,72 @@ export const tickets = sqliteTable(
 		assigneeId: integer('assignee_id').references(() => users.id),
 		stateId: integer('state_id').notNull(),
 		substateId: integer('substate_id'),
-		parentId: integer('parent_id').references((): AnySQLiteColumn => tickets.id, {
+		parentId: integer('parent_id').references((): AnySQLiteColumn => labours.id, {
 			onDelete: 'set null'
 		}),
 		// A fractional index ordering the State's column; keep the default BINARY collation.
 		rank: text('rank').notNull(),
+		// Sorted and deduplicated; the format is LABEL in domain/labels.ts.
+		labels: text('labels', { mode: 'json' })
+			.notNull()
+			.$type<string[]>()
+			.default(sql`'[]'`),
 		createdAt: now(),
 		updatedAt: now('updated_at')
 	},
 	(t) => [
-		uniqueIndex('tickets_project_number_uq').on(t.projectId, t.number),
-		index('tickets_parent_idx').on(t.parentId),
-		uniqueIndex('tickets_state_rank_uq').on(t.stateId, t.rank),
+		uniqueIndex('labours_realm_number_uq').on(t.realmId, t.number),
+		index('labours_parent_idx').on(t.parentId),
+		uniqueIndex('labours_state_rank_uq').on(t.stateId, t.rank),
 		foreignKey(() => ({
-			columns: [t.projectId, t.stateId],
-			foreignColumns: [states.projectId, states.id]
+			columns: [t.realmId, t.stateId],
+			foreignColumns: [states.realmId, states.id]
 		})),
 		foreignKey(() => ({
 			columns: [t.stateId, t.substateId],
 			foreignColumns: [substates.stateId, substates.id]
 		})),
-		check('tickets_number_positive', sql.raw(`"number" >= 1`))
+		check('labours_number_positive', sql.raw(`"number" >= 1`))
 	]
 );
 
-// Every key a Ticket has held, its current one included.
-export const ticketKeys = sqliteTable(
-	'ticket_keys',
+// Every key a Labour has held, its current one included.
+export const labourKeys = sqliteTable(
+	'labour_keys',
 	{
 		key: text('key').primaryKey(),
-		ticketId: integer('ticket_id')
+		labourId: integer('labour_id')
 			.notNull()
-			.references(() => tickets.id, { onDelete: 'cascade' }),
+			.references(() => labours.id, { onDelete: 'cascade' }),
 		createdAt: now()
 	},
 	(t) => [
-		index('ticket_keys_ticket_idx').on(t.ticketId),
+		index('labour_keys_labour_idx').on(t.labourId),
 		check(
-			'ticket_keys_format',
+			'labour_keys_format',
 			sql.raw(
 				`"key" GLOB '[A-Z]*-[1-9]*' AND "key" NOT GLOB '*[^A-Z0-9-]*' AND "key" NOT GLOB '*-*[^0-9]*'`
 			)
 		)
 	]
+);
+
+export const comments = sqliteTable(
+	'comments',
+	{
+		id: id(),
+		labourId: integer('labour_id')
+			.notNull()
+			.references(() => labours.id, { onDelete: 'cascade' }),
+		authorId: integer('author_id')
+			.notNull()
+			.references(() => users.id),
+		body: text('body').notNull(),
+		createdAt: now(),
+		// Null until the body is edited.
+		updatedAt: timestamp('updated_at')
+	},
+	(t) => [index('comments_labour_idx').on(t.labourId, t.id)]
 );
 
 export const quests = sqliteTable('quests', {
@@ -257,23 +280,23 @@ export const quests = sqliteTable('quests', {
 	updatedAt: now('updated_at')
 });
 
-export const questTickets = sqliteTable(
-	'quest_tickets',
+export const questLabours = sqliteTable(
+	'quest_labours',
 	{
 		questId: integer('quest_id')
 			.notNull()
 			.references(() => quests.id, { onDelete: 'cascade' }),
-		ticketId: integer('ticket_id')
+		labourId: integer('labour_id')
 			.notNull()
-			.references(() => tickets.id, { onDelete: 'cascade' }),
+			.references(() => labours.id, { onDelete: 'cascade' }),
 		// A fractional index ordering the Quest; keep the default BINARY collation.
 		rank: text('rank').notNull(),
 		addedAt: now('added_at')
 	},
 	(t) => [
-		primaryKey({ columns: [t.questId, t.ticketId] }),
-		uniqueIndex('quest_tickets_quest_rank_uq').on(t.questId, t.rank),
-		index('quest_tickets_ticket_idx').on(t.ticketId)
+		primaryKey({ columns: [t.questId, t.labourId] }),
+		uniqueIndex('quest_labours_quest_rank_uq').on(t.questId, t.rank),
+		index('quest_labours_labour_idx').on(t.labourId)
 	]
 );
 

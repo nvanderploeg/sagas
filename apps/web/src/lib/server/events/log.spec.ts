@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { events } from '#lib/server/db/schema.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedProject, seedTicket } from '#lib/server/test/fixtures.ts';
+import { seedRealm, seedLabour } from '#lib/server/test/fixtures.ts';
 import { canReplayFrom, eventsSince, eventWindow, pruneEvents } from './log.ts';
 
 let db: Db;
@@ -23,8 +23,8 @@ function age(seq: number, ms: number): void {
 
 describe('pruneEvents', () => {
 	it('drops only Events older than the retention window', () => {
-		const project = seedProject(db, 'AM');
-		seedTicket(db, { projectId: project.id });
+		const realm = seedRealm(db, 'AM');
+		seedLabour(db, { realmId: realm.id });
 		const [first, second] = eventsSince(db, 0);
 		age(first.seq, 8 * DAY);
 		age(second.seq, 6 * DAY);
@@ -35,9 +35,9 @@ describe('pruneEvents', () => {
 	});
 
 	it('keeps a contiguous seq range when timestamps run out of seq order', () => {
-		const project = seedProject(db, 'AM');
-		seedTicket(db, { projectId: project.id });
-		seedTicket(db, { projectId: project.id });
+		const realm = seedRealm(db, 'AM');
+		seedLabour(db, { realmId: realm.id });
+		seedLabour(db, { realmId: realm.id });
 		const [first, second, third] = eventsSince(db, 0);
 		age(first.seq, 6 * DAY);
 		age(second.seq, 8 * DAY);
@@ -50,13 +50,13 @@ describe('pruneEvents', () => {
 	});
 
 	it('never reuses a seq after pruning empties the log', () => {
-		const project = seedProject(db, 'AM');
-		seedTicket(db, { projectId: project.id });
+		const realm = seedRealm(db, 'AM');
+		seedLabour(db, { realmId: realm.id });
 		const last = eventsSince(db, 0).at(-1)!.seq;
 
 		pruneEvents(db, 1, Date.now() + DAY);
 		expect(db.select().from(events).all()).toEqual([]);
-		seedTicket(db, { projectId: project.id });
+		seedLabour(db, { realmId: realm.id });
 
 		expect(eventsSince(db, 0).map((e) => e.seq)).toEqual([last + 1]);
 	});
@@ -71,9 +71,9 @@ describe('eventWindow', () => {
 	});
 
 	it('refuses a seq whose successors were pruned, and a seq never assigned', () => {
-		const project = seedProject(db, 'AM');
-		seedTicket(db, { projectId: project.id });
-		seedTicket(db, { projectId: project.id });
+		const realm = seedRealm(db, 'AM');
+		seedLabour(db, { realmId: realm.id });
+		seedLabour(db, { realmId: realm.id });
 		const [first] = eventsSince(db, 0);
 		age(first.seq, 8 * DAY);
 		pruneEvents(db, 7 * DAY);
@@ -88,7 +88,7 @@ describe('eventWindow', () => {
 	});
 
 	it('keeps the last seq once pruning empties the log', () => {
-		seedProject(db, 'AM');
+		seedRealm(db, 'AM');
 		pruneEvents(db, 1, Date.now() + DAY);
 
 		const window = eventWindow(db);

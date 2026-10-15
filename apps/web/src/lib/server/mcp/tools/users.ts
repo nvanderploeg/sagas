@@ -88,7 +88,7 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'write',
 			description:
-				'Admin only. Create an Agent user: a User of kind agent with no password, which signs in only with API tokens and can own and be assigned Tickets. Follow with create_api_token for it.',
+				'Admin only. Create an Agent user: a User of kind agent with no password, which signs in only with API tokens and can own and be assigned Labours. Follow with create_api_token for it.',
 			input: {
 				username: z
 					.string()

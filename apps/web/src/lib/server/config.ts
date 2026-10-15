@@ -1,4 +1,4 @@
-export const databasePath = process.env.DATABASE_PATH || '/data/workload.db';
+export const databasePath = process.env.DATABASE_PATH || '/data/sagas.db';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
