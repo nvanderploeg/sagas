@@ -1,15 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from './client.ts';
-import {
-	projectKeyAliases,
-	projects,
-	states,
-	substates,
-	ticketKeyAliases,
-	tickets,
-	users
-} from './schema.ts';
+import { projectKeys, projects, states, substates, ticketKeys, tickets, users } from './schema.ts';
 import { testDb } from '#lib/server/test/db.ts';
 
 let db: Db;
@@ -222,38 +214,63 @@ describe('tickets', () => {
 		expect(db.select().from(tickets).where(eq(tickets.id, child.id)).get()?.parentId).toBeNull();
 	});
 
-	it('deletes a project with its States, Tickets and aliases', () => {
+	it('deletes a project with its States, Tickets and keys', () => {
 		const { project, state, owner } = setup();
 		const ticket = addTicket({ projectId: project.id, stateId: state.id, ownerId: owner.id });
 		addSubstate(state.id, 'review', 0);
 		db.update(projects).set({ initialStateId: state.id }).where(eq(projects.id, project.id)).run();
-		db.insert(ticketKeyAliases).values({ key: 'AM-9', ticketId: ticket.id }).run();
-		db.insert(projectKeyAliases).values({ key: 'OLD', projectId: project.id }).run();
+		db.insert(ticketKeys).values({ key: 'AM-9', ticketId: ticket.id }).run();
+		db.insert(projectKeys).values({ key: 'OLD', projectId: project.id }).run();
 
 		db.delete(projects).where(eq(projects.id, project.id)).run();
 
 		expect(db.select().from(states).all()).toEqual([]);
 		expect(db.select().from(tickets).all()).toEqual([]);
-		expect(db.select().from(ticketKeyAliases).all()).toEqual([]);
-		expect(db.select().from(projectKeyAliases).all()).toEqual([]);
+		expect(db.select().from(ticketKeys).all()).toEqual([]);
+		expect(db.select().from(projectKeys).all()).toEqual([]);
 	});
 });
 
-describe('key aliases', () => {
-	it('stores ticket and project keys in uppercase only', () => {
+describe('keys', () => {
+	const setup = () => {
 		const project = addProject();
 		const state = addState(project.id, { key: 'todo', position: 0 });
-		const ticket = addTicket({
-			projectId: project.id,
-			stateId: state.id,
-			ownerId: addUser(human()).id
-		});
+		const ownerId = addUser(human()).id;
+		const first = addTicket({ projectId: project.id, stateId: state.id, ownerId });
+		const second = addTicket({ projectId: project.id, stateId: state.id, ownerId, number: 2 });
+		return { project, first, second };
+	};
+
+	it('stores ticket and project keys in uppercase only', () => {
+		const { project, first } = setup();
 
 		expect(() =>
-			db.insert(projectKeyAliases).values({ key: 'old', projectId: project.id }).run()
+			db.insert(projectKeys).values({ key: 'old', projectId: project.id }).run()
+		).toThrow();
+		expect(() => db.insert(ticketKeys).values({ key: 'am-1', ticketId: first.id }).run()).toThrow();
+	});
+
+	it('rejects a malformed ticket key', () => {
+		const { first } = setup();
+
+		for (const key of ['AM', 'AM-0', 'AM-1X', '-1', 'A M-1']) {
+			expect(() => db.insert(ticketKeys).values({ key, ticketId: first.id }).run(), key).toThrow();
+		}
+	});
+
+	it('gives a key to one Ticket and a project key to one Project', () => {
+		const { project, first, second } = setup();
+		db.insert(ticketKeys).values({ key: 'AM-1', ticketId: first.id }).run();
+		db.insert(projectKeys).values({ key: 'AM', projectId: project.id }).run();
+
+		expect(() =>
+			db.insert(ticketKeys).values({ key: 'AM-1', ticketId: second.id }).run()
 		).toThrow();
 		expect(() =>
-			db.insert(ticketKeyAliases).values({ key: 'am-1', ticketId: ticket.id }).run()
+			db
+				.insert(projectKeys)
+				.values({ key: 'AM', projectId: addProject('BL').id })
+				.run()
 		).toThrow();
 	});
 });

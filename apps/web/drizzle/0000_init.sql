@@ -24,14 +24,15 @@ CREATE TABLE `invites` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `invites_token_hash_unique` ON `invites` (`token_hash`);--> statement-breakpoint
-CREATE TABLE `project_key_aliases` (
+CREATE TABLE `project_keys` (
 	`key` text PRIMARY KEY NOT NULL,
 	`project_id` integer NOT NULL,
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade,
-	CONSTRAINT "project_key_aliases_upper" CHECK("key" = upper("key"))
+	CONSTRAINT "project_keys_format" CHECK("key" GLOB '[A-Z]*' AND "key" NOT GLOB '*[^A-Z0-9]*' AND length("key") BETWEEN 2 AND 6)
 );
 --> statement-breakpoint
+CREATE INDEX `project_keys_project_idx` ON `project_keys` (`project_id`);--> statement-breakpoint
 CREATE TABLE `projects` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`name` text NOT NULL,
@@ -85,14 +86,15 @@ CREATE TABLE `substates` (
 CREATE UNIQUE INDEX `substates_state_key_uq` ON `substates` (`state_id`,`key`);--> statement-breakpoint
 CREATE UNIQUE INDEX `substates_state_position_uq` ON `substates` (`state_id`,`position`);--> statement-breakpoint
 CREATE UNIQUE INDEX `substates_state_id_uq` ON `substates` (`state_id`,`id`);--> statement-breakpoint
-CREATE TABLE `ticket_key_aliases` (
+CREATE TABLE `ticket_keys` (
 	`key` text PRIMARY KEY NOT NULL,
 	`ticket_id` integer NOT NULL,
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`ticket_id`) REFERENCES `tickets`(`id`) ON UPDATE no action ON DELETE cascade,
-	CONSTRAINT "ticket_key_aliases_upper" CHECK("key" = upper("key"))
+	CONSTRAINT "ticket_keys_format" CHECK("key" GLOB '[A-Z]*-[1-9]*' AND "key" NOT GLOB '*[^A-Z0-9-]*' AND "key" NOT GLOB '*-*[^0-9]*')
 );
 --> statement-breakpoint
+CREATE INDEX `ticket_keys_ticket_idx` ON `ticket_keys` (`ticket_id`);--> statement-breakpoint
 CREATE TABLE `tickets` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`project_id` integer NOT NULL,

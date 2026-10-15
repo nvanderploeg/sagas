@@ -1,11 +1,12 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
-import { ticketKeyAliases, tickets } from '#lib/server/db/schema.ts';
+import { ticketKeys, tickets } from '#lib/server/db/schema.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { seedProject, seedTicket, seedUser } from '#lib/server/test/fixtures.ts';
 import { DomainError } from './errors.ts';
-import { getTicket } from './lookup.ts';
+import { getProject, getTicket } from './lookup.ts';
+import { deleteProject, renameProjectKey } from './projects.ts';
 import { createState, createSubstate, listStates } from './states.ts';
 import {
 	createTicket,
@@ -60,14 +61,12 @@ describe('numbering', () => {
 	it('does not consume a number when creation fails', () => {
 		const project = seedProject(db, 'AM');
 		const ownerId = seedUser(db, 'ada');
-		const ticket = seedTicket(db, { projectId: project.id, ownerId });
-		db.insert(ticketKeyAliases).values({ key: 'AM-2', ticketId: ticket.id }).run();
+		seedTicket(db, { projectId: project.id, ownerId });
 
 		expectDomainError(
-			() => createTicket(db, { projectId: project.id, title: 'x', ownerId }),
-			'conflict'
+			() => createTicket(db, { projectId: project.id, title: 'x', ownerId, parentId: 999 }),
+			'not_found'
 		);
-		db.delete(ticketKeyAliases).where(eq(ticketKeyAliases.key, 'AM-2')).run();
 
 		expect(seedTicket(db, { projectId: project.id, ownerId }).number).toBe(2);
 	});
@@ -96,6 +95,76 @@ describe('resolveTicketKey', () => {
 		expect(resolveTicketKey(db, 'AM-2')).toBeNull();
 		expect(resolveTicketKey(db, 'AM-0')).toBeNull();
 		expect(resolveTicketKey(db, 'nope')).toBeNull();
+	});
+});
+
+describe('Ticket keys', () => {
+	it('resolves every key a Ticket has held, across renames, moves and renames after moves', () => {
+		const am = seedProject(db, 'AM');
+		const xy = seedProject(db, 'XY');
+		const ticket = seedTicket(db, { projectId: am.id });
+
+		renameProjectKey(db, am.id, 'BM');
+		moveTicket(db, ticket.id, xy.id);
+		renameProjectKey(db, xy.id, 'ZZ');
+		moveTicket(db, ticket.id, am.id);
+		renameProjectKey(db, am.id, 'AM');
+
+		for (const key of ['AM-1', 'BM-1', 'XY-1', 'ZZ-1', 'BM-2', 'AM-2']) {
+			expect(resolveTicketKey(db, key)?.id, key).toBe(ticket.id);
+		}
+		expect(ticketKeyOf(db, getTicket(db, ticket.id))).toBe('AM-2');
+	});
+
+	it('never points one key at two Tickets', () => {
+		const old = seedProject(db, 'AM');
+		const other = seedProject(db, 'XY');
+		const moved = seedTicket(db, { projectId: old.id });
+		moveTicket(db, moved.id, other.id);
+		deleteProject(db, old.id);
+		const fresh = seedProject(db, 'NU');
+		const local = seedTicket(db, { projectId: fresh.id });
+
+		expectDomainError(() => renameProjectKey(db, fresh.id, 'AM'), 'conflict');
+
+		expect(getProject(db, fresh.id).key).toBe('NU');
+		expect(resolveTicketKey(db, 'AM-1')?.id).toBe(moved.id);
+		expect(resolveTicketKey(db, 'NU-1')?.id).toBe(local.id);
+	});
+
+	it('never wedges creation after a rename onto a key its own Tickets held', () => {
+		const am = seedProject(db, 'AM');
+		const xy = seedProject(db, 'XY');
+		seedTicket(db, { projectId: xy.id });
+		const moved = seedTicket(db, { projectId: xy.id });
+		moveTicket(db, moved.id, am.id);
+		deleteProject(db, xy.id);
+		renameProjectKey(db, am.id, 'XY');
+
+		const next = seedTicket(db, { projectId: am.id });
+		const after = seedTicket(db, { projectId: am.id });
+
+		expect(ticketKeyOf(db, next)).toBe('XY-3');
+		expect(ticketKeyOf(db, after)).toBe('XY-4');
+		expect(resolveTicketKey(db, 'XY-2')?.id).toBe(moved.id);
+		expect(resolveTicketKey(db, 'XY-1')?.id).toBe(moved.id);
+	});
+
+	it('never wedges moving in, skipping a number whose key another Ticket holds', () => {
+		const am = seedProject(db, 'AM');
+		const bl = seedProject(db, 'BL');
+		const away = seedTicket(db, { projectId: am.id });
+		moveTicket(db, away.id, bl.id);
+		deleteProject(db, am.id);
+		const reborn = seedProject(db, 'AM');
+		const incoming = seedTicket(db, { projectId: bl.id });
+
+		const moved = moveTicket(db, incoming.id, reborn.id);
+		const created = seedTicket(db, { projectId: reborn.id });
+
+		expect(ticketKeyOf(db, moved)).toBe('AM-2');
+		expect(ticketKeyOf(db, created)).toBe('AM-3');
+		expect(resolveTicketKey(db, 'AM-1')?.id).toBe(away.id);
 	});
 });
 
@@ -301,7 +370,7 @@ describe('createTicket', () => {
 });
 
 describe('deleteTicket', () => {
-	it('removes the Ticket and its aliases', () => {
+	it('removes the Ticket and every key it held', () => {
 		const from = seedProject(db, 'AM');
 		const to = seedProject(db, 'BL');
 		const ticket = seedTicket(db, { projectId: from.id });
@@ -311,6 +380,6 @@ describe('deleteTicket', () => {
 
 		expect(db.select().from(tickets).where(eq(tickets.id, ticket.id)).all()).toEqual([]);
 		expect(resolveTicketKey(db, 'AM-1')).toBeNull();
-		expect(db.select().from(ticketKeyAliases).all()).toEqual([]);
+		expect(db.select().from(ticketKeys).all()).toEqual([]);
 	});
 });

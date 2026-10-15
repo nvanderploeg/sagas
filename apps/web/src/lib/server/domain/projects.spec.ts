@@ -13,7 +13,7 @@ import {
 	updateProject
 } from './projects.ts';
 import { createState, listStates } from './states.ts';
-import { moveTicket, resolveTicketKey } from './tickets.ts';
+import { moveTicket, resolveTicketKey, ticketKeyOf } from './tickets.ts';
 
 let db: Db;
 
@@ -138,11 +138,15 @@ describe('renameProjectKey', () => {
 		expect(resolveTicketKey(db, 'BL-2')?.id).toBe(second.id);
 	});
 
-	it('keeps the old key reserved against new Projects', () => {
+	it('reserves the current and former keys of a Project while it exists', () => {
 		const project = seedProject(db, 'AM');
 		renameProjectKey(db, project.id, 'BL');
+		const other = seedProject(db, 'CX');
 
 		expectDomainError(() => seedProject(db, 'AM'), 'conflict');
+		expectDomainError(() => seedProject(db, 'bl'), 'conflict');
+		expectDomainError(() => renameProjectKey(db, other.id, 'AM'), 'conflict');
+		expect(getProject(db, other.id).key).toBe('CX');
 	});
 
 	it('lets a Project take back a key it used to hold', () => {
@@ -154,15 +158,30 @@ describe('renameProjectKey', () => {
 		expect(resolveTicketKey(db, 'BL-1')?.projectId).toBe(project.id);
 	});
 
-	it('rejects a key that a Ticket of another Project still answers to', () => {
+	it('lets a Project take back its own former key after one of its Tickets moved out', () => {
+		const project = seedProject(db, 'AM');
+		const other = seedProject(db, 'XY');
+		const leaving = seedTicket(db, { projectId: project.id });
+		const staying = seedTicket(db, { projectId: project.id });
+		moveTicket(db, leaving.id, other.id);
+		renameProjectKey(db, project.id, 'BM');
+
+		expect(renameProjectKey(db, project.id, 'AM').key).toBe('AM');
+		expect(resolveTicketKey(db, 'AM-1')?.id).toBe(leaving.id);
+		expect(resolveTicketKey(db, 'AM-2')?.id).toBe(staying.id);
+	});
+
+	it('releases the keys of a deleted Project, while its moved Tickets keep answering to them', () => {
 		const old = seedProject(db, 'AM');
 		const other = seedProject(db, 'BL');
 		const ticket = seedTicket(db, { projectId: old.id });
 		moveTicket(db, ticket.id, other.id);
-		expect(resolveTicketKey(db, 'AM-1')?.projectId).toBe(other.id);
 		deleteProject(db, old.id);
 
-		expectDomainError(() => seedProject(db, 'AM'), 'conflict');
+		const reborn = seedProject(db, 'AM');
+
+		expect(ticketKeyOf(db, seedTicket(db, { projectId: reborn.id }))).toBe('AM-2');
+		expect(resolveTicketKey(db, 'AM-1')?.id).toBe(ticket.id);
 	});
 
 	it('rejects a key already held by another Project', () => {
@@ -181,7 +200,7 @@ describe('renameProjectKey', () => {
 });
 
 describe('deleteProject', () => {
-	it('removes the Project with its States, Tickets and aliases', () => {
+	it('removes the Project with its States, Tickets and keys', () => {
 		const project = seedProject(db, 'AM');
 		seedTicket(db, { projectId: project.id });
 		renameProjectKey(db, project.id, 'BL');

@@ -1,7 +1,7 @@
 {
 	"version": "6",
 	"dialect": "sqlite",
-	"id": "2d043def-38b4-4ed1-a018-6233c8e6de51",
+	"id": "4672023a-283f-4c9b-b79e-309cc85d3807",
 	"prevId": "00000000-0000-0000-0000-000000000000",
 	"tables": {
 		"api_tokens": {
@@ -166,8 +166,8 @@
 				}
 			}
 		},
-		"project_key_aliases": {
-			"name": "project_key_aliases",
+		"project_keys": {
+			"name": "project_keys",
 			"columns": {
 				"key": {
 					"name": "key",
@@ -191,11 +191,17 @@
 					"autoincrement": false
 				}
 			},
-			"indexes": {},
+			"indexes": {
+				"project_keys_project_idx": {
+					"name": "project_keys_project_idx",
+					"columns": ["project_id"],
+					"isUnique": false
+				}
+			},
 			"foreignKeys": {
-				"project_key_aliases_project_id_projects_id_fk": {
-					"name": "project_key_aliases_project_id_projects_id_fk",
-					"tableFrom": "project_key_aliases",
+				"project_keys_project_id_projects_id_fk": {
+					"name": "project_keys_project_id_projects_id_fk",
+					"tableFrom": "project_keys",
 					"tableTo": "projects",
 					"columnsFrom": ["project_id"],
 					"columnsTo": ["id"],
@@ -206,9 +212,9 @@
 			"compositePrimaryKeys": {},
 			"uniqueConstraints": {},
 			"checkConstraints": {
-				"project_key_aliases_upper": {
-					"name": "project_key_aliases_upper",
-					"value": "\"key\" = upper(\"key\")"
+				"project_keys_format": {
+					"name": "project_keys_format",
+					"value": "\"key\" GLOB '[A-Z]*' AND \"key\" NOT GLOB '*[^A-Z0-9]*' AND length(\"key\") BETWEEN 2 AND 6"
 				}
 			}
 		},
@@ -537,8 +543,8 @@
 			"uniqueConstraints": {},
 			"checkConstraints": {}
 		},
-		"ticket_key_aliases": {
-			"name": "ticket_key_aliases",
+		"ticket_keys": {
+			"name": "ticket_keys",
 			"columns": {
 				"key": {
 					"name": "key",
@@ -562,11 +568,17 @@
 					"autoincrement": false
 				}
 			},
-			"indexes": {},
+			"indexes": {
+				"ticket_keys_ticket_idx": {
+					"name": "ticket_keys_ticket_idx",
+					"columns": ["ticket_id"],
+					"isUnique": false
+				}
+			},
 			"foreignKeys": {
-				"ticket_key_aliases_ticket_id_tickets_id_fk": {
-					"name": "ticket_key_aliases_ticket_id_tickets_id_fk",
-					"tableFrom": "ticket_key_aliases",
+				"ticket_keys_ticket_id_tickets_id_fk": {
+					"name": "ticket_keys_ticket_id_tickets_id_fk",
+					"tableFrom": "ticket_keys",
 					"tableTo": "tickets",
 					"columnsFrom": ["ticket_id"],
 					"columnsTo": ["id"],
@@ -577,9 +589,9 @@
 			"compositePrimaryKeys": {},
 			"uniqueConstraints": {},
 			"checkConstraints": {
-				"ticket_key_aliases_upper": {
-					"name": "ticket_key_aliases_upper",
-					"value": "\"key\" = upper(\"key\")"
+				"ticket_keys_format": {
+					"name": "ticket_keys_format",
+					"value": "\"key\" GLOB '[A-Z]*-[1-9]*' AND \"key\" NOT GLOB '*[^A-Z0-9-]*' AND \"key\" NOT GLOB '*-*[^0-9]*'"
 				}
 			}
 		},

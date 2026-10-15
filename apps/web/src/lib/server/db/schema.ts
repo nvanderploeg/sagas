@@ -109,8 +109,9 @@ export const projects = sqliteTable(
 	]
 );
 
-export const projectKeyAliases = sqliteTable(
-	'project_key_aliases',
+// Every key a Project has held, its current one included.
+export const projectKeys = sqliteTable(
+	'project_keys',
 	{
 		key: text('key').primaryKey(),
 		projectId: integer('project_id')
@@ -118,7 +119,15 @@ export const projectKeyAliases = sqliteTable(
 			.references((): AnySQLiteColumn => projects.id, { onDelete: 'cascade' }),
 		createdAt: now()
 	},
-	() => [check('project_key_aliases_upper', sql.raw(`"key" = upper("key")`))]
+	(t) => [
+		index('project_keys_project_idx').on(t.projectId),
+		check(
+			'project_keys_format',
+			sql.raw(
+				`"key" GLOB '[A-Z]*' AND "key" NOT GLOB '*[^A-Z0-9]*' AND length("key") BETWEEN 2 AND 6`
+			)
+		)
+	]
 );
 
 export const states = sqliteTable(
@@ -207,8 +216,9 @@ export const tickets = sqliteTable(
 	]
 );
 
-export const ticketKeyAliases = sqliteTable(
-	'ticket_key_aliases',
+// Every key a Ticket has held, its current one included.
+export const ticketKeys = sqliteTable(
+	'ticket_keys',
 	{
 		key: text('key').primaryKey(),
 		ticketId: integer('ticket_id')
@@ -216,5 +226,13 @@ export const ticketKeyAliases = sqliteTable(
 			.references(() => tickets.id, { onDelete: 'cascade' }),
 		createdAt: now()
 	},
-	() => [check('ticket_key_aliases_upper', sql.raw(`"key" = upper("key")`))]
+	(t) => [
+		index('ticket_keys_ticket_idx').on(t.ticketId),
+		check(
+			'ticket_keys_format',
+			sql.raw(
+				`"key" GLOB '[A-Z]*-[1-9]*' AND "key" NOT GLOB '*[^A-Z0-9-]*' AND "key" NOT GLOB '*-*[^0-9]*'`
+			)
+		)
+	]
 );

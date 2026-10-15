@@ -1,6 +1,6 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { asc, eq, inArray } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
-import { projectKeyAliases, projects, ticketKeyAliases, tickets } from '../db/schema.ts';
+import { projectKeys, projects, ticketKeys, tickets } from '../db/schema.ts';
 import { DomainError } from './errors.ts';
 import { formatTicketKey, parseTicketKey } from './keys.ts';
 import { getProject, getState, getSubstate, getTicket, requireUser } from './lookup.ts';
@@ -47,37 +47,21 @@ export function listTickets(db: Handle, projectId: number) {
 export function resolveTicketKey(db: Handle, input: string) {
 	const parsed = parseTicketKey(input);
 	if (!parsed) return null;
-	const { projectKey, number } = parsed;
-
-	const current = db
+	const row = db
 		.select({ ticket: tickets })
-		.from(tickets)
-		.innerJoin(projects, eq(projects.id, tickets.projectId))
-		.where(and(eq(projects.key, projectKey), eq(tickets.number, number)))
+		.from(ticketKeys)
+		.innerJoin(tickets, eq(tickets.id, ticketKeys.ticketId))
+		.where(eq(ticketKeys.key, formatTicketKey(parsed.projectKey, parsed.number)))
 		.get();
-	if (current) return current.ticket;
+	return row?.ticket ?? null;
+}
 
-	const alias = db
-		.select({ ticket: tickets })
-		.from(ticketKeyAliases)
-		.innerJoin(tickets, eq(tickets.id, ticketKeyAliases.ticketId))
-		.where(eq(ticketKeyAliases.key, formatTicketKey(projectKey, number)))
-		.get();
-	if (alias) return alias.ticket;
-
-	const retired = db
-		.select({ projectId: projectKeyAliases.projectId })
-		.from(projectKeyAliases)
-		.where(eq(projectKeyAliases.key, projectKey))
-		.get();
-	if (!retired) return null;
-	return (
-		db
-			.select()
-			.from(tickets)
-			.where(and(eq(tickets.projectId, retired.projectId), eq(tickets.number, number)))
-			.get() ?? null
-	);
+// Record every key a Ticket comes to hold, so that key resolves to it for as long as it exists.
+export function recordTicketKey(db: Handle, ticketId: number, key: string): void {
+	const holder = db.select().from(ticketKeys).where(eq(ticketKeys.key, key)).get();
+	if (holder?.ticketId === ticketId) return;
+	if (holder) throw new DomainError('conflict', `Ticket key ${key} is already taken`);
+	db.insert(ticketKeys).values({ key, ticketId }).run();
 }
 
 export function createTicket(db: Db, input: TicketSpec) {
@@ -99,9 +83,8 @@ export function createTicket(db: Db, input: TicketSpec) {
 		const parentId = input.parentId ?? null;
 		if (parentId !== null) assertParent(tx, null, parentId);
 
-		const number = nextNumber(tx, project.id);
-		assertKeyFree(tx, formatTicketKey(project.key, number));
-		return tx
+		const number = allocateNumber(tx, project.id);
+		const ticket = tx
 			.insert(tickets)
 			.values({
 				projectId: project.id,
@@ -116,6 +99,8 @@ export function createTicket(db: Db, input: TicketSpec) {
 			})
 			.returning()
 			.get();
+		recordTicketKey(tx, ticket.id, formatTicketKey(project.key, number));
+		return ticket;
 	});
 }
 
@@ -167,7 +152,6 @@ export function moveTicket(db: Db, ticketId: number, projectId: number) {
 		if (ticket.projectId === projectId) {
 			throw new DomainError('invalid', 'The Ticket is already in that Project');
 		}
-		const from = getProject(tx, ticket.projectId);
 		const target = getProject(tx, projectId);
 		if (target.initialStateId === null) {
 			throw new DomainError('conflict', 'The target Project has no Initial State');
@@ -175,11 +159,8 @@ export function moveTicket(db: Db, ticketId: number, projectId: number) {
 		const state = getState(tx, target.initialStateId);
 		const substateId = substateFor(tx, state, undefined);
 
-		const oldKey = formatTicketKey(from.key, ticket.number);
-		const number = nextNumber(tx, target.id);
-		assertKeyFree(tx, formatTicketKey(target.key, number));
-		tx.insert(ticketKeyAliases).values({ key: oldKey, ticketId }).run();
-
+		const number = allocateNumber(tx, target.id);
+		recordTicketKey(tx, ticketId, formatTicketKey(target.key, number));
 		return tx
 			.update(tickets)
 			.set({
@@ -237,19 +218,31 @@ function substateFor(
 	return substate.id;
 }
 
-function nextNumber(db: Handle, projectId: number): number {
-	return db
-		.update(projects)
-		.set({ ticketCounter: sql`${projects.ticketCounter} + 1` })
-		.where(eq(projects.id, projectId))
-		.returning({ number: projects.ticketCounter })
-		.get().number;
-}
+// Skip every number whose key under any of the Project's keys, current or former, is held: a
+// Project must always be able to take back a former key.
+function allocateNumber(db: Handle, projectId: number): number {
+	const keys = db
+		.select({ key: projectKeys.key })
+		.from(projectKeys)
+		.where(eq(projectKeys.projectId, projectId))
+		.all()
+		.map((row) => row.key);
+	const held = (number: number) =>
+		db
+			.select()
+			.from(ticketKeys)
+			.where(
+				inArray(
+					ticketKeys.key,
+					keys.map((key) => formatTicketKey(key, number))
+				)
+			)
+			.get() !== undefined;
 
-function assertKeyFree(db: Handle, key: string): void {
-	if (db.select().from(ticketKeyAliases).where(eq(ticketKeyAliases.key, key)).get()) {
-		throw new DomainError('conflict', `Ticket key ${key} is already taken`);
-	}
+	let number = getProject(db, projectId).ticketCounter + 1;
+	while (held(number)) number += 1;
+	db.update(projects).set({ ticketCounter: number }).where(eq(projects.id, projectId)).run();
+	return number;
 }
 
 function assertParent(db: Handle, ticketId: number | null, parentId: number): void {
