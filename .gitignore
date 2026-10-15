@@ -53,3 +53,7 @@ data/
 
 # Output of 'npm pack'
 *.tgz
+
+# Playwright
+test-results/
+playwright-report/

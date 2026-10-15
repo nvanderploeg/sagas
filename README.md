@@ -40,5 +40,6 @@ is `Secure` exactly when the forwarded protocol is https. `WORKLOAD_PROTOCOL_HEA
 
 - `pnpm build`: build every workspace.
 - `pnpm check`: sync SvelteKit types and run `svelte-check`.
+- `pnpm e2e`: build the app and run the Playwright suite against it (first run: `pnpm exec playwright install chromium`).
 - `pnpm lint`: Prettier check and ESLint.
 - `pnpm format`: Prettier write.
