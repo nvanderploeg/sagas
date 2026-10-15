@@ -5,8 +5,10 @@ import { testDb } from '#lib/server/test/db.ts';
 import { seedActor, seedProject, seedTicket, TODO } from '#lib/server/test/fixtures.ts';
 import { DomainError } from './errors.ts';
 import { getProject } from './lookup.ts';
+import { eventsSince } from '../events/log.ts';
 import {
 	createProject,
+	createProjectWithStates,
 	deleteProject,
 	listProjects,
 	renameProjectKey,
@@ -85,6 +87,47 @@ describe('createProject', () => {
 			() => createProject(db, actor, { name: '  ', key: 'AM', initialState: TODO }),
 			'invalid'
 		);
+	});
+});
+
+describe('createProjectWithStates', () => {
+	const DOING = { key: 'doing', label: 'Doing', color: '#eab308', icon: 'half' };
+	const REVIEW = { key: 'review', label: 'Review', color: '#a855f7', icon: 'eye' };
+
+	it('creates the Project and its open States in one write with one Event', () => {
+		const project = createProjectWithStates(db, actor, {
+			name: 'Atlas',
+			key: 'AM',
+			initialState: TODO,
+			states: [DOING, REVIEW]
+		});
+
+		expect(listStates(db, project.id).map((s) => s.key)).toEqual([
+			'todo',
+			'doing',
+			'review',
+			'closed'
+		]);
+		expect(project.initialStateId).toBe(listStates(db, project.id)[0].id);
+		const events = eventsSince(db, 0);
+		expect(events.map((e) => e.type)).toEqual(['project.created']);
+		const created = events[0].data as { project: { states: { key: string }[] } };
+		expect(created.project.states.map((s) => s.key)).toEqual(['todo', 'doing', 'review', 'closed']);
+	});
+
+	it('creates nothing when one of the States is refused', () => {
+		expectDomainError(
+			() =>
+				createProjectWithStates(db, actor, {
+					name: 'Atlas',
+					key: 'AM',
+					initialState: TODO,
+					states: [DOING, { ...REVIEW, color: 'purple' }]
+				}),
+			'invalid'
+		);
+		expect(listProjects(db)).toEqual([]);
+		expect(eventsSince(db, 0)).toEqual([]);
 	});
 });
 
