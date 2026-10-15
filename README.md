@@ -21,15 +21,20 @@ container; export `DATABASE_PATH` (see `.env.example`) to point at a writable fi
 
 ## Run in Docker
 
-The SQLite database lives outside the container in `./data`, bind-mounted to `/data`. The container
-runs as the `node` user (uid 1000), so create the directory yourself before the first start:
+The SQLite database lives outside the container in `./data`, bind-mounted to `/data`. The
+entrypoint hands `/data` to the `node` user and runs the app as `node`, never as root.
 
 ```sh
-mkdir -p data
-docker compose up --build
+docker-compose up -d --build
 ```
 
-Open <http://localhost:3290>. Set `WORKLOAD_PORT` or `WORKLOAD_ORIGIN` in `.env` to change them.
+Open <http://localhost:3290>, or the host's LAN address on the same port. Set `WORKLOAD_PORT` in
+`.env` to change the port.
+
+The app serves plain http and takes each request's origin from its `Host` header. Behind a TLS
+reverse proxy, have the proxy send `X-Forwarded-Proto` and `X-Forwarded-Host`; the session cookie
+is `Secure` exactly when the forwarded protocol is https. `WORKLOAD_PROTOCOL_HEADER` and
+`WORKLOAD_HOST_HEADER` name those headers; set one empty to ignore it (see `.env.example`).
 
 ## Scripts
 

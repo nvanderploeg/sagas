@@ -5,6 +5,7 @@ services:
     ports:
       - '${WORKLOAD_PORT:-3290}:3000'
     environment:
-      ORIGIN: ${WORKLOAD_ORIGIN:-http://localhost:3290}
+      PROTOCOL_HEADER: ${WORKLOAD_PROTOCOL_HEADER-x-forwarded-proto}
+      HOST_HEADER: ${WORKLOAD_HOST_HEADER-x-forwarded-host}
     volumes:
       - ./data:/data

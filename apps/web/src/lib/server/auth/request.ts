@@ -30,6 +30,6 @@ export function setSessionCookie(cookies: Cookies, url: URL, token: string, expi
 	});
 }
 
-export function clearSessionCookie(cookies: Cookies): void {
-	cookies.delete(SESSION_COOKIE, { path: '/' });
+export function clearSessionCookie(cookies: Cookies, url: URL): void {
+	cookies.delete(SESSION_COOKIE, { path: '/', secure: url.protocol === 'https:' });
 }
