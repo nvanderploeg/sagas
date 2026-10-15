@@ -1,0 +1,10 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - '${WORKLOAD_PORT:-3290}:3000'
+    environment:
+      ORIGIN: ${WORKLOAD_ORIGIN:-http://localhost:3290}
+    volumes:
+      - ./data:/data

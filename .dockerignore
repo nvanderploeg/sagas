@@ -1,0 +1,10 @@
+**/node_modules
+**/.svelte-kit
+**/build
+**/dist
+.claude
+.git
+data
+**/*.db
+**/*.db-wal
+**/*.db-shm

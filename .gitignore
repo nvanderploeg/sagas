@@ -1,0 +1,55 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Dependency directories
+node_modules/
+
+# Build output
+build/
+dist/
+.output/
+
+# SvelteKit cache directory
+.svelte-kit/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+# dotenv environment variable files
+.env
+.env.*
+!.env.example
+
+# Vite files
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+.vite/
+
+# Turbo Repo
+.turbo
+
+# pnpm
+.pnpm-store
+
+# Agent worktrees
+.claude/
+
+# SQLite databases and the local data directory (bind-mounted in compose)
+*.db
+*.db-wal
+*.db-shm
+data/
+
+# Output of 'npm pack'
+*.tgz
