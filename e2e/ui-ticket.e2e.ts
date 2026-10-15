@@ -1,4 +1,4 @@
-import { expect, live, test } from './fixtures/ui.ts';
+import { expect, holdAction, holdLoads, live, recordText, test } from './fixtures/ui.ts';
 
 test.describe('ticket page', () => {
 	test('edits the title and the Markdown description, rendered without raw HTML', async ({
@@ -152,5 +152,185 @@ test.describe('ticket page', () => {
 		await expect(page).toHaveURL(new RegExp(`/p/${p.key}$`));
 		const gone = await page.goto(`/t/${t.key}`);
 		expect(gone?.status()).toBe(404);
+	});
+
+	test('following a Child link starts the next Ticket clean, with nothing carried over', async ({
+		page,
+		ui
+	}) => {
+		const p = ui.project();
+		const elsewhere = ui.project();
+		const parent = ui.ticket(p.id, { title: 'Parent', description: 'Parent text' });
+		const child = ui.ticket(p.id, {
+			title: 'Open child',
+			parentId: parent.id,
+			description: 'Child text'
+		});
+		await page.goto(`/t/${parent.key}`);
+		await live(page);
+
+		await page.getByRole('button', { name: 'Edit description' }).click();
+		await page.getByLabel('Description (Markdown)').fill('PARENT DRAFT');
+		await page.getByRole('button', { name: 'Edit title' }).click();
+		await page.getByLabel('Title').fill('Parent title draft');
+		await page.getByText('Move to another Project').click();
+		await page.getByLabel('Target Project').selectOption({ value: String(elsewhere.id) });
+
+		await page
+			.getByTestId('children')
+			.getByRole('link', { name: /Open child/ })
+			.click();
+		await expect(page).toHaveURL(new RegExp(`/t/${child.key}$`));
+		await expect(page.getByRole('heading', { level: 1 })).toHaveText('Open child');
+		await expect(page.getByTestId('markdown')).toHaveText('Child text');
+		await expect(page.getByLabel('Description (Markdown)')).toHaveCount(0);
+		await expect(page.getByLabel('Title')).toHaveCount(0);
+		await expect(page.getByLabel('Target State')).toHaveCount(0);
+		await expect(page.getByRole('button', { name: `Move to ${elsewhere.key}` })).toHaveCount(0);
+		expect(ui.readTicket(child.id)).toMatchObject({
+			title: 'Open child',
+			description: 'Child text'
+		});
+	});
+
+	test('plays the loot burst only when the Ticket it shows becomes Closed', async ({
+		page,
+		ui
+	}) => {
+		const p = ui.project();
+		const parent = ui.ticket(p.id, { title: 'Parent' });
+		ui.ticket(p.id, { title: 'Closed child', parentId: parent.id, stateId: p.closed });
+		await page.goto(`/t/${parent.key}`);
+		await live(page);
+
+		await page
+			.getByTestId('children')
+			.getByRole('link', { name: /Closed child/ })
+			.click();
+		await expect(page.getByRole('heading', { level: 1 })).toHaveText('Closed child');
+		await page.waitForTimeout(300);
+		await expect(page.getByTestId('loot-burst')).toHaveCount(0);
+
+		await page.getByTestId('parent').getByRole('link').click();
+		await expect(page.getByRole('heading', { level: 1 })).toHaveText('Parent');
+		await page.waitForTimeout(300);
+		await expect(page.getByTestId('loot-burst')).toHaveCount(0);
+		await page.getByLabel('State', { exact: true }).selectOption({ label: 'Closed' });
+		await expect(page.getByTestId('loot-burst')).toHaveCount(1);
+	});
+
+	test("setting one's own Parent never flips back, even when its Event beats the answer", async ({
+		page,
+		ui
+	}) => {
+		const p = ui.project();
+		const a = ui.ticket(p.id, { title: 'Parent A' });
+		const b = ui.ticket(p.id, { title: 'Parent B' });
+		const t = ui.ticket(p.id, { title: 'Kid' });
+		await page.goto(`/t/${t.key}`);
+		await live(page);
+		await holdAction(page, 'parent', 200);
+		await holdLoads(page, 800);
+
+		const shown = await recordText(page, '[data-testid="parent"] [data-testid="ticket-row"]');
+		await page.getByLabel('Set Parent').fill(a.key);
+		await page.getByRole('option', { name: new RegExp(a.key) }).click();
+		await expect.poll(() => ui.readTicket(t.id).parentId).toBe(a.id);
+		await page.waitForTimeout(1000);
+		expect((await shown()).map((text) => text.split(' ')[0])).toEqual(['(none)', a.key]);
+
+		const changed = await recordText(page, '[data-testid="parent"] [data-testid="ticket-row"]');
+		await page.getByLabel('Change Parent').fill(b.key);
+		await page.getByRole('option', { name: new RegExp(b.key) }).click();
+		await expect.poll(() => ui.readTicket(t.id).parentId).toBe(b.id);
+		await page.waitForTimeout(1000);
+		expect((await changed()).map((text) => text.split(' ')[0])).toEqual([a.key, b.key]);
+	});
+
+	test('deleting the Ticket oneself goes straight to the board', async ({ page, ui }) => {
+		const p = ui.project();
+		const t = ui.ticket(p.id, { title: 'Doomed' });
+		await page.goto(`/t/${t.key}`);
+		await live(page);
+		await holdAction(page, 'delete');
+
+		const headings = await recordText(page, 'main h1');
+		await page.getByRole('button', { name: 'Delete Ticket' }).click();
+		await page.getByRole('button', { name: `Delete ${t.key} for good` }).click();
+		await expect(page).toHaveURL(new RegExp(`/p/${p.key}$`));
+		expect(await headings()).not.toContain('This Ticket was deleted');
+	});
+
+	test('the Move panel never offers the Project the Ticket was moved to meanwhile', async ({
+		page,
+		other,
+		ui
+	}) => {
+		const from = ui.project();
+		const to = ui.project();
+		const t = ui.ticket(from.id, { title: 'Wanderer' });
+		await page.goto(`/t/${t.key}`);
+		await live(page);
+		await page.getByText('Move to another Project').click();
+		await page.getByLabel('Target Project').selectOption({ value: String(to.id) });
+		await expect(page.getByRole('button', { name: `Move to ${to.key}` })).toBeVisible();
+
+		await other.page.goto(`/t/${t.key}`);
+		await other.page.getByText('Move to another Project').click();
+		await other.page.getByLabel('Target Project').selectOption({ value: String(to.id) });
+		await other.page.getByRole('button', { name: `Move to ${to.key}` }).click();
+
+		await expect(page.getByTestId('ticket-key')).toHaveText(`${to.key}-1`);
+		await expect(page.getByRole('button', { name: `Move to ${to.key}` })).toHaveCount(0);
+		await expect(
+			page.getByLabel('Target Project').locator('option', { hasText: `(${to.key})` })
+		).toHaveCount(0);
+		await expect(
+			page.getByLabel('Target Project').locator('option', { hasText: `(${from.key})` })
+		).toHaveCount(1);
+	});
+
+	test('keeps focus on the control that replaces the one pressed', async ({ page, ui }) => {
+		const p = ui.project();
+		const t = ui.ticket(p.id, { title: 'Focus' });
+		await page.goto(`/t/${t.key}`);
+		await live(page);
+
+		const editTitle = page.getByRole('button', { name: 'Edit title' });
+		await editTitle.focus();
+		await page.keyboard.press('Enter');
+		await expect(page.getByLabel('Title')).toBeFocused();
+		await page.keyboard.press('Escape');
+		await expect(editTitle).toBeFocused();
+		await page.keyboard.press('Enter');
+		await page.getByLabel('Title').fill('Focus kept');
+		await page.keyboard.press('Enter');
+		await expect(page.getByRole('heading', { level: 1 })).toHaveText('Focus kept');
+		await expect(editTitle).toBeFocused();
+		await page.keyboard.press('Enter');
+		await page.getByRole('button', { name: 'Cancel' }).click();
+		await expect(editTitle).toBeFocused();
+
+		const editBody = page.getByRole('button', { name: 'Edit description' });
+		await editBody.focus();
+		await page.keyboard.press('Enter');
+		await expect(page.getByLabel('Description (Markdown)')).toBeFocused();
+		await page.getByRole('button', { name: 'Cancel' }).focus();
+		await page.keyboard.press('Enter');
+		await expect(editBody).toBeFocused();
+		await page.keyboard.press('Enter');
+		await page.getByLabel('Description (Markdown)').fill('Saved');
+		await page.getByRole('button', { name: 'Save description' }).focus();
+		await page.keyboard.press('Enter');
+		await expect(page.getByTestId('markdown')).toHaveText('Saved');
+		await expect(editBody).toBeFocused();
+
+		const remove = page.getByRole('button', { name: 'Delete Ticket' });
+		await remove.focus();
+		await page.keyboard.press('Enter');
+		await expect(page.getByRole('button', { name: `Delete ${t.key} for good` })).toBeFocused();
+		await page.getByRole('button', { name: 'Cancel' }).focus();
+		await page.keyboard.press('Enter');
+		await expect(remove).toBeFocused();
 	});
 });

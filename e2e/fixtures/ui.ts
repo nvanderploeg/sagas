@@ -119,3 +119,48 @@ export async function drag(page: Page, from: Locator, to: { x: number; y: number
 export async function live(page: Page) {
 	await expect(page.getByTestId('connection')).toHaveAttribute('data-status', 'live');
 }
+
+// Holds back every answer to a request `match` picks for `ms`.
+export async function hold(page: Page, match: (url: URL) => boolean, ms: number) {
+	await page.route(match, async (route) => {
+		const response = await route.fetch();
+		await new Promise((resolve) => setTimeout(resolve, ms));
+		await route.fulfill({ response });
+	});
+}
+
+// Holds back the answer to the form action `name`, so the write's own Events reach the page
+// before its answer does.
+export const holdAction = (page: Page, name: string, ms = 400) =>
+	hold(page, (url) => url.search === `?/${name}`, ms);
+
+// Holds back every page data load, such as the reload a view asks for.
+export const holdLoads = (page: Page, ms = 800) =>
+	hold(page, (url) => url.pathname.endsWith('/__data.json'), ms);
+
+let records = 0;
+
+// Records every text `selector` shows from now on, in order, without repeats; `(none)` while
+// nothing matches.
+export async function recordText(page: Page, selector: string): Promise<() => Promise<string[]>> {
+	const key = `__record${++records}`;
+	await page.evaluate(
+		({ selector, key }) => {
+			const seen: string[] = [];
+			(window as unknown as Record<string, string[]>)[key] = seen;
+			const read = () => {
+				const element = document.querySelector(selector);
+				const text = element ? (element.textContent ?? '').replace(/\s+/g, ' ').trim() : '(none)';
+				if (seen.at(-1) !== text) seen.push(text);
+			};
+			read();
+			new MutationObserver(read).observe(document.body, {
+				subtree: true,
+				childList: true,
+				characterData: true
+			});
+		},
+		{ selector, key }
+	);
+	return () => page.evaluate((key) => (window as unknown as Record<string, string[]>)[key], key);
+}
