@@ -7,6 +7,7 @@
 	import { applyToHome } from '#lib/live/apply.ts';
 	import { LiveView } from '#lib/live/view.svelte.ts';
 	import type { HomeView } from '#lib/live/types.ts';
+	import { lookFor, usersOf } from '#lib/ui/directory.ts';
 	import { byRecent } from '#lib/ui/lookup.ts';
 	import { directory } from '#lib/ui/people.ts';
 	import type { ActionData, PageData } from './$types';
@@ -21,6 +22,7 @@
 	const home = $derived(live.current!);
 	const people = $derived(directory(data.people));
 	const mine = $derived([...home.mine].sort(byRecent));
+	$effect(() => lookFor(usersOf(home.mine), people));
 	let creating = $state(false);
 </script>
 

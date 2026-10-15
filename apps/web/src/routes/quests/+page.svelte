@@ -6,6 +6,7 @@
 	import { applyToQuestList } from '#lib/live/apply.ts';
 	import type { QuestListView } from '#lib/live/types.ts';
 	import { LiveView } from '#lib/live/view.svelte.ts';
+	import { lookFor } from '#lib/ui/directory.ts';
 	import { directory } from '#lib/ui/people.ts';
 	import type { ActionData, PageData } from './$types';
 
@@ -17,6 +18,12 @@
 
 	const list = $derived(live.current!);
 	const people = $derived(directory(data.people));
+	$effect(() =>
+		lookFor(
+			list.quests.map((q) => q.ownerId),
+			people
+		)
+	);
 	const failed = $derived(form && 'error' in form ? form : null);
 </script>
 

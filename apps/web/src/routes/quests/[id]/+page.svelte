@@ -16,6 +16,7 @@
 	import { LiveView } from '#lib/live/view.svelte.ts';
 	import { act, type Fields } from '#lib/ui/act.ts';
 	import { encodePlacement, placementAt } from '#lib/ui/board.ts';
+	import { lookFor, usersOf } from '#lib/ui/directory.ts';
 	import { PointerDrag } from '#lib/ui/drag.svelte.ts';
 	import { cardFlight } from '#lib/ui/flight.ts';
 	import { motion } from '#lib/ui/motion.svelte.ts';
@@ -32,6 +33,10 @@
 	const view = $derived(live.current);
 	const people = $derived(directory(data.people));
 	const errors = new SvelteMap<string, string>();
+
+	$effect(() => {
+		if (view) lookFor([view.quest.ownerId, ...usersOf(view.quest.tickets)], people);
+	});
 
 	// Completion is celebrated only when a member's closing completes the Quest; removing the last
 	// open member or adding a Closed one completes it quietly.
@@ -305,6 +310,7 @@
 							save('owner', 'update', { ownerId }, (q) => ({ ...q, ownerId }));
 						}}
 					>
+						{#if !owner}<option value={quest.ownerId}>Loading…</option>{/if}
 						{#each data.people as person (person.id)}
 							<option value={person.id}>{person.displayName}</option>
 						{/each}

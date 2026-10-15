@@ -15,6 +15,7 @@
 	import type { LiveEvent, Ticket, TicketPageView } from '#lib/live/types.ts';
 	import { LiveView } from '#lib/live/view.svelte.ts';
 	import { act, type Fields } from '#lib/ui/act.ts';
+	import { lookFor, usersOf } from '#lib/ui/directory.ts';
 	import { FALLBACK_STATE, stateOf } from '#lib/ui/lookup.ts';
 	import { directory, personColor, type Person } from '#lib/ui/people.ts';
 
@@ -49,6 +50,12 @@
 	const view = $derived(live.current ?? (deleting ? kept : null));
 	const people = $derived(directory(everyone));
 	const errors = new SvelteMap<string, string>();
+
+	$effect(() => {
+		if (!view) return;
+		const { ticket, parent, children } = view;
+		lookFor(usersOf([ticket, ...(parent ? [parent] : []), ...children]), people);
+	});
 
 	$effect(() => {
 		const key = view?.ticket.key;
@@ -217,6 +224,9 @@
 	}
 
 	const owner = $derived(view ? people.get(view.ticket.ownerId) : undefined);
+	const assignee = $derived(
+		view?.ticket.assigneeId == null ? undefined : people.get(view.ticket.assigneeId)
+	);
 	const joinable = $derived(view ? view.quests.filter((q) => !view.memberOf.includes(q.id)) : []);
 	let questToAdd = $state<number | null>(null);
 </script>
@@ -427,6 +437,7 @@
 								save('owner', 'update', { ownerId }, withTicket({ ownerId }));
 							}}
 						>
+							{#if !owner}<option value={ticket.ownerId}>Loading…</option>{/if}
 							{#each everyone as person (person.id)}
 								<option value={person.id}>{person.displayName}</option>
 							{/each}
@@ -448,6 +459,9 @@
 						}}
 					>
 						<option value="">Unassigned</option>
+						{#if ticket.assigneeId !== null && !assignee}
+							<option value={ticket.assigneeId}>Loading…</option>
+						{/if}
 						{#each everyone as person (person.id)}
 							<option value={person.id}>{person.displayName}</option>
 						{/each}

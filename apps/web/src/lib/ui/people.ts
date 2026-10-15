@@ -1,3 +1,6 @@
+// Invalidating this loads the People directory again.
+export const PEOPLE = 'app:people';
+
 export type Person = {
 	id: number;
 	kind: 'human' | 'agent';

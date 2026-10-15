@@ -94,4 +94,34 @@ test.describe('live sync between two browsers', () => {
 		await expect(page.getByTestId('ticket-key')).toHaveText(`${next}-1`);
 		await expect(page).toHaveURL(new RegExp(`/t/${next}-1$`));
 	});
+
+	test('a User who joined after the page loaded shows by name, never blank', async ({
+		page,
+		other,
+		ui
+	}) => {
+		const p = ui.project();
+		const t = ui.ticket(p.id, { title: 'Handed over' });
+		await other.page.goto(`/p/${p.key}`);
+		const ticketTab = await other.context.newPage();
+		await ticketTab.goto(`/t/${t.key}`);
+		await live(other.page);
+		await live(ticketTab);
+
+		const tag = Date.now().toString(36);
+		const name = `Late Bot ${tag}`;
+		ui.agent(`late${tag}`, name);
+		await page.goto(`/t/${t.key}`);
+		await live(page);
+		await page.getByLabel('Owner').selectOption({ label: name });
+		await page.getByLabel('Assignee').selectOption({ label: name });
+
+		await expect(ticketTab.getByLabel('Owner').locator('option:checked')).toHaveText(name);
+		await expect(ticketTab.getByLabel('Assignee').locator('option:checked')).toHaveText(name);
+		await expect(
+			ticketTab.getByRole('complementary', { name: 'Ticket fields' }).getByTestId('avatar')
+		).toHaveAttribute('title', name);
+		await expect(card(other.page, t.key).getByTitle(`Assignee: ${name}`)).toBeVisible();
+		await ticketTab.close();
+	});
 });

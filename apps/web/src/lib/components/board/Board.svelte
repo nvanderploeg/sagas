@@ -19,6 +19,7 @@
 		type Filter
 	} from '../../ui/board.ts';
 	import { PointerDrag, type Target } from '../../ui/drag.svelte.ts';
+	import { lookFor, usersOf } from '../../ui/directory.ts';
 	import { cardFlight } from '../../ui/flight.ts';
 	import { motion } from '../../ui/motion.svelte.ts';
 	import { notices } from '../../ui/notices.svelte.ts';
@@ -41,6 +42,9 @@
 
 	const board = $derived(live.current);
 	const who = $derived(directory(people));
+	$effect(() => {
+		if (board) lookFor(usersOf(board.tickets), who);
+	});
 
 	let filter = $state<Filter>({ ...NO_FILTER });
 	type Drag = { id: number; mode: 'pointer' | 'keyboard'; stateId: number; index: number };
