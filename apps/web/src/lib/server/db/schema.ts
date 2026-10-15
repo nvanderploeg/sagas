@@ -154,7 +154,12 @@ export const states = sqliteTable(
 		uniqueIndex('states_project_key_uq').on(t.projectId, t.key),
 		uniqueIndex('states_project_position_uq').on(t.projectId, t.position),
 		uniqueIndex('states_project_id_uq').on(t.projectId, t.id),
-		uniqueIndex('states_one_closed_uq').on(t.projectId).where(sql.raw(`"is_closed" = 1`))
+		uniqueIndex('states_one_closed_uq').on(t.projectId).where(sql.raw(`"is_closed" = 1`)),
+		// The column FK clears the default with its Substate; this one keeps it within the State.
+		foreignKey(() => ({
+			columns: [t.id, t.defaultSubstateId],
+			foreignColumns: [substates.stateId, substates.id]
+		}))
 	]
 );
 

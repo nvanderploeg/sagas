@@ -1,7 +1,7 @@
 {
 	"version": "6",
 	"dialect": "sqlite",
-	"id": "4672023a-283f-4c9b-b79e-309cc85d3807",
+	"id": "c52356ad-31fa-4df1-b506-2aa57f363f23",
 	"prevId": "00000000-0000-0000-0000-000000000000",
 	"tables": {
 		"api_tokens": {
@@ -451,6 +451,15 @@
 					"columnsFrom": ["default_substate_id"],
 					"columnsTo": ["id"],
 					"onDelete": "set null",
+					"onUpdate": "no action"
+				},
+				"states_id_default_substate_id_substates_state_id_id_fk": {
+					"name": "states_id_default_substate_id_substates_state_id_id_fk",
+					"tableFrom": "states",
+					"tableTo": "substates",
+					"columnsFrom": ["id", "default_substate_id"],
+					"columnsTo": ["state_id", "id"],
+					"onDelete": "no action",
 					"onUpdate": "no action"
 				}
 			},

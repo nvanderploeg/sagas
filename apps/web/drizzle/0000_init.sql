@@ -65,7 +65,8 @@ CREATE TABLE `states` (
 	`is_closed` integer DEFAULT false NOT NULL,
 	`default_substate_id` integer,
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`default_substate_id`) REFERENCES `substates`(`id`) ON UPDATE no action ON DELETE set null
+	FOREIGN KEY (`default_substate_id`) REFERENCES `substates`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`id`,`default_substate_id`) REFERENCES `substates`(`state_id`,`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `states_project_key_uq` ON `states` (`project_id`,`key`);--> statement-breakpoint

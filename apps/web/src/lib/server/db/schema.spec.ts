@@ -50,6 +50,9 @@ const addSubstate = (stateId: number, key: string, position: number) =>
 		.returning()
 		.get();
 
+const defaultOf = (stateId: number) =>
+	db.select().from(states).where(eq(states.id, stateId)).get()?.defaultSubstateId;
+
 const addTicket = (
 	values: Omit<typeof tickets.$inferInsert, 'number' | 'title'> & { number?: number }
 ) =>
@@ -143,14 +146,40 @@ describe('states', () => {
 		expect(() => addSubstate(state.id, 'review', 1)).toThrow();
 	});
 
-	it('removes Substates and clears the default when the State is deleted', () => {
+	it('removes the Substates of a deleted State, its default among them', () => {
 		const project = addProject();
 		const state = addState(project.id, { key: 'todo', position: 0 });
-		addSubstate(state.id, 'review', 0);
+		const review = addSubstate(state.id, 'review', 0);
+		db.update(states).set({ defaultSubstateId: review.id }).where(eq(states.id, state.id)).run();
 
 		db.delete(states).where(eq(states.id, state.id)).run();
 
+		expect(db.select().from(states).all()).toEqual([]);
 		expect(db.select().from(substates).all()).toEqual([]);
+	});
+
+	it('clears the default when the default Substate is deleted', () => {
+		const project = addProject();
+		const state = addState(project.id, { key: 'todo', position: 0 });
+		const review = addSubstate(state.id, 'review', 0);
+		db.update(states).set({ defaultSubstateId: review.id }).where(eq(states.id, state.id)).run();
+		expect(defaultOf(state.id)).toBe(review.id);
+
+		db.delete(substates).where(eq(substates.id, review.id)).run();
+
+		expect(defaultOf(state.id)).toBeNull();
+	});
+
+	it('rejects a default Substate that belongs to another State', () => {
+		const project = addProject();
+		const todo = addState(project.id, { key: 'todo', position: 0 });
+		const doing = addState(project.id, { key: 'doing', position: 1 });
+		const foreign = addSubstate(doing.id, 'review', 0);
+
+		expect(() =>
+			db.update(states).set({ defaultSubstateId: foreign.id }).where(eq(states.id, todo.id)).run()
+		).toThrow();
+		expect(defaultOf(todo.id)).toBeNull();
 	});
 });
 
