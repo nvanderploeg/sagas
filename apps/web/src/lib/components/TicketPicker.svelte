@@ -88,13 +88,14 @@
 	{#if open}
 		<ul id="{id}-list" role="listbox" class="list" aria-label="{label} results">
 			{#each shown as ticket, i (ticket.id)}
+				<!-- The combobox input takes the keys for these options. -->
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				<li
 					id="{id}-{ticket.id}"
 					role="option"
 					aria-selected={i === active}
 					onmousedown={(e) => e.preventDefault()}
 					onclick={() => pick(ticket)}
-					onkeydown={() => {}}
 				>
 					<span class="key">{ticket.key}</span>
 					<span class="title">{ticket.title}</span>

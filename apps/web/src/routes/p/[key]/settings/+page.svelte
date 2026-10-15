@@ -22,6 +22,13 @@
 		form && 'error' in form && form.scope === scope ? String(form.error) : null;
 
 	$effect(() => {
+		const key = project?.key;
+		if (key && resolve('/p/[key]/settings', { key }) !== location.pathname) {
+			goto(resolve('/p/[key]/settings', { key }), { replace: true, shallow: true });
+		}
+	});
+
+	$effect(() => {
 		if (live.ended) {
 			notices.show('This Project was deleted.');
 			goto(resolve('/'));

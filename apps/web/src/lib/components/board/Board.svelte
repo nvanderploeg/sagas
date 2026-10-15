@@ -307,6 +307,14 @@
 		}
 	}
 
+	// The address follows a Project key rename.
+	$effect(() => {
+		const key = board?.project.key;
+		if (key && resolve('/p/[key]', { key }) !== location.pathname) {
+			goto(resolve('/p/[key]', { key }), { replace: true, shallow: true });
+		}
+	});
+
 	$effect(() => {
 		if (live.ended) {
 			notices.show('This Project was deleted.');

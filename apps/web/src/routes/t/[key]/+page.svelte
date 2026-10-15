@@ -3,7 +3,6 @@
 	import { enhance } from '$app/forms';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { page as current } from '$app/state';
 	import Avatar from '#lib/components/Avatar.svelte';
 	import Burst from '#lib/components/Burst.svelte';
 	import ConfirmButton from '#lib/components/ConfirmButton.svelte';
@@ -44,7 +43,7 @@
 	// The key in the address follows the Ticket through moves and Project key renames.
 	$effect(() => {
 		const key = view?.ticket.key;
-		if (key && resolve('/t/[key]', { key }) !== current.url.pathname) {
+		if (key && resolve('/t/[key]', { key }) !== location.pathname) {
 			goto(resolve('/t/[key]', { key }), { replace: true, shallow: true });
 		}
 	});
