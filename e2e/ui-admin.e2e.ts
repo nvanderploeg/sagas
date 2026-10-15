@@ -61,10 +61,49 @@ test.describe('admin', () => {
 		expect(refused.status()).toBe(401);
 	});
 
-	test('is for Admins only', async ({ other }) => {
+	test('is for Admins only, in its page and in every one of its actions', async ({
+		other,
+		admin,
+		db
+	}) => {
 		const response = await other.page.goto('/admin');
 		expect(response?.status()).toBe(403);
 		await expect(other.page.getByRole('link', { name: 'Admin' })).toHaveCount(0);
+
+		const username = uniqueName('evilbot');
+		const invites = () =>
+			(db.$client.prepare('SELECT count(*) AS n FROM invites').get() as { n: number }).n;
+		const before = invites();
+		const attempts: [string, Record<string, string>][] = [
+			['invite', {}],
+			['agent', { username, displayName: 'Evil Bot' }],
+			['token', { userId: String(admin.id), name: 'stolen' }]
+		];
+		for (const [name, fields] of attempts) {
+			const answer = await other.page.evaluate(
+				async ({ name, fields }) => {
+					const body = new FormData();
+					for (const [key, value] of Object.entries(fields)) body.set(key, value);
+					const response = await fetch(`/admin?/${name}`, {
+						method: 'POST',
+						body,
+						headers: { accept: 'application/json', 'x-sveltekit-action': 'true' }
+					});
+					return (await response.json()) as { type: string; status: number };
+				},
+				{ name, fields }
+			);
+			expect(answer, name).toMatchObject({ type: 'failure', status: 403 });
+		}
+		expect(invites()).toBe(before);
+		expect(db.$client.prepare('SELECT id FROM users WHERE username = ?').get(username)).toBe(
+			undefined
+		);
+		expect(
+			db.$client
+				.prepare("SELECT id FROM api_tokens WHERE user_id = ? AND name = 'stolen'")
+				.get(admin.id)
+		).toBe(undefined);
 	});
 });
 
