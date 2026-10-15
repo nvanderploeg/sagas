@@ -6,6 +6,7 @@ import { formatTicketKey, parseTicketKey } from './keys.ts';
 import { getProject, getState, getSubstate, getTicket, requireUser } from './lookup.ts';
 import { listSubstates } from './states.ts';
 import { requireText } from './validate.ts';
+import { write, type Actor, type EventSpec } from './write.ts';
 
 const TITLE_MAX = 200;
 const DESCRIPTION_MAX = 50_000;
@@ -28,32 +29,58 @@ export type TicketPatch = {
 	assigneeId?: number | null;
 	stateId?: number;
 	substateId?: number | null;
-	parentId?: number | null;
 };
+
+export type Ticket = typeof tickets.$inferSelect;
+
+export type TicketView = Ticket & { key: string };
+
+function selectViews(db: Handle) {
+	return db
+		.select({ ticket: tickets, projectKey: projects.key })
+		.from(tickets)
+		.innerJoin(projects, eq(projects.id, tickets.projectId));
+}
+
+function toView(row: { ticket: Ticket; projectKey: string }): TicketView {
+	return { ...row.ticket, key: formatTicketKey(row.projectKey, row.ticket.number) };
+}
+
+export function readTicket(db: Handle, ticketId: number): TicketView {
+	const row = selectViews(db).where(eq(tickets.id, ticketId)).get();
+	if (row === undefined) throw new DomainError('not_found', 'Ticket not found');
+	return toView(row);
+}
 
 export function ticketKeyOf(db: Handle, ticket: { projectId: number; number: number }): string {
 	return formatTicketKey(getProject(db, ticket.projectId).key, ticket.number);
 }
 
-export function listTickets(db: Handle, projectId: number) {
-	return db
-		.select()
-		.from(tickets)
+export function listTickets(db: Handle, projectId: number): TicketView[] {
+	return selectViews(db)
 		.where(eq(tickets.projectId, projectId))
 		.orderBy(asc(tickets.number))
-		.all();
+		.all()
+		.map(toView);
 }
 
-export function resolveTicketKey(db: Handle, input: string) {
+export function listChildren(db: Handle, ticketId: number): TicketView[] {
+	return selectViews(db)
+		.where(eq(tickets.parentId, ticketId))
+		.orderBy(asc(tickets.id))
+		.all()
+		.map(toView);
+}
+
+export function resolveTicketKey(db: Handle, input: string): TicketView | null {
 	const parsed = parseTicketKey(input);
 	if (!parsed) return null;
 	const row = db
-		.select({ ticket: tickets })
+		.select({ ticketId: ticketKeys.ticketId })
 		.from(ticketKeys)
-		.innerJoin(tickets, eq(tickets.id, ticketKeys.ticketId))
 		.where(eq(ticketKeys.key, formatTicketKey(parsed.projectKey, parsed.number)))
 		.get();
-	return row?.ticket ?? null;
+	return row ? readTicket(db, row.ticketId) : null;
 }
 
 // Record every key a Ticket comes to hold, so that key resolves to it for as long as it exists.
@@ -64,8 +91,27 @@ export function recordTicketKey(db: Handle, ticketId: number, key: string): void
 	db.insert(ticketKeys).values({ key, ticketId }).run();
 }
 
-export function createTicket(db: Db, input: TicketSpec) {
-	return db.transaction((tx) => {
+function ticketEvent(
+	db: Handle,
+	type: EventSpec['type'],
+	ticketId: number,
+	alsoAffects: (number | null | undefined)[] = []
+): EventSpec {
+	const snapshot = readTicket(db, ticketId);
+	return {
+		type,
+		entityIds: { ticketId },
+		projectIds: [snapshot.projectId, ...alsoAffects],
+		snapshot
+	};
+}
+
+function projectOf(db: Handle, ticketId: number | null): number | null {
+	return ticketId === null ? null : getTicket(db, ticketId).projectId;
+}
+
+export function createTicket(db: Db, actor: Actor, input: TicketSpec): TicketView {
+	return write(db, actor, (tx) => {
 		const project = getProject(tx, input.projectId);
 		const title = requireText(input.title, 'Ticket title', TITLE_MAX);
 		const description = checkDescription(input.description ?? '');
@@ -100,12 +146,18 @@ export function createTicket(db: Db, input: TicketSpec) {
 			.returning()
 			.get();
 		recordTicketKey(tx, ticket.id, formatTicketKey(project.key, number));
-		return ticket;
+		const event = ticketEvent(tx, 'ticket.created', ticket.id, [projectOf(tx, parentId)]);
+		return { value: event.snapshot as TicketView, event };
 	});
 }
 
-export function updateTicket(db: Db, ticketId: number, patch: TicketPatch) {
-	return db.transaction((tx) => {
+export function updateTicket(
+	db: Db,
+	actor: Actor,
+	ticketId: number,
+	patch: TicketPatch
+): TicketView {
+	return write(db, actor, (tx) => {
 		const ticket = getTicket(tx, ticketId);
 		const changes: Partial<typeof tickets.$inferInsert> = {};
 
@@ -135,22 +187,44 @@ export function updateTicket(db: Db, ticketId: number, patch: TicketPatch) {
 			changes.substateId = substateFor(tx, getState(tx, ticket.stateId), patch.substateId);
 		}
 
-		if (patch.parentId !== undefined && patch.parentId !== null) {
-			assertParent(tx, ticketId, patch.parentId);
-		}
-		if (patch.parentId !== undefined) changes.parentId = patch.parentId;
-
-		if (Object.keys(changes).length === 0) return ticket;
+		const changed = (Object.keys(changes) as (keyof typeof changes)[]).filter(
+			(key) => changes[key] !== ticket[key as keyof Ticket]
+		);
+		if (changed.length === 0) return { value: readTicket(tx, ticketId), event: null };
 		changes.updatedAt = new Date();
-		return tx.update(tickets).set(changes).where(eq(tickets.id, ticketId)).returning().get();
+		tx.update(tickets).set(changes).where(eq(tickets.id, ticketId)).run();
+		const event = ticketEvent(tx, 'ticket.updated', ticketId);
+		return { value: event.snapshot as TicketView, event };
+	});
+}
+
+export function setParent(
+	db: Db,
+	actor: Actor,
+	ticketId: number,
+	parentId: number | null
+): TicketView {
+	return write(db, actor, (tx) => {
+		const ticket = getTicket(tx, ticketId);
+		if (parentId !== null) assertParent(tx, ticketId, parentId);
+		if (parentId === ticket.parentId) return { value: readTicket(tx, ticketId), event: null };
+		tx.update(tickets)
+			.set({ parentId, updatedAt: new Date() })
+			.where(eq(tickets.id, ticketId))
+			.run();
+		const event = ticketEvent(tx, 'ticket.reparented', ticketId, [
+			projectOf(tx, ticket.parentId),
+			projectOf(tx, parentId)
+		]);
+		return { value: event.snapshot as TicketView, event };
 	});
 }
 
 export type MoveTarget = { projectId: number; stateId?: number; substateId?: number | null };
 
 // Moving follows the Moving a Ticket decision in docs/mvp.md.
-export function moveTicket(db: Db, ticketId: number, input: MoveTarget) {
-	return db.transaction((tx) => {
+export function moveTicket(db: Db, actor: Actor, ticketId: number, input: MoveTarget): TicketView {
+	return write(db, actor, (tx) => {
 		const ticket = getTicket(tx, ticketId);
 		if (ticket.projectId === input.projectId) {
 			throw new DomainError('invalid', 'The Ticket is already in that Project');
@@ -161,8 +235,7 @@ export function moveTicket(db: Db, ticketId: number, input: MoveTarget) {
 
 		const number = allocateNumber(tx, target.id);
 		recordTicketKey(tx, ticketId, formatTicketKey(target.key, number));
-		return tx
-			.update(tickets)
+		tx.update(tickets)
 			.set({
 				projectId: target.id,
 				number,
@@ -171,15 +244,34 @@ export function moveTicket(db: Db, ticketId: number, input: MoveTarget) {
 				updatedAt: new Date()
 			})
 			.where(eq(tickets.id, ticketId))
-			.returning()
-			.get();
+			.run();
+		const event = ticketEvent(tx, 'ticket.moved', ticketId, [ticket.projectId]);
+		return { value: event.snapshot as TicketView, event };
 	});
 }
 
-export function deleteTicket(db: Db, ticketId: number): void {
-	db.transaction((tx) => {
-		getTicket(tx, ticketId);
+export function deleteTicket(db: Db, actor: Actor, ticketId: number): void {
+	write(db, actor, (tx) => {
+		const ticket = getTicket(tx, ticketId);
+		const children = tx
+			.select({ projectId: tickets.projectId })
+			.from(tickets)
+			.where(eq(tickets.parentId, ticketId))
+			.all();
 		tx.delete(tickets).where(eq(tickets.id, ticketId)).run();
+		return {
+			value: undefined,
+			event: {
+				type: 'ticket.deleted',
+				entityIds: { ticketId },
+				projectIds: [
+					ticket.projectId,
+					projectOf(tx, ticket.parentId),
+					...children.map((c) => c.projectId)
+				],
+				snapshot: null
+			}
+		};
 	});
 }
 

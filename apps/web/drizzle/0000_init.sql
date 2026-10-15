@@ -11,6 +11,18 @@ CREATE TABLE `api_tokens` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `api_tokens_token_hash_unique` ON `api_tokens` (`token_hash`);--> statement-breakpoint
 CREATE INDEX `api_tokens_user_idx` ON `api_tokens` (`user_id`);--> statement-breakpoint
+CREATE TABLE `events` (
+	`seq` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`type` text NOT NULL,
+	`entity_ids` text NOT NULL,
+	`project_ids` text NOT NULL,
+	`actor_id` integer NOT NULL,
+	`created_at` integer NOT NULL,
+	`snapshot` text,
+	FOREIGN KEY (`actor_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE INDEX `events_created_idx` ON `events` (`created_at`);--> statement-breakpoint
 CREATE TABLE `invites` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`token_hash` text NOT NULL,

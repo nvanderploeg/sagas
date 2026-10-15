@@ -2,8 +2,9 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { ticketKeys, tickets } from '#lib/server/db/schema.ts';
+import type { Actor } from './write.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedProject, seedTicket, seedUser } from '#lib/server/test/fixtures.ts';
+import { seedActor, seedProject, seedTicket, seedUser } from '#lib/server/test/fixtures.ts';
 import { DomainError } from './errors.ts';
 import { getProject, getTicket } from './lookup.ts';
 import { deleteProject, renameProjectKey } from './projects.ts';
@@ -14,14 +15,17 @@ import {
 	listTickets,
 	moveTicket,
 	resolveTicketKey,
+	setParent,
 	ticketKeyOf,
 	updateTicket
 } from './tickets.ts';
 
 let db: Db;
+let actor: Actor;
 
 beforeEach(() => {
 	db = testDb();
+	actor = seedActor(db);
 });
 
 afterEach(() => {
@@ -57,7 +61,7 @@ describe('numbering', () => {
 		const project = seedProject(db, 'AM');
 		const last = seedTicket(db, { projectId: project.id });
 
-		deleteTicket(db, last.id);
+		deleteTicket(db, actor, last.id);
 
 		expect(seedTicket(db, { projectId: project.id }).number).toBe(2);
 	});
@@ -68,7 +72,7 @@ describe('numbering', () => {
 		seedTicket(db, { projectId: project.id, ownerId });
 
 		expectDomainError(
-			() => createTicket(db, { projectId: project.id, title: 'x', ownerId, parentId: 999 }),
+			() => createTicket(db, actor, { projectId: project.id, title: 'x', ownerId, parentId: 999 }),
 			'not_found'
 		);
 
@@ -108,11 +112,11 @@ describe('Ticket keys', () => {
 		const xy = seedProject(db, 'XY');
 		const ticket = seedTicket(db, { projectId: am.id });
 
-		renameProjectKey(db, am.id, 'BM');
-		moveTicket(db, ticket.id, { projectId: xy.id });
-		renameProjectKey(db, xy.id, 'ZZ');
-		moveTicket(db, ticket.id, { projectId: am.id });
-		renameProjectKey(db, am.id, 'AM');
+		renameProjectKey(db, actor, am.id, 'BM');
+		moveTicket(db, actor, ticket.id, { projectId: xy.id });
+		renameProjectKey(db, actor, xy.id, 'ZZ');
+		moveTicket(db, actor, ticket.id, { projectId: am.id });
+		renameProjectKey(db, actor, am.id, 'AM');
 
 		for (const key of ['AM-1', 'BM-1', 'XY-1', 'ZZ-1', 'BM-2', 'AM-2']) {
 			expect(resolveTicketKey(db, key)?.id, key).toBe(ticket.id);
@@ -124,12 +128,12 @@ describe('Ticket keys', () => {
 		const old = seedProject(db, 'AM');
 		const other = seedProject(db, 'XY');
 		const moved = seedTicket(db, { projectId: old.id });
-		moveTicket(db, moved.id, { projectId: other.id });
-		deleteProject(db, old.id);
+		moveTicket(db, actor, moved.id, { projectId: other.id });
+		deleteProject(db, actor, old.id);
 		const fresh = seedProject(db, 'NU');
 		const local = seedTicket(db, { projectId: fresh.id });
 
-		expectDomainError(() => renameProjectKey(db, fresh.id, 'AM'), 'conflict');
+		expectDomainError(() => renameProjectKey(db, actor, fresh.id, 'AM'), 'conflict');
 
 		expect(getProject(db, fresh.id).key).toBe('NU');
 		expect(resolveTicketKey(db, 'AM-1')?.id).toBe(moved.id);
@@ -141,9 +145,9 @@ describe('Ticket keys', () => {
 		const xy = seedProject(db, 'XY');
 		seedTicket(db, { projectId: xy.id });
 		const moved = seedTicket(db, { projectId: xy.id });
-		moveTicket(db, moved.id, { projectId: am.id });
-		deleteProject(db, xy.id);
-		renameProjectKey(db, am.id, 'XY');
+		moveTicket(db, actor, moved.id, { projectId: am.id });
+		deleteProject(db, actor, xy.id);
+		renameProjectKey(db, actor, am.id, 'XY');
 
 		const next = seedTicket(db, { projectId: am.id });
 		const after = seedTicket(db, { projectId: am.id });
@@ -158,12 +162,12 @@ describe('Ticket keys', () => {
 		const am = seedProject(db, 'AM');
 		const bl = seedProject(db, 'BL');
 		const away = seedTicket(db, { projectId: am.id });
-		moveTicket(db, away.id, { projectId: bl.id });
-		deleteProject(db, am.id);
+		moveTicket(db, actor, away.id, { projectId: bl.id });
+		deleteProject(db, actor, am.id);
 		const reborn = seedProject(db, 'AM');
 		const incoming = seedTicket(db, { projectId: bl.id });
 
-		const moved = moveTicket(db, incoming.id, { projectId: reborn.id });
+		const moved = moveTicket(db, actor, incoming.id, { projectId: reborn.id });
 		const created = seedTicket(db, { projectId: reborn.id });
 
 		expect(ticketKeyOf(db, moved)).toBe('AM-2');
@@ -179,7 +183,7 @@ describe('moveTicket', () => {
 		const ticket = seedTicket(db, { projectId: from.id });
 		seedTicket(db, { projectId: to.id });
 
-		const moved = moveTicket(db, ticket.id, { projectId: to.id });
+		const moved = moveTicket(db, actor, ticket.id, { projectId: to.id });
 
 		expect(moved.projectId).toBe(to.id);
 		expect(moved.number).toBe(2);
@@ -193,9 +197,9 @@ describe('moveTicket', () => {
 		const to = seedProject(db, 'BL');
 		const ticket = seedTicket(db, { projectId: from.id });
 		const target = listStates(db, to.id)[0];
-		const review = createSubstate(db, target.id, style('review'));
+		const review = createSubstate(db, actor, target.id, style('review'));
 
-		const moved = moveTicket(db, ticket.id, { projectId: to.id });
+		const moved = moveTicket(db, actor, ticket.id, { projectId: to.id });
 
 		expect(moved.stateId).toBe(target.id);
 		expect(moved.substateId).toBe(review.id);
@@ -205,11 +209,11 @@ describe('moveTicket', () => {
 		const from = seedProject(db, 'AM');
 		const to = seedProject(db, 'BL');
 		const ticket = seedTicket(db, { projectId: from.id });
-		const doing = createState(db, to.id, style('doing'));
-		createSubstate(db, doing.id, style('build'));
-		const qa = createSubstate(db, doing.id, style('qa'));
+		const doing = createState(db, actor, to.id, style('doing'));
+		createSubstate(db, actor, doing.id, style('build'));
+		const qa = createSubstate(db, actor, doing.id, style('qa'));
 
-		const moved = moveTicket(db, ticket.id, {
+		const moved = moveTicket(db, actor, ticket.id, {
 			projectId: to.id,
 			stateId: doing.id,
 			substateId: qa.id
@@ -222,10 +226,10 @@ describe('moveTicket', () => {
 		const from = seedProject(db, 'AM');
 		const to = seedProject(db, 'BL');
 		const ticket = seedTicket(db, { projectId: from.id });
-		const doing = createState(db, to.id, style('doing'));
-		const build = createSubstate(db, doing.id, style('build'));
+		const doing = createState(db, actor, to.id, style('doing'));
+		const build = createSubstate(db, actor, doing.id, style('build'));
 
-		const moved = moveTicket(db, ticket.id, { projectId: to.id, stateId: doing.id });
+		const moved = moveTicket(db, actor, ticket.id, { projectId: to.id, stateId: doing.id });
 
 		expect(moved).toMatchObject({ stateId: doing.id, substateId: build.id });
 	});
@@ -234,10 +238,10 @@ describe('moveTicket', () => {
 		const from = seedProject(db, 'AM');
 		const to = seedProject(db, 'BL');
 		const ticket = seedTicket(db, { projectId: from.id });
-		updateTicket(db, ticket.id, { stateId: closedOf(from.id).id });
-		const shipped = createSubstate(db, closedOf(to.id).id, style('shipped'));
+		updateTicket(db, actor, ticket.id, { stateId: closedOf(from.id).id });
+		const shipped = createSubstate(db, actor, closedOf(to.id).id, style('shipped'));
 
-		const moved = moveTicket(db, ticket.id, { projectId: to.id });
+		const moved = moveTicket(db, actor, ticket.id, { projectId: to.id });
 
 		expect(moved).toMatchObject({ stateId: closedOf(to.id).id, substateId: shipped.id });
 	});
@@ -246,10 +250,10 @@ describe('moveTicket', () => {
 		const from = seedProject(db, 'AM');
 		const to = seedProject(db, 'BL');
 		const ticket = seedTicket(db, { projectId: from.id });
-		updateTicket(db, ticket.id, { stateId: closedOf(from.id).id });
+		updateTicket(db, actor, ticket.id, { stateId: closedOf(from.id).id });
 
 		expectDomainError(
-			() => moveTicket(db, ticket.id, { projectId: to.id, stateId: to.initialStateId! }),
+			() => moveTicket(db, actor, ticket.id, { projectId: to.id, stateId: to.initialStateId! }),
 			'invalid'
 		);
 		expect(getTicket(db, ticket.id).projectId).toBe(from.id);
@@ -259,14 +263,14 @@ describe('moveTicket', () => {
 		const from = seedProject(db, 'AM');
 		const to = seedProject(db, 'BL');
 		const ticket = seedTicket(db, { projectId: from.id });
-		const foreign = createSubstate(db, from.initialStateId!, style('review'));
+		const foreign = createSubstate(db, actor, from.initialStateId!, style('review'));
 
 		expectDomainError(
-			() => moveTicket(db, ticket.id, { projectId: to.id, stateId: from.initialStateId! }),
+			() => moveTicket(db, actor, ticket.id, { projectId: to.id, stateId: from.initialStateId! }),
 			'invalid'
 		);
 		expectDomainError(
-			() => moveTicket(db, ticket.id, { projectId: to.id, substateId: foreign.id }),
+			() => moveTicket(db, actor, ticket.id, { projectId: to.id, substateId: foreign.id }),
 			'invalid'
 		);
 		expect(getTicket(db, ticket.id).projectId).toBe(from.id);
@@ -277,8 +281,8 @@ describe('moveTicket', () => {
 		const second = seedProject(db, 'BL');
 		const ticket = seedTicket(db, { projectId: first.id });
 
-		moveTicket(db, ticket.id, { projectId: second.id });
-		moveTicket(db, ticket.id, { projectId: first.id });
+		moveTicket(db, actor, ticket.id, { projectId: second.id });
+		moveTicket(db, actor, ticket.id, { projectId: first.id });
 
 		expect(resolveTicketKey(db, 'AM-1')?.id).toBe(ticket.id);
 		expect(resolveTicketKey(db, 'BL-1')?.id).toBe(ticket.id);
@@ -289,7 +293,7 @@ describe('moveTicket', () => {
 		const project = seedProject(db, 'AM');
 		const ticket = seedTicket(db, { projectId: project.id });
 
-		expectDomainError(() => moveTicket(db, ticket.id, { projectId: project.id }), 'invalid');
+		expectDomainError(() => moveTicket(db, actor, ticket.id, { projectId: project.id }), 'invalid');
 	});
 
 	it('keeps the Parent and the Children when moving', () => {
@@ -299,7 +303,7 @@ describe('moveTicket', () => {
 		const ticket = seedTicket(db, { projectId: from.id, parentId: parent.id });
 		const child = seedTicket(db, { projectId: from.id, parentId: ticket.id });
 
-		moveTicket(db, ticket.id, { projectId: to.id });
+		moveTicket(db, actor, ticket.id, { projectId: to.id });
 
 		expect(getTicket(db, ticket.id).parentId).toBe(parent.id);
 		expect(getTicket(db, child.id)).toMatchObject({ parentId: ticket.id, projectId: from.id });
@@ -321,7 +325,7 @@ describe('Parent', () => {
 		const project = seedProject(db, 'AM');
 		const ticket = seedTicket(db, { projectId: project.id });
 
-		expectDomainError(() => updateTicket(db, ticket.id, { parentId: ticket.id }), 'invalid');
+		expectDomainError(() => setParent(db, actor, ticket.id, ticket.id), 'invalid');
 	});
 
 	it('rejects a Parent that would close a loop of any length', () => {
@@ -330,7 +334,7 @@ describe('Parent', () => {
 		const b = seedTicket(db, { projectId: project.id, parentId: a.id });
 		const c = seedTicket(db, { projectId: project.id, parentId: b.id });
 
-		expectDomainError(() => updateTicket(db, a.id, { parentId: c.id }), 'conflict');
+		expectDomainError(() => setParent(db, actor, a.id, c.id), 'conflict');
 		expect(getTicket(db, a.id).parentId).toBeNull();
 	});
 
@@ -339,12 +343,12 @@ describe('Parent', () => {
 		const parent = seedTicket(db, { projectId: project.id });
 		const child = seedTicket(db, { projectId: project.id, parentId: parent.id });
 
-		deleteTicket(db, parent.id);
+		deleteTicket(db, actor, parent.id);
 		expect(getTicket(db, child.id).parentId).toBeNull();
 
 		const next = seedTicket(db, { projectId: project.id });
-		updateTicket(db, child.id, { parentId: next.id });
-		expect(updateTicket(db, child.id, { parentId: null }).parentId).toBeNull();
+		setParent(db, actor, child.id, next.id);
+		expect(setParent(db, actor, child.id, null).parentId).toBeNull();
 	});
 });
 
@@ -352,20 +356,20 @@ describe('updateTicket', () => {
 	it('moves to a new State and lands in its default Substate', () => {
 		const project = seedProject(db, 'AM');
 		const ticket = seedTicket(db, { projectId: project.id });
-		const doing = createState(db, project.id, {
+		const doing = createState(db, actor, project.id, {
 			key: 'doing',
 			label: 'Doing',
 			color: '#000000',
 			icon: 'dot'
 		});
-		const qa = createSubstate(db, doing.id, {
+		const qa = createSubstate(db, actor, doing.id, {
 			key: 'qa',
 			label: 'QA',
 			color: '#000000',
 			icon: 'dot'
 		});
 
-		const updated = updateTicket(db, ticket.id, { stateId: doing.id });
+		const updated = updateTicket(db, actor, ticket.id, { stateId: doing.id });
 
 		expect(updated.stateId).toBe(doing.id);
 		expect(updated.substateId).toBe(qa.id);
@@ -376,7 +380,7 @@ describe('updateTicket', () => {
 		const ticket = seedTicket(db, { projectId: project.id });
 		const closed = listStates(db, project.id).find((s) => s.isClosed)!;
 
-		const updated = updateTicket(db, ticket.id, { stateId: closed.id });
+		const updated = updateTicket(db, actor, ticket.id, { stateId: closed.id });
 
 		expect(updated).toMatchObject({ stateId: closed.id, substateId: null });
 	});
@@ -386,19 +390,22 @@ describe('updateTicket', () => {
 		const ticket = seedTicket(db, { projectId: project.id });
 		const other = seedUser(db, 'grace');
 
-		expectDomainError(() => updateTicket(db, ticket.id, { ownerId: 999 }), 'invalid');
-		expect(updateTicket(db, ticket.id, { assigneeId: other }).assigneeId).toBe(other);
-		expect(updateTicket(db, ticket.id, { assigneeId: null }).assigneeId).toBeNull();
+		expectDomainError(() => updateTicket(db, actor, ticket.id, { ownerId: 999 }), 'invalid');
+		expect(updateTicket(db, actor, ticket.id, { assigneeId: other }).assigneeId).toBe(other);
+		expect(updateTicket(db, actor, ticket.id, { assigneeId: null }).assigneeId).toBeNull();
 	});
 
 	it('edits the title and description and rejects a blank title', () => {
 		const project = seedProject(db, 'AM');
 		const ticket = seedTicket(db, { projectId: project.id });
 
-		const updated = updateTicket(db, ticket.id, { title: ' Fix login ', description: 'Steps...' });
+		const updated = updateTicket(db, actor, ticket.id, {
+			title: ' Fix login ',
+			description: 'Steps...'
+		});
 
 		expect(updated).toMatchObject({ title: 'Fix login', description: 'Steps...' });
-		expectDomainError(() => updateTicket(db, ticket.id, { title: '   ' }), 'invalid');
+		expectDomainError(() => updateTicket(db, actor, ticket.id, { title: '   ' }), 'invalid');
 	});
 
 	it('refuses a State of another Project', () => {
@@ -407,7 +414,7 @@ describe('updateTicket', () => {
 		const ticket = seedTicket(db, { projectId: project.id });
 		const foreign = listStates(db, other.id)[0];
 
-		expectDomainError(() => updateTicket(db, ticket.id, { stateId: foreign.id }), 'invalid');
+		expectDomainError(() => updateTicket(db, actor, ticket.id, { stateId: foreign.id }), 'invalid');
 	});
 });
 
@@ -425,7 +432,7 @@ describe('createTicket', () => {
 		const project = seedProject(db, 'AM');
 
 		expectDomainError(
-			() => createTicket(db, { projectId: project.id, title: 'x', ownerId: 999 }),
+			() => createTicket(db, actor, { projectId: project.id, title: 'x', ownerId: 999 }),
 			'invalid'
 		);
 		expectDomainError(() => seedTicket(db, { projectId: project.id, parentId: 999 }), 'not_found');
@@ -445,9 +452,9 @@ describe('deleteTicket', () => {
 		const from = seedProject(db, 'AM');
 		const to = seedProject(db, 'BL');
 		const ticket = seedTicket(db, { projectId: from.id });
-		moveTicket(db, ticket.id, { projectId: to.id });
+		moveTicket(db, actor, ticket.id, { projectId: to.id });
 
-		deleteTicket(db, ticket.id);
+		deleteTicket(db, actor, ticket.id);
 
 		expect(db.select().from(tickets).where(eq(tickets.id, ticket.id)).all()).toEqual([]);
 		expect(resolveTicketKey(db, 'AM-1')).toBeNull();

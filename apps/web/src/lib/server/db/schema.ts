@@ -9,6 +9,7 @@ import {
 	uniqueIndex,
 	type AnySQLiteColumn
 } from 'drizzle-orm/sqlite-core';
+import { EVENT_TYPES, type EntityIds } from '../events/types.ts';
 
 const id = () => integer('id').primaryKey({ autoIncrement: true });
 
@@ -240,4 +241,22 @@ export const ticketKeys = sqliteTable(
 			)
 		)
 	]
+);
+
+export const events = sqliteTable(
+	'events',
+	{
+		// AUTOINCREMENT keeps seq rising even after pruning empties the table.
+		seq: integer('seq').primaryKey({ autoIncrement: true }),
+		type: text('type', { enum: EVENT_TYPES }).notNull(),
+		entityIds: text('entity_ids', { mode: 'json' }).notNull().$type<EntityIds>(),
+		projectIds: text('project_ids', { mode: 'json' }).notNull().$type<number[]>(),
+		actorId: integer('actor_id')
+			.notNull()
+			.references(() => users.id),
+		createdAt: now(),
+		// The entity after the write, or null when the write deleted it.
+		snapshot: text('snapshot', { mode: 'json' }).$type<unknown>()
+	},
+	(t) => [index('events_created_idx').on(t.createdAt)]
 );

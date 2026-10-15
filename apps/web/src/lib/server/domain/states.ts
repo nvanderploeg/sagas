@@ -4,7 +4,12 @@ import { states, substates, tickets } from '../db/schema.ts';
 import { DomainError } from './errors.ts';
 import { getProject, getState, getSubstate } from './lookup.ts';
 import { placeAt, writePositions } from './positions.ts';
+import { configEvent } from './project-view.ts';
 import { COLOR, ICON, requireMatch, requireText, STATE_KEY } from './validate.ts';
+import { write, type Actor, type EventSpec } from './write.ts';
+
+export type State = typeof states.$inferSelect;
+export type Substate = typeof substates.$inferSelect;
 
 export type StyleSpec = { key: string; label: string; color: string; icon: string };
 export type StyleUpdate = Partial<Pick<StyleSpec, 'label' | 'color' | 'icon'>>;
@@ -93,41 +98,60 @@ export function insertState(
 	return getState(db, row.id);
 }
 
-export function createState(db: Db, projectId: number, input: StyleSpec, index?: number) {
-	return db.transaction((tx) => {
+export function createState(
+	db: Db,
+	actor: Actor,
+	projectId: number,
+	input: StyleSpec,
+	index?: number
+): State {
+	return write(db, actor, (tx) => {
 		getProject(tx, projectId);
-		return insertState(tx, projectId, input, { index });
+		const value = insertState(tx, projectId, input, { index });
+		return {
+			value,
+			event: configEvent(tx, 'state.created', { projectId, stateId: value.id })
+		};
 	});
 }
 
-export function updateState(db: Db, stateId: number, patch: StyleUpdate) {
-	return db.transaction((tx) => {
+export function updateState(db: Db, actor: Actor, stateId: number, patch: StyleUpdate): State {
+	return write(db, actor, (tx) => {
 		const state = getState(tx, stateId);
 		const update = normalizeUpdate(patch, 'State');
 		if (state.isClosed && update.label !== undefined && update.label !== state.label) {
 			throw new DomainError('forbidden', 'The Closed State cannot be renamed');
 		}
-		if (Object.keys(update).length === 0) return state;
-		return tx.update(states).set(update).where(eq(states.id, stateId)).returning().get();
+		if (!changes(state, update)) return { value: state, event: null };
+		const value = tx.update(states).set(update).where(eq(states.id, stateId)).returning().get();
+		return {
+			value,
+			event: configEvent(tx, 'state.updated', { projectId: state.projectId, stateId })
+		};
 	});
 }
 
-export function moveState(db: Db, stateId: number, index: number) {
-	return db.transaction((tx) => {
+export function moveState(db: Db, actor: Actor, stateId: number, index: number): State {
+	return write(db, actor, (tx) => {
 		const state = getState(tx, stateId);
 		if (state.isClosed) throw new DomainError('forbidden', 'The Closed State cannot be reordered');
 		const rows = listStates(tx, state.projectId);
 		const open = rows.filter((s) => !s.isClosed && s.id !== stateId).map((s) => s.id);
 		const shut = rows.filter((s) => s.isClosed).map((s) => s.id);
-		writePositions([...placeAt(open, stateId, index), ...shut], (id, position) =>
+		const order = [...placeAt(open, stateId, index), ...shut];
+		if (order.every((id, i) => rows[i].id === id)) return { value: state, event: null };
+		writePositions(order, (id, position) =>
 			tx.update(states).set({ position }).where(eq(states.id, id)).run()
 		);
-		return getState(tx, stateId);
+		return {
+			value: getState(tx, stateId),
+			event: configEvent(tx, 'state.updated', { projectId: state.projectId, stateId })
+		};
 	});
 }
 
-export function deleteState(db: Db, stateId: number): void {
-	db.transaction((tx) => {
+export function deleteState(db: Db, actor: Actor, stateId: number): void {
+	write(db, actor, (tx) => {
 		const state = getState(tx, stateId);
 		if (state.isClosed) throw new DomainError('forbidden', 'The Closed State cannot be removed');
 		const project = getProject(tx, state.projectId);
@@ -146,12 +170,22 @@ export function deleteState(db: Db, stateId: number): void {
 			listStates(tx, state.projectId).map((s) => s.id),
 			(id, position) => tx.update(states).set({ position }).where(eq(states.id, id)).run()
 		);
+		return {
+			value: undefined,
+			event: configEvent(tx, 'state.deleted', { projectId: state.projectId, stateId })
+		};
 	});
 }
 
-export function createSubstate(db: Db, stateId: number, input: StyleSpec, index?: number) {
-	return db.transaction((tx) => {
-		getState(tx, stateId);
+export function createSubstate(
+	db: Db,
+	actor: Actor,
+	stateId: number,
+	input: StyleSpec,
+	index?: number
+): Substate {
+	return write(db, actor, (tx) => {
+		const state = getState(tx, stateId);
 		const spec = normalizeStyle(input, 'Substate');
 		const existing = listSubstates(tx, stateId);
 		if (existing.some((s) => s.key === spec.key)) {
@@ -179,34 +213,59 @@ export function createSubstate(db: Db, stateId: number, input: StyleSpec, index?
 				.where(and(eq(tickets.stateId, stateId), isNull(tickets.substateId)))
 				.run();
 		}
-		return getSubstate(tx, row.id);
+		return {
+			value: getSubstate(tx, row.id),
+			event: configEvent(tx, 'substate.created', {
+				projectId: state.projectId,
+				stateId,
+				substateId: row.id
+			})
+		};
 	});
 }
 
-export function updateSubstate(db: Db, substateId: number, patch: StyleUpdate) {
-	return db.transaction((tx) => {
+export function updateSubstate(
+	db: Db,
+	actor: Actor,
+	substateId: number,
+	patch: StyleUpdate
+): Substate {
+	return write(db, actor, (tx) => {
 		const substate = getSubstate(tx, substateId);
 		const update = normalizeUpdate(patch, 'Substate');
-		if (Object.keys(update).length === 0) return substate;
-		return tx.update(substates).set(update).where(eq(substates.id, substateId)).returning().get();
+		if (!changes(substate, update)) return { value: substate, event: null };
+		const value = tx
+			.update(substates)
+			.set(update)
+			.where(eq(substates.id, substateId))
+			.returning()
+			.get();
+		return { value, event: substateEvent(tx, 'substate.updated', substate) };
 	});
 }
 
-export function moveSubstate(db: Db, substateId: number, index: number) {
-	return db.transaction((tx) => {
+export function moveSubstate(db: Db, actor: Actor, substateId: number, index: number): Substate {
+	return write(db, actor, (tx) => {
 		const substate = getSubstate(tx, substateId);
-		const order = listSubstates(tx, substate.stateId)
-			.map((s) => s.id)
-			.filter((id) => id !== substateId);
-		writePositions(placeAt(order, substateId, index), (id, position) =>
+		const rows = listSubstates(tx, substate.stateId).map((s) => s.id);
+		const order = placeAt(
+			rows.filter((id) => id !== substateId),
+			substateId,
+			index
+		);
+		if (order.every((id, i) => rows[i] === id)) return { value: substate, event: null };
+		writePositions(order, (id, position) =>
 			tx.update(substates).set({ position }).where(eq(substates.id, id)).run()
 		);
-		return getSubstate(tx, substateId);
+		return {
+			value: getSubstate(tx, substateId),
+			event: substateEvent(tx, 'substate.updated', substate)
+		};
 	});
 }
 
-export function deleteSubstate(db: Db, substateId: number): void {
-	db.transaction((tx) => {
+export function deleteSubstate(db: Db, actor: Actor, substateId: number): void {
+	write(db, actor, (tx) => {
 		const substate = getSubstate(tx, substateId);
 		const state = getState(tx, substate.stateId);
 		if (state.defaultSubstateId === substateId && listSubstates(tx, state.id).length > 1) {
@@ -224,21 +283,49 @@ export function deleteSubstate(db: Db, substateId: number): void {
 			listSubstates(tx, state.id).map((s) => s.id),
 			(id, position) => tx.update(substates).set({ position }).where(eq(substates.id, id)).run()
 		);
+		return { value: undefined, event: substateEvent(tx, 'substate.deleted', substate) };
 	});
 }
 
-export function setDefaultSubstate(db: Db, stateId: number, substateId: number) {
-	return db.transaction((tx) => {
+export function setDefaultSubstate(
+	db: Db,
+	actor: Actor,
+	stateId: number,
+	substateId: number
+): State {
+	return write(db, actor, (tx) => {
 		const state = getState(tx, stateId);
 		const substate = getSubstate(tx, substateId);
 		if (substate.stateId !== state.id) {
 			throw new DomainError('invalid', 'The default Substate must belong to the State');
 		}
-		return tx
+		if (state.defaultSubstateId === substateId) return { value: state, event: null };
+		const value = tx
 			.update(states)
 			.set({ defaultSubstateId: substateId })
 			.where(eq(states.id, stateId))
 			.returning()
 			.get();
+		return {
+			value,
+			event: configEvent(tx, 'state.updated', { projectId: state.projectId, stateId })
+		};
+	});
+}
+
+function changes(row: StyleUpdate, update: StyleUpdate): boolean {
+	return (Object.keys(update) as (keyof StyleUpdate)[]).some((key) => update[key] !== row[key]);
+}
+
+function substateEvent(
+	db: Handle,
+	type: EventSpec['type'],
+	substate: { id: number; stateId: number }
+): EventSpec {
+	const state = getState(db, substate.stateId);
+	return configEvent(db, type, {
+		projectId: state.projectId,
+		stateId: state.id,
+		substateId: substate.id
 	});
 }
