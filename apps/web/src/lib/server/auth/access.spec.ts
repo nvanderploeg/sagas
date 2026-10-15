@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { gate, isPublicPath } from './access.ts';
+import { gate, isPublicPath, unauthorizedResponse } from './access.ts';
 import { userFromRequest } from './request.ts';
 import { createFirstAdmin } from './users.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { createApiToken } from './tokens.ts';
+import { createApiToken, revokeApiToken } from './tokens.ts';
 import { createSession } from './sessions.ts';
 
 describe('gate', () => {
@@ -25,20 +25,36 @@ describe('gate', () => {
 		expect(gate('/logout', fresh)).toBe('pass');
 	});
 
-	it('refuses signed-out API calls with 401 rather than a redirect', () => {
-		expect(gate('/api/anything', fresh)).toBe('unauthorized');
-		expect(gate('/api/anything', none)).toBe('unauthorized');
+	it('refuses signed-out machine calls, /mcp and under /api/, with 401 rather than a redirect', () => {
+		for (const path of ['/mcp', '/mcp/session', '/api/anything']) {
+			expect(gate(path, fresh), path).toBe('unauthorized');
+			expect(gate(path, none), path).toBe('unauthorized');
+		}
+		expect(gate('/mcpx', fresh)).toBe('login');
+		expect(gate('/apix', fresh)).toBe('login');
 	});
 
 	it('passes every path for a signed-in request', () => {
 		expect(gate('/', inside)).toBe('pass');
 		expect(gate('/api/anything', inside)).toBe('pass');
+		expect(gate('/mcp', inside)).toBe('pass');
 	});
 
 	it('recognises the public paths', () => {
 		expect(isPublicPath('/invite/x')).toBe(true);
 		expect(isPublicPath('/inviteX')).toBe(false);
 		expect(isPublicPath('/projects')).toBe(false);
+	});
+});
+
+describe('unauthorizedResponse', () => {
+	it('answers 401 with a Bearer challenge and a JSON body', async () => {
+		const response = unauthorizedResponse();
+
+		expect(response.status).toBe(401);
+		expect(response.headers.get('www-authenticate')).toBe('Bearer');
+		expect(response.headers.get('content-type')).toMatch(/^application\/json/);
+		expect(await response.json()).toEqual({ error: 'unauthorized' });
 	});
 });
 
@@ -58,7 +74,7 @@ describe('userFromRequest', () => {
 		db.$client.close();
 	});
 
-	it('lets a bearer header decide alone, without falling back to the cookie', async () => {
+	it('lets a Bearer header decide alone: a bad or revoked token never falls back to the cookie', async () => {
 		const db = testDb();
 		const admin = await createFirstAdmin(db, {
 			username: 'root',
@@ -66,15 +82,31 @@ describe('userFromRequest', () => {
 			password: 'a long enough password'
 		});
 		const { token } = createSession(db, admin.id);
-
-		const bad = new Request('http://x/', { headers: { authorization: 'Bearer wlt_nope' } });
-		const malformed = new Request('http://x/', { headers: { authorization: 'Basic abc' } });
 		const good = createApiToken(db, admin, admin.id, 'cli');
-		const ok = new Request('http://x/', { headers: { authorization: `Bearer ${good.token}` } });
+		const revoked = createApiToken(db, admin, admin.id, 'old');
+		revokeApiToken(db, admin, revoked.id);
+		const bearer = (value: string) =>
+			new Request('http://x/', { headers: { authorization: value } });
 
-		expect(userFromRequest(db, bad, token)).toBeNull();
-		expect(userFromRequest(db, malformed, token)).toBeNull();
-		expect(userFromRequest(db, ok, undefined)?.id).toBe(admin.id);
+		expect(userFromRequest(db, bearer('Bearer wlt_nope'), token)).toBeNull();
+		expect(userFromRequest(db, bearer(`Bearer ${revoked.token}`), token)).toBeNull();
+		expect(userFromRequest(db, bearer('Bearer'), token)).toBeNull();
+		expect(userFromRequest(db, bearer(`bearer ${good.token}`), undefined)?.id).toBe(admin.id);
+		db.$client.close();
+	});
+
+	it('falls back to the session cookie under any other Authorization scheme', async () => {
+		const db = testDb();
+		const admin = await createFirstAdmin(db, {
+			username: 'root',
+			displayName: 'Root',
+			password: 'a long enough password'
+		});
+		const { token } = createSession(db, admin.id);
+		const basic = new Request('http://x/', { headers: { authorization: 'Basic cHJveHk6cHc=' } });
+
+		expect(userFromRequest(db, basic, token)?.id).toBe(admin.id);
+		expect(userFromRequest(db, basic, undefined)).toBeNull();
 		db.$client.close();
 	});
 });

@@ -1,7 +1,7 @@
-import { json, redirect } from '@sveltejs/kit';
+import { redirect } from '@sveltejs/kit';
 import type { Handle, ServerInit } from '@sveltejs/kit/hooks';
 import { building } from '$app/env';
-import { gate } from '#lib/server/auth/access.ts';
+import { gate, unauthorizedResponse } from '#lib/server/auth/access.ts';
 import { SESSION_COOKIE, userFromRequest } from '#lib/server/auth/request.ts';
 import { hasUsers } from '#lib/server/auth/users.ts';
 import { getDb } from '#lib/server/db/index.ts';
@@ -19,11 +19,6 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const decision = gate(event.url.pathname, { setupDone: hasUsers(db), signedIn: user !== null });
 	if (decision === 'setup') redirect(303, '/setup');
 	if (decision === 'login') redirect(303, '/login');
-	if (decision === 'unauthorized') {
-		return json(
-			{ error: 'unauthorized' },
-			{ status: 401, headers: { 'www-authenticate': 'Bearer' } }
-		);
-	}
+	if (decision === 'unauthorized') return unauthorizedResponse();
 	return resolve(event);
 };
