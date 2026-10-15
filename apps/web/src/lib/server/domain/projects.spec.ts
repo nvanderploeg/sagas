@@ -163,7 +163,7 @@ describe('renameProjectKey', () => {
 		const other = seedProject(db, 'XY');
 		const leaving = seedTicket(db, { projectId: project.id });
 		const staying = seedTicket(db, { projectId: project.id });
-		moveTicket(db, leaving.id, other.id);
+		moveTicket(db, leaving.id, { projectId: other.id });
 		renameProjectKey(db, project.id, 'BM');
 
 		expect(renameProjectKey(db, project.id, 'AM').key).toBe('AM');
@@ -175,7 +175,7 @@ describe('renameProjectKey', () => {
 		const old = seedProject(db, 'AM');
 		const other = seedProject(db, 'BL');
 		const ticket = seedTicket(db, { projectId: old.id });
-		moveTicket(db, ticket.id, other.id);
+		moveTicket(db, ticket.id, { projectId: other.id });
 		deleteProject(db, old.id);
 
 		const reborn = seedProject(db, 'AM');

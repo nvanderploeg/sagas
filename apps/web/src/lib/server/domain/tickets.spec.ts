@@ -28,6 +28,10 @@ afterEach(() => {
 	db.$client.close();
 });
 
+const style = (key: string) => ({ key, label: key, color: '#000000', icon: 'dot' });
+
+const closedOf = (projectId: number) => listStates(db, projectId).find((s) => s.isClosed)!;
+
 function expectDomainError(action: () => unknown, code: DomainError['code']) {
 	let thrown: unknown;
 	try {
@@ -105,9 +109,9 @@ describe('Ticket keys', () => {
 		const ticket = seedTicket(db, { projectId: am.id });
 
 		renameProjectKey(db, am.id, 'BM');
-		moveTicket(db, ticket.id, xy.id);
+		moveTicket(db, ticket.id, { projectId: xy.id });
 		renameProjectKey(db, xy.id, 'ZZ');
-		moveTicket(db, ticket.id, am.id);
+		moveTicket(db, ticket.id, { projectId: am.id });
 		renameProjectKey(db, am.id, 'AM');
 
 		for (const key of ['AM-1', 'BM-1', 'XY-1', 'ZZ-1', 'BM-2', 'AM-2']) {
@@ -120,7 +124,7 @@ describe('Ticket keys', () => {
 		const old = seedProject(db, 'AM');
 		const other = seedProject(db, 'XY');
 		const moved = seedTicket(db, { projectId: old.id });
-		moveTicket(db, moved.id, other.id);
+		moveTicket(db, moved.id, { projectId: other.id });
 		deleteProject(db, old.id);
 		const fresh = seedProject(db, 'NU');
 		const local = seedTicket(db, { projectId: fresh.id });
@@ -137,7 +141,7 @@ describe('Ticket keys', () => {
 		const xy = seedProject(db, 'XY');
 		seedTicket(db, { projectId: xy.id });
 		const moved = seedTicket(db, { projectId: xy.id });
-		moveTicket(db, moved.id, am.id);
+		moveTicket(db, moved.id, { projectId: am.id });
 		deleteProject(db, xy.id);
 		renameProjectKey(db, am.id, 'XY');
 
@@ -154,12 +158,12 @@ describe('Ticket keys', () => {
 		const am = seedProject(db, 'AM');
 		const bl = seedProject(db, 'BL');
 		const away = seedTicket(db, { projectId: am.id });
-		moveTicket(db, away.id, bl.id);
+		moveTicket(db, away.id, { projectId: bl.id });
 		deleteProject(db, am.id);
 		const reborn = seedProject(db, 'AM');
 		const incoming = seedTicket(db, { projectId: bl.id });
 
-		const moved = moveTicket(db, incoming.id, reborn.id);
+		const moved = moveTicket(db, incoming.id, { projectId: reborn.id });
 		const created = seedTicket(db, { projectId: reborn.id });
 
 		expect(ticketKeyOf(db, moved)).toBe('AM-2');
@@ -175,7 +179,7 @@ describe('moveTicket', () => {
 		const ticket = seedTicket(db, { projectId: from.id });
 		seedTicket(db, { projectId: to.id });
 
-		const moved = moveTicket(db, ticket.id, to.id);
+		const moved = moveTicket(db, ticket.id, { projectId: to.id });
 
 		expect(moved.projectId).toBe(to.id);
 		expect(moved.number).toBe(2);
@@ -189,17 +193,83 @@ describe('moveTicket', () => {
 		const to = seedProject(db, 'BL');
 		const ticket = seedTicket(db, { projectId: from.id });
 		const target = listStates(db, to.id)[0];
-		const review = createSubstate(db, target.id, {
-			key: 'review',
-			label: 'Review',
-			color: '#000000',
-			icon: 'dot'
-		});
+		const review = createSubstate(db, target.id, style('review'));
 
-		const moved = moveTicket(db, ticket.id, to.id);
+		const moved = moveTicket(db, ticket.id, { projectId: to.id });
 
 		expect(moved.stateId).toBe(target.id);
 		expect(moved.substateId).toBe(review.id);
+	});
+
+	it('moves the Ticket into the State and Substate the caller picks', () => {
+		const from = seedProject(db, 'AM');
+		const to = seedProject(db, 'BL');
+		const ticket = seedTicket(db, { projectId: from.id });
+		const doing = createState(db, to.id, style('doing'));
+		createSubstate(db, doing.id, style('build'));
+		const qa = createSubstate(db, doing.id, style('qa'));
+
+		const moved = moveTicket(db, ticket.id, {
+			projectId: to.id,
+			stateId: doing.id,
+			substateId: qa.id
+		});
+
+		expect(moved).toMatchObject({ projectId: to.id, stateId: doing.id, substateId: qa.id });
+	});
+
+	it('lands the Ticket in the picked State default Substate when only the State is picked', () => {
+		const from = seedProject(db, 'AM');
+		const to = seedProject(db, 'BL');
+		const ticket = seedTicket(db, { projectId: from.id });
+		const doing = createState(db, to.id, style('doing'));
+		const build = createSubstate(db, doing.id, style('build'));
+
+		const moved = moveTicket(db, ticket.id, { projectId: to.id, stateId: doing.id });
+
+		expect(moved).toMatchObject({ stateId: doing.id, substateId: build.id });
+	});
+
+	it('lands a Closed Ticket in the target Closed', () => {
+		const from = seedProject(db, 'AM');
+		const to = seedProject(db, 'BL');
+		const ticket = seedTicket(db, { projectId: from.id });
+		updateTicket(db, ticket.id, { stateId: closedOf(from.id).id });
+		const shipped = createSubstate(db, closedOf(to.id).id, style('shipped'));
+
+		const moved = moveTicket(db, ticket.id, { projectId: to.id });
+
+		expect(moved).toMatchObject({ stateId: closedOf(to.id).id, substateId: shipped.id });
+	});
+
+	it('refuses to move a Closed Ticket into an open State', () => {
+		const from = seedProject(db, 'AM');
+		const to = seedProject(db, 'BL');
+		const ticket = seedTicket(db, { projectId: from.id });
+		updateTicket(db, ticket.id, { stateId: closedOf(from.id).id });
+
+		expectDomainError(
+			() => moveTicket(db, ticket.id, { projectId: to.id, stateId: to.initialStateId! }),
+			'invalid'
+		);
+		expect(getTicket(db, ticket.id).projectId).toBe(from.id);
+	});
+
+	it('refuses a State of another Project, or a Substate of another State', () => {
+		const from = seedProject(db, 'AM');
+		const to = seedProject(db, 'BL');
+		const ticket = seedTicket(db, { projectId: from.id });
+		const foreign = createSubstate(db, from.initialStateId!, style('review'));
+
+		expectDomainError(
+			() => moveTicket(db, ticket.id, { projectId: to.id, stateId: from.initialStateId! }),
+			'invalid'
+		);
+		expectDomainError(
+			() => moveTicket(db, ticket.id, { projectId: to.id, substateId: foreign.id }),
+			'invalid'
+		);
+		expect(getTicket(db, ticket.id).projectId).toBe(from.id);
 	});
 
 	it('keeps a Ticket resolvable under every key it has held', () => {
@@ -207,8 +277,8 @@ describe('moveTicket', () => {
 		const second = seedProject(db, 'BL');
 		const ticket = seedTicket(db, { projectId: first.id });
 
-		moveTicket(db, ticket.id, second.id);
-		moveTicket(db, ticket.id, first.id);
+		moveTicket(db, ticket.id, { projectId: second.id });
+		moveTicket(db, ticket.id, { projectId: first.id });
 
 		expect(resolveTicketKey(db, 'AM-1')?.id).toBe(ticket.id);
 		expect(resolveTicketKey(db, 'BL-1')?.id).toBe(ticket.id);
@@ -219,19 +289,20 @@ describe('moveTicket', () => {
 		const project = seedProject(db, 'AM');
 		const ticket = seedTicket(db, { projectId: project.id });
 
-		expectDomainError(() => moveTicket(db, ticket.id, project.id), 'invalid');
+		expectDomainError(() => moveTicket(db, ticket.id, { projectId: project.id }), 'invalid');
 	});
 
 	it('keeps the Parent and the Children when moving', () => {
 		const from = seedProject(db, 'AM');
 		const to = seedProject(db, 'BL');
 		const parent = seedTicket(db, { projectId: to.id });
-		const child = seedTicket(db, { projectId: from.id, parentId: parent.id });
+		const ticket = seedTicket(db, { projectId: from.id, parentId: parent.id });
+		const child = seedTicket(db, { projectId: from.id, parentId: ticket.id });
 
-		moveTicket(db, child.id, to.id);
-		const moved = getTicket(db, child.id);
+		moveTicket(db, ticket.id, { projectId: to.id });
 
-		expect(moved.parentId).toBe(parent.id);
+		expect(getTicket(db, ticket.id).parentId).toBe(parent.id);
+		expect(getTicket(db, child.id)).toMatchObject({ parentId: ticket.id, projectId: from.id });
 	});
 });
 
@@ -374,7 +445,7 @@ describe('deleteTicket', () => {
 		const from = seedProject(db, 'AM');
 		const to = seedProject(db, 'BL');
 		const ticket = seedTicket(db, { projectId: from.id });
-		moveTicket(db, ticket.id, to.id);
+		moveTicket(db, ticket.id, { projectId: to.id });
 
 		deleteTicket(db, ticket.id);
 

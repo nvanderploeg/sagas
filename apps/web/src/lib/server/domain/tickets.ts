@@ -1,6 +1,6 @@
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
-import { projectKeys, projects, ticketKeys, tickets } from '../db/schema.ts';
+import { projectKeys, projects, states, ticketKeys, tickets } from '../db/schema.ts';
 import { DomainError } from './errors.ts';
 import { formatTicketKey, parseTicketKey } from './keys.ts';
 import { getProject, getState, getSubstate, getTicket, requireUser } from './lookup.ts';
@@ -146,18 +146,18 @@ export function updateTicket(db: Db, ticketId: number, patch: TicketPatch) {
 	});
 }
 
-export function moveTicket(db: Db, ticketId: number, projectId: number) {
+export type MoveTarget = { projectId: number; stateId?: number; substateId?: number | null };
+
+// Moving follows the Moving a Ticket decision in docs/mvp.md.
+export function moveTicket(db: Db, ticketId: number, input: MoveTarget) {
 	return db.transaction((tx) => {
 		const ticket = getTicket(tx, ticketId);
-		if (ticket.projectId === projectId) {
+		if (ticket.projectId === input.projectId) {
 			throw new DomainError('invalid', 'The Ticket is already in that Project');
 		}
-		const target = getProject(tx, projectId);
-		if (target.initialStateId === null) {
-			throw new DomainError('conflict', 'The target Project has no Initial State');
-		}
-		const state = getState(tx, target.initialStateId);
-		const substateId = substateFor(tx, state, undefined);
+		const target = getProject(tx, input.projectId);
+		const state = targetState(tx, target, getState(tx, ticket.stateId).isClosed, input.stateId);
+		const substateId = substateFor(tx, state, input.substateId);
 
 		const number = allocateNumber(tx, target.id);
 		recordTicketKey(tx, ticketId, formatTicketKey(target.key, number));
@@ -191,6 +191,40 @@ function checkDescription(value: string): string {
 		);
 	}
 	return value;
+}
+
+function targetState(
+	db: Handle,
+	target: { id: number; initialStateId: number | null },
+	closed: boolean,
+	requested: number | undefined
+) {
+	if (closed) {
+		const state = db
+			.select()
+			.from(states)
+			.where(and(eq(states.projectId, target.id), eq(states.isClosed, true)))
+			.get();
+		if (state === undefined) {
+			throw new DomainError('conflict', 'The target Project has no Closed State');
+		}
+		if (requested !== undefined && requested !== state.id) {
+			throw new DomainError(
+				'invalid',
+				"A Closed Ticket moves into the target Project's Closed State"
+			);
+		}
+		return state;
+	}
+	const stateId = requested ?? target.initialStateId;
+	if (stateId === null) {
+		throw new DomainError('conflict', 'The target Project has no Initial State');
+	}
+	const state = getState(db, stateId);
+	if (state.projectId !== target.id) {
+		throw new DomainError('invalid', 'The State belongs to another Project');
+	}
+	return state;
 }
 
 // Substate placement follows the Substate rule in CONTEXT.md.
