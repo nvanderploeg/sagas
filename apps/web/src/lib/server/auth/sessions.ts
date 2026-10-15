@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import type { Db } from '#lib/server/db/client.ts';
 import { sessions, users } from '#lib/server/db/schema.ts';
+import { announceRevoked } from './credentials.ts';
 import { generateSecret, hashSecret, SESSION_PREFIX } from './secrets.ts';
 import { toAuthUser, type AuthUser } from './users.ts';
 
@@ -29,14 +30,17 @@ export function resolveSession(db: Db, token: string, now: Date = new Date()): A
 		.get();
 	if (!row) return null;
 	if (row.session.expiresAt.getTime() <= now.getTime()) {
-		db.delete(sessions).where(eq(sessions.id, id)).run();
+		endSession(db, id);
 		return null;
 	}
 	return toAuthUser(row.user);
 }
 
 export function deleteSession(db: Db, token: string): void {
-	db.delete(sessions)
-		.where(eq(sessions.id, hashSecret(token)))
-		.run();
+	endSession(db, hashSecret(token));
+}
+
+function endSession(db: Db, id: string): void {
+	db.delete(sessions).where(eq(sessions.id, id)).run();
+	announceRevoked({ kind: 'session', hash: id });
 }

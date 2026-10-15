@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { gate, isPublicPath, unauthorizedResponse } from './access.ts';
-import { userFromRequest } from './request.ts';
+import { apiTokenCredential, sessionCredential } from './credentials.ts';
+import { authFromRequest } from './request.ts';
 import { createFirstAdmin } from './users.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { createApiToken, revokeApiToken } from './tokens.ts';
@@ -58,7 +59,7 @@ describe('unauthorizedResponse', () => {
 	});
 });
 
-describe('userFromRequest', () => {
+describe('authFromRequest', () => {
 	it('resolves a session cookie', async () => {
 		const db = testDb();
 		const admin = await createFirstAdmin(db, {
@@ -68,9 +69,10 @@ describe('userFromRequest', () => {
 		});
 		const { token } = createSession(db, admin.id);
 
-		const user = userFromRequest(db, new Request('http://x/'), token);
+		const auth = authFromRequest(db, new Request('http://x/'), token);
 
-		expect(user?.id).toBe(admin.id);
+		expect(auth?.user.id).toBe(admin.id);
+		expect(auth?.credential).toEqual(sessionCredential(token));
 		db.$client.close();
 	});
 
@@ -88,10 +90,13 @@ describe('userFromRequest', () => {
 		const bearer = (value: string) =>
 			new Request('http://x/', { headers: { authorization: value } });
 
-		expect(userFromRequest(db, bearer('Bearer wlt_nope'), token)).toBeNull();
-		expect(userFromRequest(db, bearer(`Bearer ${revoked.token}`), token)).toBeNull();
-		expect(userFromRequest(db, bearer('Bearer'), token)).toBeNull();
-		expect(userFromRequest(db, bearer(`bearer ${good.token}`), undefined)?.id).toBe(admin.id);
+		expect(authFromRequest(db, bearer('Bearer wlt_nope'), token)).toBeNull();
+		expect(authFromRequest(db, bearer(`Bearer ${revoked.token}`), token)).toBeNull();
+		expect(authFromRequest(db, bearer('Bearer'), token)).toBeNull();
+		expect(authFromRequest(db, bearer(`bearer ${good.token}`), undefined)).toEqual({
+			user: expect.objectContaining({ id: admin.id }),
+			credential: apiTokenCredential(good.token)
+		});
 		db.$client.close();
 	});
 
@@ -105,8 +110,8 @@ describe('userFromRequest', () => {
 		const { token } = createSession(db, admin.id);
 		const basic = new Request('http://x/', { headers: { authorization: 'Basic cHJveHk6cHc=' } });
 
-		expect(userFromRequest(db, basic, token)?.id).toBe(admin.id);
-		expect(userFromRequest(db, basic, undefined)).toBeNull();
+		expect(authFromRequest(db, basic, token)?.user.id).toBe(admin.id);
+		expect(authFromRequest(db, basic, undefined)).toBeNull();
 		db.$client.close();
 	});
 });

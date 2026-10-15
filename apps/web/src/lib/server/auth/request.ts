@@ -1,24 +1,31 @@
 import type { Cookies } from '@sveltejs/kit';
 import type { Db } from '#lib/server/db/client.ts';
+import { apiTokenCredential, sessionCredential, type Credential } from './credentials.ts';
 import { resolveSession } from './sessions.ts';
 import { verifyApiToken } from './tokens.ts';
 import type { AuthUser } from './users.ts';
+
+export type Auth = { user: AuthUser; credential: Credential };
 
 export const SESSION_COOKIE = 'workload_session';
 
 // A Bearer header decides alone: a malformed or revoked token never falls back to the cookie.
 // Any other scheme, such as a reverse proxy's Basic, leaves the decision to the cookie.
-export function userFromRequest(
+export function authFromRequest(
 	db: Db,
 	request: Request,
 	sessionToken: string | undefined
-): AuthUser | null {
+): Auth | null {
 	const header = request.headers.get('authorization')?.trim() ?? '';
 	if (/^Bearer(\s|$)/i.test(header)) {
 		const match = /^Bearer\s+(\S+)$/i.exec(header);
-		return match ? verifyApiToken(db, match[1]) : null;
+		if (!match) return null;
+		const user = verifyApiToken(db, match[1]);
+		return user && { user, credential: apiTokenCredential(match[1]) };
 	}
-	return sessionToken ? resolveSession(db, sessionToken) : null;
+	if (!sessionToken) return null;
+	const user = resolveSession(db, sessionToken);
+	return user && { user, credential: sessionCredential(sessionToken) };
 }
 
 export function setSessionCookie(cookies: Cookies, url: URL, token: string, expires: Date): void {

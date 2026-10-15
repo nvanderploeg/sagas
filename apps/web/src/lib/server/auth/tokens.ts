@@ -3,6 +3,7 @@ import type { Db, Handle } from '#lib/server/db/client.ts';
 import { apiTokens, users } from '#lib/server/db/schema.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import { requireText } from '#lib/server/domain/validate.ts';
+import { announceRevoked } from './credentials.ts';
 import { API_TOKEN_PREFIX, generateSecret, hashSecret } from './secrets.ts';
 import { toAuthUser, type AuthUser } from './users.ts';
 
@@ -49,13 +50,15 @@ export function insertApiToken(
 }
 
 export function revokeApiToken(db: Db, actor: AuthUser, tokenId: number): void {
-	db.transaction((tx) => {
+	const revoked = db.transaction((tx) => {
 		const token = tx.select().from(apiTokens).where(eq(apiTokens.id, tokenId)).get();
 		if (!token) throw new DomainError('not_found', 'API token not found');
 		assertCanManageTokens(actor, requireUserRow(tx, token.userId));
-		if (token.revokedAt !== null) return;
+		if (token.revokedAt !== null) return null;
 		tx.update(apiTokens).set({ revokedAt: new Date() }).where(eq(apiTokens.id, tokenId)).run();
+		return token.tokenHash;
 	});
+	if (revoked !== null) announceRevoked({ kind: 'api_token', hash: revoked });
 }
 
 export function verifyApiToken(db: Db, token: string): AuthUser | null {

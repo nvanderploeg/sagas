@@ -1,10 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
+import {
+	apiTokenCredential,
+	credentialGuard,
+	sessionCredential,
+	type Credential
+} from '#lib/server/auth/credentials.ts';
+import { createSession, deleteSession } from '#lib/server/auth/sessions.ts';
+import { createApiToken, revokeApiToken } from '#lib/server/auth/tokens.ts';
+import { findUser } from '#lib/server/auth/users.ts';
+import { apiTokens, sessions } from '#lib/server/db/schema.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedProject, seedTicket } from '#lib/server/test/fixtures.ts';
+import { seedProject, seedTicket, seedUser } from '#lib/server/test/fixtures.ts';
 import { subscribe, subscriberCount } from './bus.ts';
 import { eventsSince, eventWindow, pruneEvents } from './log.ts';
-import { openEventStream, parseSince, SinceError, type StreamOptions } from './stream.ts';
+import {
+	openEventStream,
+	parseSince,
+	SinceError,
+	type StreamGuard,
+	type StreamOptions
+} from './stream.ts';
 
 let db: Db;
 let readers: ReadableStreamDefaultReader<Uint8Array>[];
@@ -205,46 +221,141 @@ describe('backlog cap', () => {
 });
 
 describe('stream lifetime', () => {
-	function leftovers(before: number) {
-		return { subscribers: subscriberCount() - before, timers: vi.getTimerCount() };
-	}
+	let watching: number;
+	const guard: StreamGuard = {
+		valid: () => true,
+		watch: () => {
+			watching += 1;
+			return () => (watching -= 1);
+		}
+	};
+	let before: number;
 
-	it('releases its subscription and timer when the client goes away', async () => {
+	beforeEach(() => {
 		vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
-		const before = subscriberCount();
-		const stream = open();
+		watching = 0;
+		before = subscriberCount();
+	});
+
+	const held = () => ({
+		subscriptions: subscriberCount() - before,
+		timers: vi.getTimerCount(),
+		watches: watching
+	});
+	const nothing = { subscriptions: 0, timers: 0, watches: 0 };
+
+	it('releases everything it holds when the client goes away', async () => {
+		const stream = open({ guard });
 		await stream.until(ready);
-		expect(leftovers(before)).toEqual({ subscribers: 1, timers: 1 });
+		expect(held()).toEqual({ subscriptions: 1, timers: 1, watches: 1 });
 
 		await stream.reader.cancel();
 
-		expect(leftovers(before)).toEqual({ subscribers: 0, timers: 0 });
+		expect(held()).toEqual(nothing);
 	});
 
-	it('releases its subscription and timer when the backlog overflows', async () => {
-		vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+	it('releases everything it holds when the backlog overflows', async () => {
 		const project = seedProject(db, 'AM');
-		const before = subscriberCount();
-		const stream = open({ maxBacklogBytes: 2048 });
+		const stream = open({ guard, maxBacklogBytes: 2048 });
 
 		for (let i = 0; i < 10; i++) seedTicket(db, { projectId: project.id });
 		await stream.until(() => false, 100);
 
 		expect(stream.isDone()).toBe(true);
-		expect(leftovers(before)).toEqual({ subscribers: 0, timers: 0 });
+		expect(held()).toEqual(nothing);
 	});
 
-	it('leaves no subscription or timer behind when it ends while opening', async () => {
-		vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+	it('leaves nothing behind when it ends while opening', async () => {
 		const project = seedProject(db, 'AM');
 		for (let i = 0; i < 6; i++) seedTicket(db, { projectId: project.id });
-		const before = subscriberCount();
 
-		const stream = open({ since: 0, maxBacklogBytes: 1 });
+		const stream = open({ guard, since: 0, maxBacklogBytes: 1 });
 		await stream.until(() => false, 100);
 
 		expect(stream.isDone()).toBe(true);
-		expect(leftovers(before)).toEqual({ subscribers: 0, timers: 0 });
+		expect(held()).toEqual(nothing);
+	});
+
+	it('releases everything it holds when its credential is revoked', async () => {
+		let revoke = () => {};
+		const revocable: StreamGuard = {
+			valid: () => true,
+			watch: (revoked) => {
+				revoke = revoked;
+				return guard.watch(revoked);
+			}
+		};
+		const stream = open({ guard: revocable });
+		await stream.until(ready);
+
+		revoke();
+		await stream.until(() => false, 100);
+
+		expect(stream.isDone()).toBe(true);
+		expect(held()).toEqual(nothing);
+	});
+});
+
+describe('a stream bound to a credential', () => {
+	async function signedIn() {
+		const user = findUser(db, seedUser(db, 'ada'))!;
+		const stream = (credential: Credential, heartbeatMs = 60_000) => {
+			const opened = open({ guard: credentialGuard(db, credential), heartbeatMs });
+			return opened.until(ready).then(() => opened);
+		};
+		return { user, stream };
+	}
+
+	it('ends as soon as its API token is revoked', async () => {
+		const { user, stream } = await signedIn();
+		const { id, token } = createApiToken(db, user, user.id, 'cli');
+		const other = createApiToken(db, user, user.id, 'other');
+		const open = await stream(apiTokenCredential(token));
+
+		revokeApiToken(db, user, other.id);
+		await open.until(() => false, 50);
+		expect(open.isDone()).toBe(false);
+
+		revokeApiToken(db, user, id);
+		await open.until(() => false, 100);
+		expect(open.isDone()).toBe(true);
+	});
+
+	it('ends as soon as its session is deleted', async () => {
+		const { user, stream } = await signedIn();
+		const { token } = createSession(db, user.id);
+		const open = await stream(sessionCredential(token));
+
+		deleteSession(db, token);
+		await open.until(() => false, 100);
+
+		expect(open.isDone()).toBe(true);
+	});
+
+	it('ends on the next heartbeat once its session has expired', async () => {
+		const { user, stream } = await signedIn();
+		const { token } = createSession(db, user.id);
+		const open = await stream(sessionCredential(token), 10);
+		await open.until((f) => f.some((x) => x.comment === 'ping'));
+		expect(open.isDone()).toBe(false);
+
+		db.update(sessions)
+			.set({ expiresAt: new Date(Date.now() - 1) })
+			.run();
+		await open.until(() => false, 100);
+
+		expect(open.isDone()).toBe(true);
+	});
+
+	it('ends on the next heartbeat once its API token is no longer valid', async () => {
+		const { user, stream } = await signedIn();
+		const { token } = createApiToken(db, user, user.id, 'cli');
+		const open = await stream(apiTokenCredential(token), 10);
+
+		db.update(apiTokens).set({ revokedAt: new Date() }).run();
+		await open.until(() => false, 100);
+
+		expect(open.isDone()).toBe(true);
 	});
 });
 
