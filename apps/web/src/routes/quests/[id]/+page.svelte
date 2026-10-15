@@ -33,6 +33,22 @@
 	const people = $derived(directory(data.people));
 	const errors = new SvelteMap<string, string>();
 
+	// Completion is celebrated only when a member's closing completes the Quest; removing the last
+	// open member or adding a Closed one completes it quietly.
+	let celebrations = $state(0);
+	let celebrated = 0;
+	let wasClosed: Map<number, boolean> | null = null;
+	$effect(() => {
+		const tickets = view?.quest.tickets;
+		if (!tickets) return;
+		const now = new Map(tickets.map((t) => [t.id, t.closed]));
+		const before = wasClosed;
+		wasClosed = now;
+		if (!before || tickets.length === 0 || !tickets.every((t) => t.closed)) return;
+		if ([...before.values()].every(Boolean) && before.size > 0) return;
+		if (tickets.some((t) => before.get(t.id) === false)) celebrations = ++celebrated;
+	});
+
 	$effect(() => {
 		if (live.ended) {
 			notices.show('This Quest was deleted.');
@@ -299,7 +315,12 @@
 				{#if errors.get(scope)}<p role="alert" class="error">{errors.get(scope)}</p>{/if}
 			{/each}
 			<div class="pt-2">
-				<XpBar closed={quest.progress.closed} total={quest.progress.total} size="lg" />
+				<XpBar
+					closed={quest.progress.closed}
+					total={quest.progress.total}
+					size="lg"
+					celebrate={celebrations}
+				/>
 			</div>
 		</header>
 

@@ -1,4 +1,4 @@
-import { drag, expect, live, test } from './fixtures/ui.ts';
+import { drag, expect, live, recordText, test } from './fixtures/ui.ts';
 
 const members = (page: import('@playwright/test').Page) =>
 	page
@@ -100,5 +100,36 @@ test.describe('quests', () => {
 		await page.getByRole('button', { name: 'Delete Quest' }).click();
 		await page.getByRole('button', { name: 'Delete Renamed' }).click();
 		await expect(page).toHaveURL(/\/quests$/);
+	});
+
+	test('celebrates only a member becoming Closed, not a removal or a Closed addition', async ({
+		page,
+		ui
+	}) => {
+		const p = ui.project();
+		const done = ui.ticket(p.id, { title: 'Done', stateId: p.closed });
+		const open = ui.ticket(p.id, { title: 'Open' });
+		const quest = ui.quest('Almost');
+		ui.addToQuest(quest.id, done.id);
+		ui.addToQuest(quest.id, open.id);
+		await page.goto(`/quests/${quest.id}`);
+		await live(page);
+
+		const moments = await recordText(page, '[data-testid="quest-complete"]');
+		await page.getByRole('button', { name: `Remove ${open.key} from the Quest` }).click();
+		await expect(page.getByTestId('quest-complete-badge')).toBeVisible();
+		await page.waitForTimeout(400);
+		expect(await moments()).toEqual(['(none)']);
+
+		const empty = ui.quest('Empty');
+		await page.goto(`/quests/${empty.id}`);
+		await live(page);
+		const quiet = await recordText(page, '[data-testid="quest-complete"]');
+		await page.getByLabel('Find a Ticket').fill(done.key);
+		await page.getByRole('option', { name: new RegExp(done.key) }).click();
+		await page.getByRole('button', { name: 'Add to Quest' }).click();
+		await expect(page.getByTestId('quest-complete-badge')).toBeVisible();
+		await page.waitForTimeout(400);
+		expect(await quiet()).toEqual(['(none)']);
 	});
 });

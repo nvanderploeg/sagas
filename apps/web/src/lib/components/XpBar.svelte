@@ -5,25 +5,27 @@
 		closed,
 		total,
 		size = 'sm',
-		label = 'Quest progress'
-	}: { closed: number; total: number; size?: 'sm' | 'lg'; label?: string } = $props();
+		label = 'Quest progress',
+		celebrate = 0
+	}: {
+		closed: number;
+		total: number;
+		size?: 'sm' | 'lg';
+		label?: string;
+		// Each new value plays the "Quest complete" moment once.
+		celebrate?: number;
+	} = $props();
 
 	const pct = $derived(total === 0 ? 0 : Math.round((closed / total) * 100));
 	const complete = $derived(total > 0 && closed === total);
 	const segments = $derived(total > 1 && total <= 24 ? total : 0);
 
 	let moment = $state(0);
-	let was: boolean | null = null;
 	$effect(() => {
-		const now = complete;
-		if (was === false && now && size === 'lg') {
-			moment += 1;
-			const shown = moment;
-			setTimeout(() => {
-				if (moment === shown) moment = 0;
-			}, 3600);
-		}
-		was = now;
+		if (celebrate === 0) return;
+		moment = celebrate;
+		const timer = setTimeout(() => (moment = 0), 3600);
+		return () => clearTimeout(timer);
 	});
 </script>
 
