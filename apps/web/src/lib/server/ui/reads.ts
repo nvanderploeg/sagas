@@ -1,6 +1,6 @@
 import { and, asc, count, eq, inArray, or, sql } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
-import { projectKeys, projects, states, tickets } from '../db/schema.ts';
+import { projectKeys, projects, quests, states, tickets } from '../db/schema.ts';
 import { getProject } from '../domain/lookup.ts';
 import { listProjects, readProject, type Project, type ProjectView } from '../domain/projects.ts';
 import { listQuests, listTicketQuests, readQuest, type QuestView } from '../domain/quests.ts';
@@ -44,11 +44,13 @@ export function readHome(db: Handle, userId: number) {
 		.orderBy(asc(tickets.id))
 		.all()
 		.map(toTicketView);
-	return {
-		projects: readAllProjects(db),
-		mine,
-		quests: listQuests(db).filter((q) => q.ownerId === userId)
-	};
+	const owned = db
+		.select({ id: quests.id })
+		.from(quests)
+		.where(eq(quests.ownerId, userId))
+		.orderBy(asc(quests.id))
+		.all();
+	return { projects: readAllProjects(db), mine, quests: owned.map((q) => readQuest(db, q.id)) };
 }
 
 export function readTicketPage(db: Handle, ticketId: number) {
@@ -58,7 +60,11 @@ export function readTicketPage(db: Handle, ticketId: number) {
 		parent: ticket.parentId === null ? null : readTicket(db, ticket.parentId),
 		children: listChildren(db, ticketId),
 		projects: readAllProjects(db),
-		quests: listQuests(db).map((q) => ({ id: q.id, name: q.name })),
+		quests: db
+			.select({ id: quests.id, name: quests.name })
+			.from(quests)
+			.orderBy(asc(quests.id))
+			.all(),
 		memberOf: listTicketQuests(db, ticketId).map((q) => q.id)
 	};
 }
