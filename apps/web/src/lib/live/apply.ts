@@ -121,10 +121,8 @@ export function applyToBoard(
 		const ticket = changedTicket(event);
 		if (ticket) {
 			const rest = without(board.tickets, [ticket.id]);
-			return {
-				...board,
-				tickets: ticket.projectId === projectId ? [...rest, ticket] : rest
-			};
+			if (ticket.projectId === projectId) return { ...board, tickets: [...rest, ticket] };
+			return rest === board.tickets ? board : { ...board, tickets: rest };
 		}
 		const patched = patchTickets(board.tickets, event);
 		return patched && patched !== board.tickets ? { ...board, tickets: patched } : board;

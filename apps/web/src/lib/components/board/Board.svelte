@@ -62,9 +62,20 @@
 	type Item = { key: number | 'slot'; ticket: Ticket | null };
 	type Column = { state: State; items: Item[]; shown: Ticket[]; total: number };
 
+	const sameList = <T,>(a: T[], b: T[], same: (x: T, y: T) => boolean) =>
+		a.length === b.length && a.every((x, i) => same(x, b[i]));
+	const sameColumn = (a: Column, b: Column) =>
+		a.state === b.state &&
+		a.total === b.total &&
+		sameList(a.shown, b.shown, (x, y) => x === y) &&
+		sameList(a.items, b.items, (x, y) => x.key === y.key && x.ticket === y.ticket);
+
+	// A column that holds the same cards keeps its object, so its list neither re-renders nor
+	// measures its cards for the move animation.
+	let settled: Column[] = [];
 	const columns = $derived.by((): Column[] => {
 		if (!board) return [];
-		return board.project.states.map((state) => {
+		const next = board.project.states.map((state) => {
 			const all = columnOf(board, state.id);
 			const shown = all.filter((t) => matches(t, filter) && t.id !== drag?.id);
 			const items: Item[] = shown.map((t) => ({ key: t.id, ticket: t }));
@@ -79,8 +90,13 @@
 						: { key: drag.id, ticket: dragged }
 				);
 			}
-			return { state, items, shown, total: all.length };
+			const column: Column = { state, items, shown, total: all.length };
+			const before = settled.find((c) => c.state.id === state.id);
+			return before && sameColumn(before, column) ? before : column;
 		});
+		if (sameList(next, settled, (a, b) => a === b)) return settled;
+		settled = next;
+		return next;
 	});
 
 	const lifted = $derived(

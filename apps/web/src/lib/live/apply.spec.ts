@@ -194,6 +194,7 @@ describe('the client views, fed by the Stream', () => {
 			['move a State', () => moveState(db, actor, listStates(db, am.id)[1].id, 0)],
 			['restyle a State', () => updateState(db, actor, am.initialStateId!, { label: 'Next' })],
 			['rank a member', () => rankTicket(db, actor, e, 'top')],
+			['rank through an update', () => updateTicket(db, actor, a, { placement: 'top' })],
 			['a new Child', () => ticket(bl.id, d)],
 			['rename a Project key', () => renameProjectKey(db, actor, am.id, 'AX')],
 			['move a Parent across Projects', () => moveTicket(db, actor, a, { projectId: bl.id })],
@@ -222,5 +223,34 @@ describe('the client views, fed by the Stream', () => {
 				}
 			}
 		}
+	});
+});
+
+describe('applyToBoard', () => {
+	it('hands back the same board for every Event about another Project', () => {
+		const am = createProject(db, actor, { name: 'AM', key: 'AM', initialState: TODO });
+		const bl = createProject(db, actor, { name: 'BL', key: 'BL', initialState: TODO });
+		createTicket(db, actor, { projectId: am.id, title: 'here', ownerId: actor.id });
+		const loaded = loadOrNull((tx) => readBoard(tx, am.id))!;
+		const style = { key: 'doing', label: 'Doing', color: '#000000', icon: 'dot' };
+
+		const there = createTicket(db, actor, { projectId: bl.id, title: 'there', ownerId: actor.id });
+		const sibling = createTicket(db, actor, { projectId: bl.id, title: 'x', ownerId: actor.id });
+		updateTicket(db, actor, there.id, { title: 'renamed' });
+		updateTicket(db, actor, there.id, { placement: 'top' });
+		rankTicket(db, actor, sibling.id, 'top');
+		setParent(db, actor, sibling.id, there.id);
+		createState(db, actor, bl.id, style);
+		const quest = createQuest(db, actor, { name: 'Q', ownerId: actor.id });
+		addQuestTicket(db, actor, quest.id, there.id);
+		renameProjectKey(db, actor, bl.id, 'BX');
+		deleteTicket(db, actor, sibling.id);
+		deleteProject(db, actor, bl.id);
+
+		const events = toJson(eventsSince(db, loaded.seq)) as LiveEvent[];
+		expect(new Set(events.map((e) => e.type)).size).toBeGreaterThan(8);
+		const board = loaded.value as unknown as BoardView;
+		const apply = applyToBoard(am.id);
+		for (const event of events) expect(apply(board, event), event.type).toBe(board);
 	});
 });
