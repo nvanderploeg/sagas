@@ -34,6 +34,21 @@ describe('pruneEvents', () => {
 		expect(eventsSince(db, 0).map((e) => e.seq)).toEqual([second.seq]);
 	});
 
+	it('keeps a contiguous seq range when timestamps run out of seq order', () => {
+		const project = seedProject(db, 'AM');
+		seedTicket(db, { projectId: project.id });
+		seedTicket(db, { projectId: project.id });
+		const [first, second, third] = eventsSince(db, 0);
+		age(first.seq, 6 * DAY);
+		age(second.seq, 8 * DAY);
+		age(third.seq, 6 * DAY);
+
+		pruneEvents(db, 7 * DAY);
+
+		expect(eventsSince(db, 0).map((e) => e.seq)).toEqual([third.seq]);
+		expect(canReplayFrom(eventWindow(db), first.seq)).toBe(false);
+	});
+
 	it('never reuses a seq after pruning empties the log', () => {
 		const project = seedProject(db, 'AM');
 		seedTicket(db, { projectId: project.id });

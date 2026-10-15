@@ -1,10 +1,16 @@
-import { asc, gt, lt, min, sql } from 'drizzle-orm';
+import { asc, gt, lt, lte, max, min, sql } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
 import { events } from '../db/schema.ts';
 import type { WorkloadEvent } from './types.ts';
 
-export function eventsSince(db: Handle, seq: number): WorkloadEvent[] {
-	return db.select().from(events).where(gt(events.seq, seq)).orderBy(asc(events.seq)).all();
+export function eventsSince(db: Handle, seq: number, limit = -1): WorkloadEvent[] {
+	return db
+		.select()
+		.from(events)
+		.where(gt(events.seq, seq))
+		.orderBy(asc(events.seq))
+		.limit(limit)
+		.all();
 }
 
 // `oldest` is the first seq still replayable; `last` the newest seq ever assigned, pruned or not.
@@ -24,11 +30,15 @@ export function canReplayFrom(window: { oldest: number; last: number }, since: n
 	return since + 1 >= window.oldest && since <= window.last;
 }
 
+// Cut by seq, never by timestamp alone: the retained Events must stay one contiguous seq range.
 export function pruneEvents(db: Handle, retentionMs: number, now = Date.now()): number {
-	return db
-		.delete(events)
+	const cutoff = db
+		.select({ seq: max(events.seq) })
+		.from(events)
 		.where(lt(events.createdAt, new Date(now - retentionMs)))
-		.run().changes;
+		.get()?.seq;
+	if (cutoff == null) return 0;
+	return db.delete(events).where(lte(events.seq, cutoff)).run().changes;
 }
 
 export function schedulePruning(
