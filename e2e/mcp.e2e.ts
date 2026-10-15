@@ -1,5 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { origin } from './support/env.ts';
 import { cookieHeader, uniqueName } from './support/http.ts';
+import { openStream, type Frame } from './support/stream.ts';
 import {
 	connectMcp,
 	expect,
@@ -55,6 +57,29 @@ const TOOLS = [
 
 const keysOf = (tickets: { key: string }[]) => tickets.map((t) => t.key);
 
+// The Events recorded after `since`, as the Stream replays them.
+async function eventsAfter(token: string, since: number) {
+	const stream = await openStream({ authorization: `Bearer ${token}` }, `?since=${since}`);
+	try {
+		const frames = await stream.until((f) => f.some((frame) => frame.event === 'ready'));
+		return frames
+			.filter((f: Frame) => f.event !== undefined && f.event !== 'ready')
+			.map((f) => JSON.parse(f.data!) as { type: string; actor: { id: number } });
+	} finally {
+		await stream.close();
+	}
+}
+
+const rpcHeaders = (token: string, extra: Record<string, string> = {}) => ({
+	authorization: `Bearer ${token}`,
+	accept: 'application/json, text/event-stream',
+	'content-type': 'application/json',
+	'mcp-protocol-version': '2025-06-18',
+	...extra
+});
+
+const ping = (id: number) => ({ jsonrpc: '2.0', id, method: 'ping' });
+
 async function newProject(mcp: Mcp, name = 'MCP'): Promise<string> {
 	const key = uniqueProjectKey();
 	await mcp.ok('create_project', { name, key: key.toLowerCase() });
@@ -84,7 +109,12 @@ test.describe('MCP at /mcp', () => {
 		expect(mcp.client.getServerVersion()?.name).toBe('workload');
 	});
 
-	test('acts as the token User', async ({ mcp, admin }) => {
+	test('acts as the token User, who is the actor of the Events its writes record', async ({
+		mcp,
+		admin,
+		apiToken,
+		seed
+	}) => {
 		const { user } = await mcp.ok('whoami');
 		expect(user).toEqual({
 			id: admin.id,
@@ -93,6 +123,23 @@ test.describe('MCP at /mcp', () => {
 			kind: 'human',
 			isAdmin: true
 		});
+
+		const username = uniqueName('agent');
+		await mcp.ok('create_agent_user', { username, displayName: 'Bot' });
+		const { token } = await mcp.ok('create_api_token', { user: username, name: 'e2e' });
+		const agent = await connectMcp(token);
+		try {
+			const { user: bot } = await agent.ok('whoami');
+			const before = seed.lastSeq();
+			await agent.ok('create_project', { name: 'By the bot', key: uniqueProjectKey() });
+
+			const events = await eventsAfter(apiToken.token, before);
+			expect(events.map((e) => [e.type, e.actor])).toEqual([
+				['project.created', { id: bot.id, kind: 'agent', username, displayName: 'Bot' }]
+			]);
+		} finally {
+			await agent.close();
+		}
 	});
 
 	test('runs a Ticket through its lifecycle', async ({ mcp, admin }) => {
@@ -141,7 +188,8 @@ test.describe('MCP at /mcp', () => {
 		});
 		expect(child.isError).toBe(false);
 		expect(child.data.ticket).toMatchObject({ key: `${key}-2`, parent: `${key}-1` });
-		expect(child.text).toContain(`${key}-2 [To do] Write the docs`);
+		expect(child.text.split('\n')[0]).toBe(`${key}-2 [todo: To do] Write the docs`);
+		expect(JSON.parse(child.text.split('\n').slice(1).join('\n'))).toEqual(child.data);
 
 		const { ticket: parent } = await mcp.ok('get_ticket', { ticket: first.id });
 		expect(keysOf(parent.children)).toEqual([`${key}-2`]);
@@ -205,9 +253,9 @@ test.describe('MCP at /mcp', () => {
 			aliases: [`${from}-1`]
 		});
 
-		const resolved = await mcp.ok('resolve', { key: `${from.toLowerCase()}-1` });
+		const resolved = await mcp.ok('resolve', { ticket: `${from.toLowerCase()}-1` });
 		expect(resolved).toMatchObject({ alias: true, ticket: { id: moved.id, key: `${to}-1` } });
-		const current = await mcp.ok('resolve', { key: `${to}-1` });
+		const current = await mcp.ok('resolve', { ticket: `${to}-1` });
 		expect(current.alias).toBe(false);
 
 		const renamed = uniqueProjectKey();
@@ -256,8 +304,9 @@ test.describe('MCP at /mcp', () => {
 			{ id: quest.id, name: 'Launch', progress: { closed: 1, total: 2 } }
 		]);
 
-		const twice = await mcp.call('add_quest_tickets', { quest: quest.id, tickets: [`${key}-1`] });
-		expect(twice.isError).toBe(true);
+		const twice = await mcp.ok('add_quest_tickets', { quest: quest.id, tickets: [`${key}-1`] });
+		expect(twice).toMatchObject({ added: [], skipped: [`${key}-1`] });
+		expect(keysOf(twice.quest.tickets)).toEqual([`${key}-3`, `${key}-1`]);
 
 		const removed = await mcp.ok('remove_quest_tickets', {
 			quest: quest.id,
@@ -328,5 +377,138 @@ test.describe('MCP at /mcp', () => {
 			id: 1,
 			result: { serverInfo: { name: 'workload' } }
 		});
+	});
+
+	test('adds 100 Tickets to a Quest with exactly one Event', async ({ mcp, apiToken, seed }) => {
+		const key = await newProject(mcp);
+		const tickets: string[] = [];
+		for (let i = 1; i <= 100; i++) {
+			await mcp.ok('create_ticket', { project: key, title: `Bulk ${i}` });
+			tickets.push(`${key}-${i}`);
+		}
+		const { quest } = await mcp.ok('create_quest', { name: 'Bulk' });
+
+		const before = seed.lastSeq();
+		const added = await mcp.ok('add_quest_tickets', { quest: quest.id, tickets });
+
+		expect(added.quest.progress).toEqual({ closed: 0, total: 100 });
+		const events = await eventsAfter(apiToken.token, before);
+		expect(events.map((e) => e.type)).toEqual(['quest.tickets_added']);
+
+		const tooMany = await mcp.call('add_quest_tickets', {
+			quest: quest.id,
+			tickets: [...tickets, `${key}-101`]
+		});
+		expect(tooMany.data).toMatchObject({ error: { code: 'invalid' } });
+	});
+
+	test('rejects an unknown argument and an unknown tool in the error contract', async ({ mcp }) => {
+		const unknownArg = await mcp.call('list_projects', { verbose: true });
+		expect(unknownArg).toMatchObject({
+			isError: true,
+			data: {
+				error: {
+					code: 'invalid',
+					message:
+						'Invalid arguments for list_projects: unknown argument "verbose"; list_projects takes no arguments'
+				}
+			}
+		});
+
+		const unknownTool = await mcp.call('make_coffee');
+		expect(unknownTool.data).toEqual({
+			error: { code: 'not_found', message: 'No tool is named "make_coffee"' }
+		});
+	});
+
+	test('refuses a JSON-RPC batch', async ({ request, apiToken }) => {
+		const response = await request.post('/mcp', {
+			data: [ping(1), ping(2)],
+			headers: rpcHeaders(apiToken.token)
+		});
+
+		expect(response.status()).toBe(400);
+		expect(await response.json()).toMatchObject({
+			jsonrpc: '2.0',
+			id: null,
+			error: { code: -32600, message: expect.stringContaining('batches are not supported') }
+		});
+	});
+
+	test('answers a body over BODY_SIZE_LIMIT with 413, sized or chunked', async ({ apiToken }) => {
+		const big = JSON.stringify({ ...ping(1), params: { pad: 'x'.repeat(600 * 1024) } });
+		const chunks = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(new TextEncoder().encode(big));
+				controller.close();
+			}
+		});
+		const sized = await fetch(`${origin}/mcp`, {
+			method: 'POST',
+			headers: rpcHeaders(apiToken.token),
+			body: big
+		});
+		const chunked = await fetch(`${origin}/mcp`, {
+			method: 'POST',
+			headers: rpcHeaders(apiToken.token),
+			body: chunks,
+			duplex: 'half'
+		} as RequestInit);
+
+		for (const response of [sized, chunked]) {
+			expect(response.status).toBe(413);
+			expect(await response.json()).toEqual({
+				jsonrpc: '2.0',
+				id: null,
+				error: { code: -32600, message: 'Request body too large: it exceeds BODY_SIZE_LIMIT' }
+			});
+		}
+	});
+
+	test('refuses a foreign Origin and accepts its own', async ({ request, apiToken }) => {
+		const foreign = await request.post('/mcp', {
+			data: ping(1),
+			headers: rpcHeaders(apiToken.token, { origin: 'http://evil.example' })
+		});
+		expect(foreign.status()).toBe(403);
+
+		const own = await request.post('/mcp', {
+			data: ping(1),
+			headers: rpcHeaders(apiToken.token, { origin })
+		});
+		expect(own.status()).toBe(200);
+		expect(await own.json()).toEqual({ jsonrpc: '2.0', id: 1, result: {} });
+	});
+
+	test('answers GET with 405', async ({ request, apiToken }) => {
+		const response = await request.get('/mcp', {
+			headers: { authorization: `Bearer ${apiToken.token}`, accept: 'text/event-stream' }
+		});
+
+		expect(response.status()).toBe(405);
+		expect(response.headers()['allow']).toBe('POST');
+	});
+
+	test('answers DELETE with 405, or 403 from the CSRF check without a matching Origin', async ({
+		request,
+		apiToken
+	}) => {
+		const authorization = `Bearer ${apiToken.token}`;
+
+		const bare = await request.delete('/mcp', { headers: { authorization } });
+		expect(bare.status()).toBe(403);
+
+		const foreign = await request.delete('/mcp', {
+			headers: { authorization, origin: 'http://evil.example' }
+		});
+		expect(foreign.status()).toBe(403);
+
+		const own = await request.delete('/mcp', { headers: { authorization, origin } });
+		expect(own.status()).toBe(405);
+		expect(own.headers()['allow']).toBe('POST');
+	});
+
+	test('does not advertise tools.listChanged', async ({ mcp }) => {
+		expect(mcp.client.getServerCapabilities()?.tools).toEqual({});
 	});
 });

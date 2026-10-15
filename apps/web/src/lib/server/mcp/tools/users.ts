@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { createInvite, listInvites } from '../../auth/invites.ts';
 import { createApiToken, listApiTokens, revokeApiToken } from '../../auth/tokens.ts';
 import { createAgentUser, findUser, listUsers } from '../../auth/users.ts';
-import { userSummary } from '../present.ts';
+import { count, userSummary } from '../present.ts';
 import * as refs from '../refs.ts';
 import { reply } from '../result.ts';
 import { userRef, type Tools } from '../tool.ts';
@@ -36,7 +36,10 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 		},
 		() => {
 			const users = listUsers(db).map(userSummary);
-			return reply({ users }, users.map(userLine).join('\n'));
+			return reply(
+				{ users },
+				`${count(users.length, 'User')}: ${users.map((u) => u.username).join(', ')}`
+			);
 		}
 	);
 
@@ -45,13 +48,16 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'write',
 			description:
-				"Admin only. Create a single-use Invite. Returns the path of its accept page, where a person sets a username and password; prefix it with this server's origin to share it. The link is shown only now.",
+				'Admin only. Create a single-use Invite. Returns `path`, its accept page, where a person sets a username and password. Join `path` to the origin you connect to (the scheme, host and port of this MCP URL) to get the link to share. The link is shown only now.',
 			input: {}
 		},
 		() => {
 			const invite = createInvite(db, actor);
 			const path = `/invite/${invite.token}`;
-			return reply({ id: invite.id, path }, `Invite ${invite.id}: ${path}`);
+			return reply(
+				{ id: invite.id, path },
+				`Invite ${invite.id} created; its path is shown only now`
+			);
 		}
 	);
 
@@ -72,10 +78,8 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 				usedBy: name(invite.usedByUserId),
 				usedAt: iso(invite.usedAt)
 			}));
-			const text = invites
-				.map((i) => `#${i.id} by ${i.createdBy}: ${i.usedBy ? `used by ${i.usedBy}` : 'open'}`)
-				.join('\n');
-			return reply({ invites }, text || 'No Invites.');
+			const open = invites.filter((i) => i.usedBy === null).length;
+			return reply({ invites }, `${count(invites.length, 'Invite')}, ${open} unused`);
 		}
 	);
 
@@ -104,10 +108,10 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 			kind: 'read',
 			description:
 				"List a User's API tokens, without their secrets. You can manage your own tokens; an Admin can also manage an Agent user's.",
-			input: { user: userRef.optional().describe('Defaults to you') }
+			input: { user: userRef.optional().describe('Username, "me" or id; defaults to you') }
 		},
 		(args) => {
-			const userId = args.user === undefined ? actor.id : refs.userId(db, args.user);
+			const userId = args.user === undefined ? actor.id : refs.userId(db, args.user, actor);
 			const tokens = listApiTokens(db, actor, userId).map((t) => ({
 				id: t.id,
 				name: t.name,
@@ -115,10 +119,8 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 				lastUsedAt: iso(t.lastUsedAt),
 				revokedAt: iso(t.revokedAt)
 			}));
-			const text = tokens
-				.map((t) => `#${t.id} ${t.name}${t.revokedAt ? ' (revoked)' : ''}`)
-				.join('\n');
-			return reply({ tokens }, text || 'No API tokens.');
+			const live = tokens.filter((t) => t.revokedAt === null).length;
+			return reply({ tokens }, `${count(tokens.length, 'API token')}, ${live} not revoked`);
 		}
 	);
 
@@ -129,14 +131,14 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 			description:
 				"Create an API token that acts as a User. The secret is returned only now; the server keeps only its hash. You can create your own tokens; an Admin can also create an Agent user's.",
 			input: {
-				user: userRef.optional().describe('Defaults to you'),
+				user: userRef.optional().describe('Username, "me" or id; defaults to you'),
 				name: z.string().describe('What the token is for, 1 to 100 characters')
 			}
 		},
 		(args) => {
-			const userId = args.user === undefined ? actor.id : refs.userId(db, args.user);
+			const userId = args.user === undefined ? actor.id : refs.userId(db, args.user, actor);
 			const { id, token } = createApiToken(db, actor, userId, args.name);
-			return reply({ id, token }, `API token #${id}: ${token}`);
+			return reply({ id, token }, `API token ${id} created; its secret is shown only now`);
 		}
 	);
 
@@ -145,12 +147,18 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'destroy',
 			description:
-				'Revoke an API token by id. Requests with it fail at once and its open event streams close. Revoking the token you are using ends this connection.',
-			input: { token: z.number().int().positive().describe('API token id') }
+				'Revoke an API token by id. Its open event streams close at once, and every later request with it gets 401. Revoking the token this call uses lets the call finish; the next request is the first one refused.',
+			input: {
+				token: z
+					.number({ error: 'expected an API token id as a JSON number' })
+					.int()
+					.positive()
+					.describe('API token id')
+			}
 		},
 		(args) => {
 			revokeApiToken(db, actor, args.token);
-			return reply({ revoked: args.token }, `Revoked API token #${args.token}`);
+			return reply({ revoked: args.token }, `Revoked API token ${args.token}`);
 		}
 	);
 }

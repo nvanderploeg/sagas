@@ -1,15 +1,17 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { DomainError } from '../domain/errors.ts';
 
-export type Reply = { data: Record<string, unknown>; text: string };
+// `summary` is one line for a human; the text content repeats `data` after it, so a client that
+// reads only text still gets every key the next call needs.
+export type Reply = { data: Record<string, unknown>; summary: string };
 
-export function reply(data: Record<string, unknown>, text: string): Reply {
-	return { data, text };
+export function reply(data: Record<string, unknown>, summary: string): Reply {
+	return { data, summary };
 }
 
 export function toResult(value: Reply): CallToolResult {
 	return {
-		content: [{ type: 'text', text: value.text }],
+		content: [{ type: 'text', text: `${value.summary}\n${JSON.stringify(value.data)}` }],
 		structuredContent: value.data
 	};
 }

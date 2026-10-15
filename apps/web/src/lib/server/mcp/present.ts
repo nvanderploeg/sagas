@@ -188,41 +188,24 @@ export function userSummary(user: AuthUser) {
 	};
 }
 
+const labelled = (x: Label) => `${x.key}: ${x.label}`;
+
 export function ticketLine(t: TicketSummary): string {
-	const where = t.substate ? `${t.state.label} › ${t.substate.label}` : t.state.label;
-	const people = [`owner ${t.owner}`, t.assignee ? `assignee ${t.assignee}` : 'unassigned'];
-	if (t.parent) people.push(`parent ${t.parent}`);
-	return `${t.key} [${where}] ${t.title} (${people.join(', ')})`;
+	const where = t.substate ? `${labelled(t.state)} › ${labelled(t.substate)}` : labelled(t.state);
+	return `${t.key} [${where}] ${t.title}`;
 }
 
-export function ticketText(t: TicketDetail): string {
-	const lines = [ticketLine(t)];
-	if (t.aliases.length > 0) lines.push(`Aliases: ${t.aliases.join(', ')}`);
-	if (t.quests.length > 0) {
-		lines.push(`Quests: ${t.quests.map((q) => `${q.name} (#${q.id})`).join(', ')}`);
-	}
-	if (t.children.length > 0) {
-		lines.push('Children:', ...t.children.map((c) => `  ${ticketLine(c)}`));
-	}
-	if (t.description.trim() !== '') lines.push('', t.description);
-	return lines.join('\n');
+export function projectLine(p: ProjectSummary): string {
+	const states = p.states.map((s) =>
+		s.key === p.initialState ? `${labelled(s)} (initial)` : labelled(s)
+	);
+	return `${p.key} ${p.name} [${states.join(', ')}]`;
 }
 
-export function projectText(p: ProjectSummary): string {
-	const states = p.states.map((s) => {
-		const marks = [s.key === p.initialState ? 'initial' : null, s.closed ? 'closed' : null].filter(
-			Boolean
-		);
-		const named = s.substates.map((x) =>
-			x.key === s.defaultSubstate ? `${x.key} (default)` : x.key
-		);
-		const subs = named.length === 0 ? '' : ` › ${named.join(', ')}`;
-		return `  ${s.key} "${s.label}"${marks.length ? ` (${marks.join(', ')})` : ''}${subs}`;
-	});
-	const aliases = p.aliases.length > 0 ? ` (formerly ${p.aliases.join(', ')})` : '';
-	return [`${p.key} ${p.name}${aliases}`, 'States:', ...states].join('\n');
+export function questLine(q: { id: number; name: string; progress: QuestProgress }) {
+	return `Quest ${q.id} ${q.name}: ${q.progress.closed}/${q.progress.total} closed`;
 }
 
-export function questLine(q: { id: number; name: string; owner: string; progress: QuestProgress }) {
-	return `#${q.id} ${q.name} (owner ${q.owner}, ${q.progress.closed}/${q.progress.total} closed)`;
+export function count(n: number, one: string, many = `${one}s`): string {
+	return `${n} ${n === 1 ? one : many}`;
 }

@@ -19,10 +19,18 @@ import {
 	updateState,
 	updateSubstate
 } from '../../domain/states.ts';
-import { projectText, type Presenter } from '../present.ts';
+import { count, projectLine, type Presenter } from '../present.ts';
 import * as refs from '../refs.ts';
 import { reply } from '../result.ts';
-import { keyField, projectRef, stateRef, styleShape, substateRef, type Tools } from '../tool.ts';
+import {
+	indexField,
+	keyField,
+	projectRef,
+	stateRef,
+	styleShape,
+	substateRef,
+	type Tools
+} from '../tool.ts';
 
 const DEFAULT_INITIAL_STATE = { key: 'todo', label: 'To do', color: '#94a3b8', icon: 'circle' };
 
@@ -32,12 +40,9 @@ const styleUpdate = {
 	icon: styleShape.icon.optional()
 };
 
-const position = z.number().int().min(0);
-
-function projectReply(present: Presenter, projectId: number, note?: string) {
+function projectReply(present: Presenter, projectId: number) {
 	const project = present.project(projectId);
-	const text = projectText(project);
-	return reply({ project }, note ? `${note}\n${text}` : text);
+	return reply({ project }, projectLine(project));
 }
 
 export function registerProjectTools({ db, actor, define }: Tools): void {
@@ -66,8 +71,10 @@ export function registerProjectTools({ db, actor, define }: Tools): void {
 				const { id, key, name, aliases } = present.project(p.id);
 				return { id, key, name, aliases };
 			});
-			const text = projects.map((p) => `${p.key} ${p.name}`).join('\n') || 'No Projects.';
-			return reply({ projects }, text);
+			const keys = projects.map((p) => p.key).join(', ');
+			const summary =
+				projects.length === 0 ? 'No Projects' : `${count(projects.length, 'Project')}: ${keys}`;
+			return reply({ projects }, summary);
 		}
 	);
 
@@ -92,7 +99,7 @@ export function registerProjectTools({ db, actor, define }: Tools): void {
 				name: z.string().describe('1 to 120 characters'),
 				key: z.string().describe('Project key, e.g. "AM"'),
 				initialState: z
-					.object({ key: keyField, ...styleShape })
+					.strictObject({ key: keyField, ...styleShape })
 					.optional()
 					.describe('The first State, where new Tickets land; defaults to "todo" (To do)')
 			}
@@ -171,18 +178,18 @@ export function registerProjectTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'write',
 			description:
-				'Add a State (board column) to a Project. It goes among the open States, before Closed: at `position` (0 is first) or last.',
+				'Add a State (board column) to a Project. It goes among the open States, before Closed: at `index` (0 is first) or last.',
 			input: {
 				project: projectRef,
 				key: keyField,
 				...styleShape,
-				position: position.optional().describe('0-based index among the open States')
+				index: indexField.optional().describe('0-based index among the open States')
 			}
 		},
 		(args, present) => {
 			const projectId = refs.projectId(db, args.project);
 			const { key, label, color, icon } = args;
-			createState(db, actor, projectId, { key, label, color, icon }, args.position);
+			createState(db, actor, projectId, { key, label, color, icon }, args.index);
 			return projectReply(present, projectId);
 		}
 	);
@@ -207,16 +214,16 @@ export function registerProjectTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'write',
 			description:
-				'Move a State to another board column position among the open States. Closed always stays last.',
+				'Move a State to another column among the open States. Closed always stays last.',
 			input: {
 				project: projectRef,
 				state: stateRef,
-				position: position.describe('0-based index among the open States')
+				index: indexField.describe('0-based index among the open States')
 			}
 		},
 		(args, present) => {
 			const { projectId, stateId } = inState(args);
-			moveState(db, actor, stateId, args.position);
+			moveState(db, actor, stateId, args.index);
 			return projectReply(present, projectId);
 		}
 	);
@@ -247,13 +254,13 @@ export function registerProjectTools({ db, actor, define }: Tools): void {
 				state: stateRef,
 				key: keyField,
 				...styleShape,
-				position: position.optional().describe('0-based index among the Substates')
+				index: indexField.optional().describe('0-based index among the Substates; last by default')
 			}
 		},
 		(args, present) => {
 			const { projectId, stateId } = inState(args);
 			const { key, label, color, icon } = args;
-			createSubstate(db, actor, stateId, { key, label, color, icon }, args.position);
+			createSubstate(db, actor, stateId, { key, label, color, icon }, args.index);
 			return projectReply(present, projectId);
 		}
 	);
@@ -280,17 +287,17 @@ export function registerProjectTools({ db, actor, define }: Tools): void {
 		'reorder_substate',
 		{
 			kind: 'write',
-			description: 'Move a Substate to another position within its State.',
+			description: 'Move a Substate to another index within its State.',
 			input: {
 				project: projectRef,
 				state: stateRef,
 				substate: substateRef,
-				position: position.describe('0-based index among the Substates')
+				index: indexField.describe('0-based index among the Substates')
 			}
 		},
 		(args, present) => {
 			const { projectId, substateId } = inSubstate(args);
-			moveSubstate(db, actor, substateId, args.position);
+			moveSubstate(db, actor, substateId, args.index);
 			return projectReply(present, projectId);
 		}
 	);

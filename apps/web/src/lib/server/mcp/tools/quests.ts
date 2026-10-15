@@ -1,31 +1,50 @@
 import { z } from 'zod';
 import { DomainError } from '../../domain/errors.ts';
 import {
-	addQuestTicket,
+	addQuestTickets,
 	createQuest,
 	deleteQuest,
 	listQuests,
 	listQuestTickets,
 	rankQuestTicket,
 	readQuest,
-	removeQuestTicket,
-	updateQuest
+	removeQuestTickets,
+	updateQuest,
+	type QuestTicketsChange
 } from '../../domain/quests.ts';
-import type { Placement } from '../../domain/rank.ts';
-import { questLine, ticketLine, type Presenter } from '../present.ts';
+import { count, questLine, type Presenter } from '../present.ts';
 import * as refs from '../refs.ts';
 import { reply } from '../result.ts';
 import { placementShape, questRef, ticketRef, userRef, type Tools } from '../tool.ts';
 
 function questReply(present: Presenter, questId: number) {
 	const quest = present.quest(readQuest(present.db, questId));
-	const lines = [questLine(quest)];
-	if (quest.description.trim() !== '') lines.push(quest.description);
-	lines.push(...quest.tickets.map((t, i) => `${i + 1}. ${ticketLine(t)}`));
-	return reply({ quest }, lines.join('\n'));
+	return reply({ quest }, questLine(quest));
 }
 
-const ticketList = z.array(ticketRef).min(1).max(100);
+function changeReply(
+	present: Presenter,
+	change: QuestTicketsChange,
+	verb: 'added' | 'removed',
+	skippedBecause: string
+) {
+	const quest = present.quest(change.quest);
+	const keys = (ids: number[]) => ids.map((id) => refs.ticketKey(present.db, id));
+	const skipped = keys(change.skipped);
+	const note = skipped.length > 0 ? `, skipped ${skipped.length} ${skippedBecause}` : '';
+	return reply(
+		{ quest, [verb]: keys(change.ticketIds), skipped },
+		`${questLine(quest)}; ${verb} ${count(change.ticketIds.length, 'Ticket')}${note}`
+	);
+}
+
+const BULK_MAX = 100;
+
+const ticketList = z
+	.array(ticketRef)
+	.min(1)
+	.max(BULK_MAX)
+	.describe(`1 to ${BULK_MAX} Tickets; a Ticket listed twice counts once`);
 
 export function registerQuestTools({ db, actor, define }: Tools): void {
 	define(
@@ -38,7 +57,7 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		},
 		(_args, present) => {
 			const quests = listQuests(db).map((q) => present.questSummary(q));
-			return reply({ quests }, quests.map(questLine).join('\n') || 'No Quests.');
+			return reply({ quests }, quests.length === 0 ? 'No Quests' : count(quests.length, 'Quest'));
 		}
 	);
 
@@ -69,7 +88,7 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 			const quest = createQuest(db, actor, {
 				name: args.name,
 				description: args.description,
-				ownerId: args.owner === undefined ? actor.id : refs.userId(db, args.owner)
+				ownerId: args.owner === undefined ? actor.id : refs.userId(db, args.owner, actor)
 			});
 			return questReply(present, quest.id);
 		}
@@ -92,7 +111,7 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 			updateQuest(db, actor, questId, {
 				name: args.name,
 				description: args.description,
-				ownerId: args.owner === undefined ? undefined : refs.userId(db, args.owner)
+				ownerId: args.owner === undefined ? undefined : refs.userId(db, args.owner, actor)
 			});
 			return questReply(present, questId);
 		}
@@ -108,7 +127,10 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		(args) => {
 			const quest = readQuest(db, refs.questId(db, args.quest));
 			deleteQuest(db, actor, quest.id);
-			return reply({ deleted: { id: quest.id, name: quest.name } }, `Deleted Quest ${quest.name}`);
+			return reply(
+				{ deleted: { id: quest.id, name: quest.name } },
+				`Deleted Quest ${quest.id} ${quest.name}`
+			);
 		}
 	);
 
@@ -117,23 +139,15 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'write',
 			description:
-				'Add Tickets to a Quest, in the order given, at the bottom unless a position is given. Membership is explicit: adding a Ticket never adds its Children; add them too if you want them. A Ticket can be in any number of Quests, but only once in each.',
+				'Add Tickets to a Quest in one write, in the order given, at the bottom unless a position is given. Tickets already in the Quest are skipped and listed in `skipped`, so repeating a call is safe. Membership is explicit: adding a Ticket never adds its Children; list them too if you want them. An unknown Ticket fails the whole call.',
 			input: { quest: questRef, tickets: ticketList, ...placementShape }
 		},
 		(args, present) => {
 			const questId = refs.questId(db, args.quest);
 			const ticketIds = args.tickets.map((ref) => refs.ticketId(db, ref));
-			const members = new Set(listQuestTickets(db, questId).map((t) => t.id));
-			const already = ticketIds.filter((id, i) => members.has(id) || ticketIds.indexOf(id) < i);
-			if (already.length > 0) {
-				throw new DomainError('conflict', 'A Ticket is listed twice or already in the Quest');
-			}
-			let placement: Placement = refs.placement(db, args) ?? 'bottom';
-			for (const id of ticketIds) {
-				addQuestTicket(db, actor, questId, id, placement);
-				placement = { after: id };
-			}
-			return questReply(present, questId);
+			const placement = refs.placement(db, args);
+			const change = addQuestTickets(db, actor, questId, ticketIds, placement);
+			return changeReply(present, change, 'added', 'already in it');
 		}
 	);
 
@@ -141,18 +155,15 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		'remove_quest_tickets',
 		{
 			kind: 'write',
-			description: 'Remove Tickets from a Quest. The Tickets themselves are untouched.',
+			description:
+				'Remove Tickets from a Quest in one write. Tickets not in the Quest are skipped and listed in `skipped`, so repeating a call is safe. The Tickets themselves are untouched. An unknown Ticket fails the whole call.',
 			input: { quest: questRef, tickets: ticketList }
 		},
 		(args, present) => {
 			const questId = refs.questId(db, args.quest);
 			const ticketIds = args.tickets.map((ref) => refs.ticketId(db, ref));
-			const members = new Set(listQuestTickets(db, questId).map((t) => t.id));
-			if (ticketIds.some((id) => !members.has(id))) {
-				throw new DomainError('not_found', 'A Ticket is not in the Quest');
-			}
-			for (const id of new Set(ticketIds)) removeQuestTicket(db, actor, questId, id);
-			return questReply(present, questId);
+			const change = removeQuestTickets(db, actor, questId, ticketIds);
+			return changeReply(present, change, 'removed', 'not in it');
 		}
 	);
 
@@ -170,6 +181,12 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 			const placement = refs.placement(db, args);
 			if (placement === undefined) {
 				throw new DomainError('invalid', 'Give one of position, before or after');
+			}
+			if (!listQuestTickets(db, questId).some((t) => t.id === ticketId)) {
+				throw new DomainError(
+					'not_found',
+					`${refs.ticketKey(db, ticketId)} is not in Quest ${questId}`
+				);
 			}
 			rankQuestTicket(db, actor, questId, ticketId, placement);
 			return questReply(present, questId);

@@ -10,7 +10,7 @@ export function writePositions(ids: number[], write: (id: number, position: numb
 export function placeAt(order: number[], id: number, index: number | undefined): number[] {
 	const at = index ?? order.length;
 	if (!Number.isInteger(at) || at < 0 || at > order.length) {
-		throw new DomainError('invalid', `position must be between 0 and ${order.length}`);
+		throw new DomainError('invalid', `index must be between 0 and ${order.length}`);
 	}
 	return [...order.slice(0, at), id, ...order.slice(at)];
 }

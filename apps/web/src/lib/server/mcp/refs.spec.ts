@@ -32,14 +32,30 @@ function failure(action: () => unknown): DomainError {
 const style = (key: string) => ({ key, label: key, color: '#000000', icon: 'dot' });
 
 describe('ticketId', () => {
-	it('resolves a key in any case, and an id as a number or digit string', () => {
+	it('resolves a key in any case, and an id given as a number', () => {
 		const project = seedProject(db, 'AM');
 		const ticket = seedTicket(db, { projectId: project.id });
 
 		expect(refs.ticketId(db, 'AM-1')).toBe(ticket.id);
 		expect(refs.ticketId(db, ' am-1 ')).toBe(ticket.id);
 		expect(refs.ticketId(db, ticket.id)).toBe(ticket.id);
-		expect(refs.ticketId(db, String(ticket.id))).toBe(ticket.id);
+	});
+
+	it('never reads a string as an id', () => {
+		const project = seedProject(db, 'AM');
+		const ticket = seedTicket(db, { projectId: project.id });
+
+		for (const action of [
+			() => refs.ticketId(db, String(ticket.id)),
+			() => refs.projectId(db, String(project.id)),
+			() => refs.userId(db, String(seedUser(db)), { id: 0 }),
+			() => refs.stateId(db, project.id, String(project.initialStateId))
+		]) {
+			expect(failure(action)).toMatchObject({
+				code: 'invalid',
+				message: expect.stringContaining('give an id as a JSON number')
+			});
+		}
 	});
 
 	it('resolves a former key after a move and after a Project key rename', () => {
@@ -57,13 +73,16 @@ describe('ticketId', () => {
 
 		expect(failure(() => refs.ticketId(db, 'not a key'))).toMatchObject({
 			code: 'invalid',
-			message: '"not a key" is neither a Ticket key nor a Ticket id'
+			message: '"not a key" is not a Ticket key, e.g. "AM-12"'
 		});
 		expect(failure(() => refs.ticketId(db, 'am-9'))).toMatchObject({
 			code: 'not_found',
 			message: 'No Ticket has the key AM-9'
 		});
-		expect(failure(() => refs.ticketId(db, 999))).toMatchObject({ code: 'not_found' });
+		expect(failure(() => refs.ticketId(db, 999))).toMatchObject({
+			code: 'not_found',
+			message: 'No Ticket has the id 999'
+		});
 	});
 });
 
@@ -78,21 +97,22 @@ describe('projectId and userId', () => {
 		expect(failure(() => refs.projectId(db, 'ZZ'))).toMatchObject({ code: 'not_found' });
 	});
 
-	it('resolves a User by username in any case, or id', () => {
+	it('resolves a User by username in any case, by id, or as "me"', () => {
 		const id = seedUser(db, 'ada');
+		const me = { id: seedUser(db, 'grace') };
 
-		expect(refs.userId(db, 'Ada')).toBe(id);
-		expect(refs.userId(db, id)).toBe(id);
-		expect(refs.userId(db, `${id}`)).toBe(id);
-		expect(failure(() => refs.userId(db, 'nobody'))).toMatchObject({ code: 'not_found' });
+		expect(refs.userId(db, 'Ada', me)).toBe(id);
+		expect(refs.userId(db, id, me)).toBe(id);
+		expect(refs.userId(db, 'me', me)).toBe(me.id);
+		expect(refs.userId(db, ' ME ', me)).toBe(me.id);
+		expect(failure(() => refs.userId(db, 'nobody', me))).toMatchObject({ code: 'not_found' });
 	});
 
-	it('names a Quest by id only', () => {
+	it('finds a Quest by id', () => {
 		const quest = createQuest(db, seedActor(db), { name: 'Q', ownerId: seedUser(db) });
 
 		expect(refs.questId(db, quest.id)).toBe(quest.id);
-		expect(refs.questId(db, String(quest.id))).toBe(quest.id);
-		expect(failure(() => refs.questId(db, 'Q'))).toMatchObject({ code: 'invalid' });
+		expect(failure(() => refs.questId(db, 999))).toMatchObject({ code: 'not_found' });
 	});
 });
 

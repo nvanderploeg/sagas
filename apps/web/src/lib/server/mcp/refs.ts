@@ -3,72 +3,86 @@ import type { Handle } from '../db/client.ts';
 import { projectKeys, states, substates, users } from '../db/schema.ts';
 import { DomainError } from '../domain/errors.ts';
 import { parseTicketKey } from '../domain/keys.ts';
-import { getProject, getState, getSubstate, getTicket } from '../domain/lookup.ts';
+import { getProject, getState, getSubstate } from '../domain/lookup.ts';
 import { getQuest } from '../domain/quest-view.ts';
 import type { Placement } from '../domain/rank.ts';
 import { listStates, listSubstates } from '../domain/states.ts';
-import { resolveTicketKey } from '../domain/tickets.ts';
+import { readTicket, resolveTicketKey } from '../domain/tickets.ts';
 
+// A number is an id; a string is a key or a username, never an id.
 export type Ref = string | number;
-
-// Keys and usernames start with a letter, so an all-digit reference is always an internal id.
-function asId(ref: Ref): number | null {
-	if (typeof ref === 'number') return Number.isSafeInteger(ref) && ref > 0 ? ref : null;
-	const text = ref.trim();
-	return /^[0-9]+$/.test(text) ? Number(text) : null;
-}
 
 function notFound(message: string): never {
 	throw new DomainError('not_found', message);
 }
 
-export function ticketId(db: Handle, ref: Ref): number {
-	const id = asId(ref);
-	if (id !== null) return getTicket(db, id).id;
-	const text = String(ref).trim();
-	if (parseTicketKey(text) === null) {
-		throw new DomainError('invalid', `"${text}" is neither a Ticket key nor a Ticket id`);
+function text(ref: string, what: string): string {
+	const value = ref.trim();
+	if (/^[0-9]+$/.test(value)) {
+		throw new DomainError(
+			'invalid',
+			`"${value}" is a string, so it must be ${what}; give an id as a JSON number: ${value}`
+		);
 	}
-	return resolveTicketKey(db, text)?.id ?? notFound(`No Ticket has the key ${text.toUpperCase()}`);
+	return value;
+}
+
+function ticketById(db: Handle, id: number) {
+	try {
+		return readTicket(db, id);
+	} catch (error) {
+		if (error instanceof DomainError && error.code === 'not_found') {
+			return notFound(`No Ticket has the id ${id}`);
+		}
+		throw error;
+	}
+}
+
+export function ticketId(db: Handle, ref: Ref): number {
+	if (typeof ref === 'number') return ticketById(db, ref).id;
+	const key = text(ref, 'a Ticket key');
+	if (parseTicketKey(key) === null) {
+		throw new DomainError('invalid', `"${key}" is not a Ticket key, e.g. "AM-12"`);
+	}
+	return resolveTicketKey(db, key)?.id ?? notFound(`No Ticket has the key ${key.toUpperCase()}`);
+}
+
+export function ticketKey(db: Handle, id: number): string {
+	return readTicket(db, id).key;
 }
 
 export function projectId(db: Handle, ref: Ref): number {
-	const id = asId(ref);
-	if (id !== null) return getProject(db, id).id;
-	const key = String(ref).trim().toUpperCase();
+	if (typeof ref === 'number') return getProject(db, ref).id;
+	const key = text(ref, 'a Project key').toUpperCase();
 	const row = db.select().from(projectKeys).where(eq(projectKeys.key, key)).get();
 	return row?.projectId ?? notFound(`No Project has the key ${key}`);
 }
 
-export function userId(db: Handle, ref: Ref): number {
-	const id = asId(ref);
-	const row =
-		id !== null
-			? db.select({ id: users.id }).from(users).where(eq(users.id, id)).get()
-			: db
-					.select({ id: users.id })
-					.from(users)
-					.where(eq(users.username, String(ref).trim().toLowerCase()))
-					.get();
-	return row?.id ?? notFound(`No User ${id ?? `"${String(ref).trim()}"`}`);
+// "me" is the caller, whatever the usernames.
+export function userId(db: Handle, ref: Ref, me: { id: number }): number {
+	if (typeof ref === 'number') {
+		const row = db.select({ id: users.id }).from(users).where(eq(users.id, ref)).get();
+		return row?.id ?? notFound(`No User has the id ${ref}`);
+	}
+	const username = text(ref, 'a username or "me"').toLowerCase();
+	if (username === 'me') return me.id;
+	const row = db.select({ id: users.id }).from(users).where(eq(users.username, username)).get();
+	return row?.id ?? notFound(`No User is named "${username}"`);
 }
 
-export function questId(db: Handle, ref: Ref): number {
-	const id = asId(ref);
-	if (id === null) throw new DomainError('invalid', 'A Quest is named by its id');
+export function questId(db: Handle, id: number): number {
 	return getQuest(db, id).id;
 }
 
 export function stateId(db: Handle, project: number | undefined, ref: Ref): number {
-	const id = asId(ref);
-	if (id !== null) {
-		const state = getState(db, id);
+	if (typeof ref === 'number') {
+		const state = getState(db, ref);
 		if (project !== undefined && state.projectId !== project) {
 			throw new DomainError('invalid', 'The State belongs to another Project');
 		}
 		return state.id;
 	}
-	const key = String(ref).trim().toLowerCase();
+	const key = text(ref, 'a State key').toLowerCase();
 	if (project === undefined) {
 		throw new DomainError('invalid', `Name the Project to look up State "${key}"`);
 	}
@@ -85,15 +99,14 @@ export function stateId(db: Handle, project: number | undefined, ref: Ref): numb
 }
 
 export function substateId(db: Handle, state: number | undefined, ref: Ref): number {
-	const id = asId(ref);
-	if (id !== null) {
-		const substate = getSubstate(db, id);
+	if (typeof ref === 'number') {
+		const substate = getSubstate(db, ref);
 		if (state !== undefined && substate.stateId !== state) {
 			throw new DomainError('invalid', 'The Substate belongs to another State');
 		}
 		return substate.id;
 	}
-	const key = String(ref).trim().toLowerCase();
+	const key = text(ref, 'a Substate key').toLowerCase();
 	if (state === undefined) {
 		throw new DomainError('invalid', `Name the State to look up Substate "${key}"`);
 	}

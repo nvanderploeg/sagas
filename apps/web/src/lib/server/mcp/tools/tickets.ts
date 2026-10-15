@@ -12,7 +12,7 @@ import {
 	setParent,
 	updateTicket
 } from '../../domain/tickets.ts';
-import { ticketLine, ticketText, type Presenter } from '../present.ts';
+import { count, ticketLine, type Presenter } from '../present.ts';
 import * as refs from '../refs.ts';
 import { reply } from '../result.ts';
 import {
@@ -27,9 +27,16 @@ import {
 	type Tools
 } from '../tool.ts';
 
+function pageLine(total: number, offset: number, end: number, next: number | null): string {
+	if (total === 0) return 'No Tickets match';
+	if (offset >= total) return `No Tickets at offset ${offset}; ${count(total, 'Ticket')} match`;
+	const more = next === null ? '' : `; next offset ${next}`;
+	return `Tickets ${offset + 1}-${end} of ${total}${more}`;
+}
+
 function ticketReply(present: Presenter, ticketId: number) {
 	const ticket = present.detail(readTicket(present.db, ticketId));
-	return reply({ ticket }, ticketText(ticket));
+	return reply({ ticket }, ticketLine(ticket));
 }
 
 export function registerTicketTools({ db, actor, define }: Tools): void {
@@ -39,14 +46,14 @@ export function registerTicketTools({ db, actor, define }: Tools): void {
 			kind: 'read',
 			description:
 				'Find the Ticket a Ticket key names. Keys are accepted in any case, and a former key (an Alias left by a move or a Project key rename) resolves forever to the same Ticket. Returns the Ticket with its current key.',
-			input: { key: ticketRef }
+			input: { ticket: ticketRef }
 		},
-		({ key }, present) => {
-			const ticket = present.ticket(readTicket(db, refs.ticketId(db, key)));
-			const given = String(key).trim().toUpperCase();
-			const alias = /^[0-9]+$/.test(given) ? false : given !== ticket.key;
-			const text = alias ? `${given} is an Alias of ${ticket.key}\n` : '';
-			return reply({ ticket, alias }, text + ticketLine(ticket));
+		(args, present) => {
+			const ticket = present.ticket(readTicket(db, refs.ticketId(db, args.ticket)));
+			const given = typeof args.ticket === 'string' ? args.ticket.toUpperCase() : ticket.key;
+			const alias = given !== ticket.key;
+			const note = alias ? `${given} is an Alias of ` : '';
+			return reply({ ticket, alias }, note + ticketLine(ticket));
 		}
 	);
 
@@ -61,9 +68,9 @@ export function registerTicketTools({ db, actor, define }: Tools): void {
 				state: stateRef.optional().describe('State key (needs `project`) or id'),
 				substate: substateRef.optional().describe('Substate key (needs `state`) or id'),
 				owner: userRef.optional(),
-				assignee: userRef.nullable().optional().describe('Username or id; null for unassigned'),
+				assignee: userRef.nullable().optional().describe('As owner; null for unassigned'),
 				closed: z.boolean().optional().describe('true: only Closed Tickets; false: only open'),
-				quest: questRef.optional().describe('Only members of this Quest'),
+				quest: questRef.optional().describe('Only members of this Quest, by Quest id'),
 				parent: ticketRef
 					.nullable()
 					.optional()
@@ -82,11 +89,11 @@ export function registerTicketTools({ db, actor, define }: Tools): void {
 					stateId,
 					substateId:
 						args.substate === undefined ? undefined : refs.substateId(db, stateId, args.substate),
-					ownerId: args.owner === undefined ? undefined : refs.userId(db, args.owner),
+					ownerId: args.owner === undefined ? undefined : refs.userId(db, args.owner, actor),
 					assigneeId:
 						args.assignee == null
 							? (args.assignee as null | undefined)
-							: refs.userId(db, args.assignee),
+							: refs.userId(db, args.assignee, actor),
 					parentId:
 						args.parent == null
 							? (args.parent as null | undefined)
@@ -99,14 +106,9 @@ export function registerTicketTools({ db, actor, define }: Tools): void {
 			const tickets = page.tickets.map((t) => present.ticket(t));
 			const end = args.offset + tickets.length;
 			const nextOffset = end < page.total ? end : null;
-			const footer =
-				page.total === 0
-					? 'No Tickets match.'
-					: `${args.offset + 1}-${end} of ${page.total}` +
-						(nextOffset === null ? '' : `; next offset ${nextOffset}`);
 			return reply(
 				{ tickets, total: page.total, offset: args.offset, nextOffset },
-				[...tickets.map(ticketLine), footer].join('\n')
+				pageLine(page.total, args.offset, end, nextOffset)
 			);
 		}
 	);
@@ -132,8 +134,10 @@ export function registerTicketTools({ db, actor, define }: Tools): void {
 				project: projectRef,
 				title: z.string().describe('1 to 200 characters'),
 				description: z.string().optional().describe('Markdown'),
-				owner: userRef.optional().describe('Accountable User; defaults to you'),
-				assignee: userRef.optional().describe('User who takes the next step'),
+				owner: userRef
+					.optional()
+					.describe('Accountable User: username, "me" or id; defaults to you'),
+				assignee: userRef.optional().describe('User who takes the next step: username, "me" or id'),
 				state: stateRef.optional(),
 				substate: substateRef.optional(),
 				parent: ticketRef.optional().describe('Parent Ticket, in any Project'),
@@ -148,8 +152,8 @@ export function registerTicketTools({ db, actor, define }: Tools): void {
 				projectId,
 				title: args.title,
 				description: args.description,
-				ownerId: args.owner === undefined ? actor.id : refs.userId(db, args.owner),
-				assigneeId: args.assignee === undefined ? null : refs.userId(db, args.assignee),
+				ownerId: args.owner === undefined ? actor.id : refs.userId(db, args.owner, actor),
+				assigneeId: args.assignee === undefined ? null : refs.userId(db, args.assignee, actor),
 				stateId,
 				substateId:
 					args.substate === undefined
@@ -177,7 +181,7 @@ export function registerTicketTools({ db, actor, define }: Tools): void {
 				title: z.string().optional(),
 				description: z.string().optional().describe('Markdown; replaces the whole description'),
 				owner: userRef.optional(),
-				assignee: userRef.nullable().optional().describe('null clears the Assignee'),
+				assignee: userRef.nullable().optional().describe('Username, "me" or id; null clears it'),
 				state: stateRef.optional(),
 				substate: substateRef
 					.nullable()
@@ -194,11 +198,11 @@ export function registerTicketTools({ db, actor, define }: Tools): void {
 			updateTicket(db, actor, ticketId, {
 				title: args.title,
 				description: args.description,
-				ownerId: args.owner === undefined ? undefined : refs.userId(db, args.owner),
+				ownerId: args.owner === undefined ? undefined : refs.userId(db, args.owner, actor),
 				assigneeId:
 					args.assignee == null
 						? (args.assignee as null | undefined)
-						: refs.userId(db, args.assignee),
+						: refs.userId(db, args.assignee, actor),
 				stateId,
 				substateId:
 					args.substate == null
