@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures/ui.ts';
+import { expect, live, test } from './fixtures/ui.ts';
 
 test.describe('theme', () => {
 	test('is one radio group: one tab stop, arrow keys choose', async ({ page }) => {
@@ -28,5 +28,44 @@ test.describe('theme', () => {
 		await expect(group.locator(':focus')).toHaveCount(0);
 		await page.keyboard.press('Shift+Tab');
 		await expect(radio('Dark')).toBeFocused();
+	});
+});
+
+test.describe('session', () => {
+	test('a Stream refused for a lost session sends the user to sign in, then back', async ({
+		other,
+		ui
+	}) => {
+		const p = ui.project();
+		const { page, context, person } = other;
+		await page.goto(`/p/${p.key}?filter=1`);
+		await live(page);
+
+		const tab = await context.newPage();
+		await tab.goto('/account');
+		await tab.getByRole('button', { name: 'Sign out' }).click();
+		await expect(tab).toHaveURL(/\/login$/);
+		await tab.close();
+
+		const back = encodeURIComponent(`/p/${p.key}?filter=1`);
+		await expect(page).toHaveURL(new RegExp(`/login\\?next=${back}$`), { timeout: 10_000 });
+		await page.getByLabel('Username').fill(person.username);
+		await page.getByLabel('Password').fill(person.password);
+		await page.getByRole('button', { name: 'Sign in' }).click();
+		await expect(page).toHaveURL(new RegExp(`/p/${p.key}\\?filter=1$`));
+		await live(page);
+	});
+
+	test('signing in never follows a return path off the site', async ({ other }) => {
+		const { page, context, person } = other;
+		await context.clearCookies();
+		for (const next of ['//evil.example/x', 'https://evil.example/', '/\\evil.example']) {
+			await page.goto(`/login?next=${encodeURIComponent(next)}`);
+			await page.getByLabel('Username').fill(person.username);
+			await page.getByLabel('Password').fill(person.password);
+			await page.getByRole('button', { name: 'Sign in' }).click();
+			await expect(page).toHaveURL(/^http:\/\/localhost:\d+\/$/);
+			await context.clearCookies();
+		}
 	});
 });
