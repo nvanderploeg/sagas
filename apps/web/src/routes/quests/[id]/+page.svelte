@@ -61,6 +61,25 @@
 	let nameDraft = $state('');
 	let editingBody = $state(false);
 	let bodyDraft = $state('');
+	let renameButton = $state<HTMLButtonElement | null>(null);
+	let editBodyButton = $state<HTMLButtonElement | null>(null);
+	let bodyField = $state<HTMLTextAreaElement | null>(null);
+
+	// The control pressed goes away with the editor; focus moves to the one that takes its place.
+	async function focusSoon(target: () => HTMLElement | null) {
+		await tick();
+		target()?.focus();
+	}
+
+	function closeName() {
+		editingName = false;
+		focusSoon(() => renameButton);
+	}
+
+	function closeBody() {
+		editingBody = false;
+		focusSoon(() => editBodyButton);
+	}
 
 	let staged = $state<Match | null>(null);
 	let withChildren = $state(false);
@@ -225,7 +244,7 @@
 							e.preventDefault();
 							const name = nameDraft.trim();
 							if (!name) return;
-							editingName = false;
+							closeName();
 							save('name', 'update', { name }, (q) => ({ ...q, name }));
 						}}
 					>
@@ -237,12 +256,10 @@
 							required
 							autofocus
 							bind:value={nameDraft}
-							onkeydown={(e) => e.key === 'Escape' && (editingName = false)}
+							onkeydown={(e) => e.key === 'Escape' && closeName()}
 						/>
 						<button class="btn btn-primary" type="submit">Save name</button>
-						<button class="btn btn-quiet" type="button" onclick={() => (editingName = false)}
-							>Cancel</button
-						>
+						<button class="btn btn-quiet" type="button" onclick={closeName}>Cancel</button>
 					</form>
 				{:else}
 					<div class="flex min-w-0 flex-1 flex-wrap items-start gap-2">
@@ -252,6 +269,7 @@
 						<button
 							class="btn btn-quiet"
 							type="button"
+							bind:this={renameButton}
 							onclick={() => {
 								nameDraft = quest.name;
 								editingName = true;
@@ -400,9 +418,11 @@
 							<button
 								class="btn btn-quiet"
 								type="button"
+								bind:this={editBodyButton}
 								onclick={() => {
 									bodyDraft = quest.description;
 									editingBody = true;
+									focusSoon(() => bodyField);
 								}}>Edit description</button
 							>
 						{/if}
@@ -413,7 +433,7 @@
 							onsubmit={(e) => {
 								e.preventDefault();
 								const description = bodyDraft;
-								editingBody = false;
+								closeBody();
 								save('description', 'update', { description }, (q) => ({ ...q, description }));
 							}}
 						>
@@ -421,12 +441,11 @@
 								class="field min-h-36 w-full font-mono text-sm"
 								aria-label="Quest description (Markdown)"
 								maxlength="50000"
+								bind:this={bodyField}
 								bind:value={bodyDraft}></textarea>
 							<div class="flex gap-2">
 								<button class="btn btn-primary" type="submit">Save description</button>
-								<button class="btn btn-quiet" type="button" onclick={() => (editingBody = false)}
-									>Cancel</button
-								>
+								<button class="btn btn-quiet" type="button" onclick={closeBody}>Cancel</button>
 							</div>
 						</form>
 					{:else}

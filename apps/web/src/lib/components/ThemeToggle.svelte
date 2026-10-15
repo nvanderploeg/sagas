@@ -6,14 +6,39 @@
 		{ value: 'light', label: 'Light', glyph: '☀' },
 		{ value: 'dark', label: 'Dark', glyph: '☾' }
 	];
+
+	let group = $state<HTMLElement | null>(null);
+
+	// A radio group is one tab stop; arrow keys move the choice and focus with it.
+	function onkeydown(event: KeyboardEvent) {
+		const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+		const at = options.findIndex((o) => o.value === theme.value);
+		let next: number | undefined;
+		if (step !== undefined) next = (at + step + options.length) % options.length;
+		else if (event.key === 'Home') next = 0;
+		else if (event.key === 'End') next = options.length - 1;
+		if (next === undefined) return;
+		event.preventDefault();
+		theme.set(options[next].value);
+		group?.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus();
+	}
 </script>
 
-<div class="toggle" role="radiogroup" aria-label="Theme">
+<div
+	class="toggle"
+	role="radiogroup"
+	aria-label="Theme"
+	tabindex="-1"
+	bind:this={group}
+	{onkeydown}
+>
 	{#each options as option (option.value)}
+		{@const checked = theme.value === option.value}
 		<button
 			type="button"
 			role="radio"
-			aria-checked={theme.value === option.value}
+			aria-checked={checked}
+			tabindex={checked ? 0 : -1}
 			title="{option.label} theme"
 			onclick={() => theme.set(option.value)}
 			><span aria-hidden="true">{option.glyph}</span><span class="sr-only">{option.label}</span
