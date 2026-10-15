@@ -1,0 +1,851 @@
+{
+	"version": "6",
+	"dialect": "sqlite",
+	"id": "2d043def-38b4-4ed1-a018-6233c8e6de51",
+	"prevId": "00000000-0000-0000-0000-000000000000",
+	"tables": {
+		"api_tokens": {
+			"name": "api_tokens",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "integer",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": true
+				},
+				"user_id": {
+					"name": "user_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"name": {
+					"name": "name",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"token_hash": {
+					"name": "token_hash",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"last_used_at": {
+					"name": "last_used_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"revoked_at": {
+					"name": "revoked_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"api_tokens_token_hash_unique": {
+					"name": "api_tokens_token_hash_unique",
+					"columns": ["token_hash"],
+					"isUnique": true
+				},
+				"api_tokens_user_idx": {
+					"name": "api_tokens_user_idx",
+					"columns": ["user_id"],
+					"isUnique": false
+				}
+			},
+			"foreignKeys": {
+				"api_tokens_user_id_users_id_fk": {
+					"name": "api_tokens_user_id_users_id_fk",
+					"tableFrom": "api_tokens",
+					"tableTo": "users",
+					"columnsFrom": ["user_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"invites": {
+			"name": "invites",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "integer",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": true
+				},
+				"token_hash": {
+					"name": "token_hash",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"created_by_user_id": {
+					"name": "created_by_user_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"used_at": {
+					"name": "used_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"used_by_user_id": {
+					"name": "used_by_user_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"invites_token_hash_unique": {
+					"name": "invites_token_hash_unique",
+					"columns": ["token_hash"],
+					"isUnique": true
+				}
+			},
+			"foreignKeys": {
+				"invites_created_by_user_id_users_id_fk": {
+					"name": "invites_created_by_user_id_users_id_fk",
+					"tableFrom": "invites",
+					"tableTo": "users",
+					"columnsFrom": ["created_by_user_id"],
+					"columnsTo": ["id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				},
+				"invites_used_by_user_id_users_id_fk": {
+					"name": "invites_used_by_user_id_users_id_fk",
+					"tableFrom": "invites",
+					"tableTo": "users",
+					"columnsFrom": ["used_by_user_id"],
+					"columnsTo": ["id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {
+				"invites_used_pair": {
+					"name": "invites_used_pair",
+					"value": "(\"used_at\" IS NULL) = (\"used_by_user_id\" IS NULL)"
+				}
+			}
+		},
+		"project_key_aliases": {
+			"name": "project_key_aliases",
+			"columns": {
+				"key": {
+					"name": "key",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"project_id": {
+					"name": "project_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {
+				"project_key_aliases_project_id_projects_id_fk": {
+					"name": "project_key_aliases_project_id_projects_id_fk",
+					"tableFrom": "project_key_aliases",
+					"tableTo": "projects",
+					"columnsFrom": ["project_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {
+				"project_key_aliases_upper": {
+					"name": "project_key_aliases_upper",
+					"value": "\"key\" = upper(\"key\")"
+				}
+			}
+		},
+		"projects": {
+			"name": "projects",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "integer",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": true
+				},
+				"name": {
+					"name": "name",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"key": {
+					"name": "key",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"ticket_counter": {
+					"name": "ticket_counter",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": 0
+				},
+				"initial_state_id": {
+					"name": "initial_state_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"projects_key_unique": {
+					"name": "projects_key_unique",
+					"columns": ["key"],
+					"isUnique": true
+				}
+			},
+			"foreignKeys": {
+				"projects_id_initial_state_id_states_project_id_id_fk": {
+					"name": "projects_id_initial_state_id_states_project_id_id_fk",
+					"tableFrom": "projects",
+					"tableTo": "states",
+					"columnsFrom": ["id", "initial_state_id"],
+					"columnsTo": ["project_id", "id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {
+				"projects_key_format": {
+					"name": "projects_key_format",
+					"value": "\"key\" GLOB '[A-Z]*' AND \"key\" NOT GLOB '*[^A-Z0-9]*' AND length(\"key\") BETWEEN 2 AND 6"
+				},
+				"projects_counter_non_negative": {
+					"name": "projects_counter_non_negative",
+					"value": "\"ticket_counter\" >= 0"
+				}
+			}
+		},
+		"sessions": {
+			"name": "sessions",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"user_id": {
+					"name": "user_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"expires_at": {
+					"name": "expires_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"sessions_user_idx": {
+					"name": "sessions_user_idx",
+					"columns": ["user_id"],
+					"isUnique": false
+				}
+			},
+			"foreignKeys": {
+				"sessions_user_id_users_id_fk": {
+					"name": "sessions_user_id_users_id_fk",
+					"tableFrom": "sessions",
+					"tableTo": "users",
+					"columnsFrom": ["user_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"states": {
+			"name": "states",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "integer",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": true
+				},
+				"project_id": {
+					"name": "project_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"key": {
+					"name": "key",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"label": {
+					"name": "label",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"color": {
+					"name": "color",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"icon": {
+					"name": "icon",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"position": {
+					"name": "position",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"is_closed": {
+					"name": "is_closed",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": false
+				},
+				"default_substate_id": {
+					"name": "default_substate_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"states_project_key_uq": {
+					"name": "states_project_key_uq",
+					"columns": ["project_id", "key"],
+					"isUnique": true
+				},
+				"states_project_position_uq": {
+					"name": "states_project_position_uq",
+					"columns": ["project_id", "position"],
+					"isUnique": true
+				},
+				"states_project_id_uq": {
+					"name": "states_project_id_uq",
+					"columns": ["project_id", "id"],
+					"isUnique": true
+				},
+				"states_one_closed_uq": {
+					"name": "states_one_closed_uq",
+					"columns": ["project_id"],
+					"isUnique": true,
+					"where": "\"is_closed\" = 1"
+				}
+			},
+			"foreignKeys": {
+				"states_project_id_projects_id_fk": {
+					"name": "states_project_id_projects_id_fk",
+					"tableFrom": "states",
+					"tableTo": "projects",
+					"columnsFrom": ["project_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				},
+				"states_default_substate_id_substates_id_fk": {
+					"name": "states_default_substate_id_substates_id_fk",
+					"tableFrom": "states",
+					"tableTo": "substates",
+					"columnsFrom": ["default_substate_id"],
+					"columnsTo": ["id"],
+					"onDelete": "set null",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"substates": {
+			"name": "substates",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "integer",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": true
+				},
+				"state_id": {
+					"name": "state_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"key": {
+					"name": "key",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"label": {
+					"name": "label",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"color": {
+					"name": "color",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"icon": {
+					"name": "icon",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"position": {
+					"name": "position",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"substates_state_key_uq": {
+					"name": "substates_state_key_uq",
+					"columns": ["state_id", "key"],
+					"isUnique": true
+				},
+				"substates_state_position_uq": {
+					"name": "substates_state_position_uq",
+					"columns": ["state_id", "position"],
+					"isUnique": true
+				},
+				"substates_state_id_uq": {
+					"name": "substates_state_id_uq",
+					"columns": ["state_id", "id"],
+					"isUnique": true
+				}
+			},
+			"foreignKeys": {
+				"substates_state_id_states_id_fk": {
+					"name": "substates_state_id_states_id_fk",
+					"tableFrom": "substates",
+					"tableTo": "states",
+					"columnsFrom": ["state_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"ticket_key_aliases": {
+			"name": "ticket_key_aliases",
+			"columns": {
+				"key": {
+					"name": "key",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"ticket_id": {
+					"name": "ticket_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {
+				"ticket_key_aliases_ticket_id_tickets_id_fk": {
+					"name": "ticket_key_aliases_ticket_id_tickets_id_fk",
+					"tableFrom": "ticket_key_aliases",
+					"tableTo": "tickets",
+					"columnsFrom": ["ticket_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {
+				"ticket_key_aliases_upper": {
+					"name": "ticket_key_aliases_upper",
+					"value": "\"key\" = upper(\"key\")"
+				}
+			}
+		},
+		"tickets": {
+			"name": "tickets",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "integer",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": true
+				},
+				"project_id": {
+					"name": "project_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"number": {
+					"name": "number",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"title": {
+					"name": "title",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"description": {
+					"name": "description",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": "''"
+				},
+				"owner_id": {
+					"name": "owner_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"assignee_id": {
+					"name": "assignee_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"state_id": {
+					"name": "state_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"substate_id": {
+					"name": "substate_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"parent_id": {
+					"name": "parent_id",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"updated_at": {
+					"name": "updated_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"tickets_project_number_uq": {
+					"name": "tickets_project_number_uq",
+					"columns": ["project_id", "number"],
+					"isUnique": true
+				},
+				"tickets_parent_idx": {
+					"name": "tickets_parent_idx",
+					"columns": ["parent_id"],
+					"isUnique": false
+				},
+				"tickets_state_idx": {
+					"name": "tickets_state_idx",
+					"columns": ["state_id"],
+					"isUnique": false
+				}
+			},
+			"foreignKeys": {
+				"tickets_project_id_projects_id_fk": {
+					"name": "tickets_project_id_projects_id_fk",
+					"tableFrom": "tickets",
+					"tableTo": "projects",
+					"columnsFrom": ["project_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				},
+				"tickets_owner_id_users_id_fk": {
+					"name": "tickets_owner_id_users_id_fk",
+					"tableFrom": "tickets",
+					"tableTo": "users",
+					"columnsFrom": ["owner_id"],
+					"columnsTo": ["id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				},
+				"tickets_assignee_id_users_id_fk": {
+					"name": "tickets_assignee_id_users_id_fk",
+					"tableFrom": "tickets",
+					"tableTo": "users",
+					"columnsFrom": ["assignee_id"],
+					"columnsTo": ["id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				},
+				"tickets_parent_id_tickets_id_fk": {
+					"name": "tickets_parent_id_tickets_id_fk",
+					"tableFrom": "tickets",
+					"tableTo": "tickets",
+					"columnsFrom": ["parent_id"],
+					"columnsTo": ["id"],
+					"onDelete": "set null",
+					"onUpdate": "no action"
+				},
+				"tickets_project_id_state_id_states_project_id_id_fk": {
+					"name": "tickets_project_id_state_id_states_project_id_id_fk",
+					"tableFrom": "tickets",
+					"tableTo": "states",
+					"columnsFrom": ["project_id", "state_id"],
+					"columnsTo": ["project_id", "id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				},
+				"tickets_state_id_substate_id_substates_state_id_id_fk": {
+					"name": "tickets_state_id_substate_id_substates_state_id_id_fk",
+					"tableFrom": "tickets",
+					"tableTo": "substates",
+					"columnsFrom": ["state_id", "substate_id"],
+					"columnsTo": ["state_id", "id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {
+				"tickets_number_positive": {
+					"name": "tickets_number_positive",
+					"value": "\"number\" >= 1"
+				}
+			}
+		},
+		"users": {
+			"name": "users",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "integer",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": true
+				},
+				"kind": {
+					"name": "kind",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"is_admin": {
+					"name": "is_admin",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": false
+				},
+				"username": {
+					"name": "username",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"display_name": {
+					"name": "display_name",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"password_hash": {
+					"name": "password_hash",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"users_username_unique": {
+					"name": "users_username_unique",
+					"columns": ["username"],
+					"isUnique": true
+				}
+			},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {
+				"users_kind": {
+					"name": "users_kind",
+					"value": "\"kind\" IN ('human', 'agent')"
+				},
+				"users_username_lower": {
+					"name": "users_username_lower",
+					"value": "\"username\" = lower(\"username\")"
+				},
+				"users_password_iff_human": {
+					"name": "users_password_iff_human",
+					"value": "(\"kind\" = 'human') = (\"password_hash\" IS NOT NULL)"
+				},
+				"users_admin_is_human": {
+					"name": "users_admin_is_human",
+					"value": "\"is_admin\" = 0 OR \"kind\" = 'human'"
+				}
+			}
+		}
+	},
+	"views": {},
+	"enums": {},
+	"_meta": {
+		"schemas": {},
+		"tables": {},
+		"columns": {}
+	},
+	"internal": {
+		"indexes": {}
+	}
+}
