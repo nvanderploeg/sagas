@@ -24,6 +24,15 @@ export function createProject(
 	actor: Actor,
 	input: { name: string; key: string; initialState: StyleSpec }
 ): Project {
+	return createProjectWithStates(db, actor, { ...input, states: [] });
+}
+
+// `states` are open States after the Initial State, in order. One write and one Event.
+export function createProjectWithStates(
+	db: Db,
+	actor: Actor,
+	input: { name: string; key: string; initialState: StyleSpec; states: StyleSpec[] }
+): Project {
 	const name = requireText(input.name, 'Project name', 120);
 	const key = normalizeProjectKey(input.key);
 	return write(db, actor, (tx) => {
@@ -32,6 +41,7 @@ export function createProject(
 		tx.insert(projectKeys).values({ key, projectId: project.id }).run();
 		insertState(tx, project.id, CLOSED_STATE, { closed: true });
 		const initial = insertState(tx, project.id, input.initialState);
+		for (const state of input.states) insertState(tx, project.id, state);
 		const value = tx
 			.update(projects)
 			.set({ initialStateId: initial.id })
