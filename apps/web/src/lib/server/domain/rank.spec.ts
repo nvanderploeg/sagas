@@ -115,10 +115,17 @@ describe('rankTicket', () => {
 	});
 });
 
-describe('rank stability', () => {
+describe('rank key length', () => {
 	const N = 400;
+	const longest = (stateId: number) =>
+		Math.max(...listColumn(db, stateId).map((t) => t.rank.length));
 
-	it('keeps order and short keys under many inserts right after one Ticket', () => {
+	// Fractional keys at one middle spot grow by about one character per 5 to 6 inserts; nothing
+	// rebalances them.
+	const MIDDLE_MIN = N / 8;
+	const MIDDLE_MAX = N / 4;
+
+	it(`grows linearly, within ${MIDDLE_MAX} characters, over ${N} inserts right after one Ticket`, () => {
 		const { project, stateId, byTitle } = seedColumn('anchor', 'tail');
 		for (let i = 0; i < N; i++) {
 			seedTicket(db, {
@@ -130,11 +137,11 @@ describe('rank stability', () => {
 
 		const expected = ['anchor', ...Array.from({ length: N }, (_, i) => `n${N - 1 - i}`), 'tail'];
 		expect(column(stateId)).toEqual(expected);
-		const longest = Math.max(...listColumn(db, stateId).map((t) => t.rank.length));
-		expect(longest).toBeLessThanOrEqual(N / 4);
+		expect(longest(stateId)).toBeGreaterThanOrEqual(MIDDLE_MIN);
+		expect(longest(stateId)).toBeLessThanOrEqual(MIDDLE_MAX);
 	});
 
-	it('keeps order and short keys under many inserts right after the previous insert', () => {
+	it(`grows linearly, within ${MIDDLE_MAX} characters, over ${N} inserts each right after the last`, () => {
 		const { project, stateId, byTitle } = seedColumn('head', 'tail');
 		let previous = byTitle.head.id;
 		for (let i = 0; i < N; i++) {
@@ -147,11 +154,11 @@ describe('rank stability', () => {
 
 		const expected = ['head', ...Array.from({ length: N }, (_, i) => `n${i}`), 'tail'];
 		expect(column(stateId)).toEqual(expected);
-		const longest = Math.max(...listColumn(db, stateId).map((t) => t.rank.length));
-		expect(longest).toBeLessThanOrEqual(N / 4);
+		expect(longest(stateId)).toBeGreaterThanOrEqual(MIDDLE_MIN);
+		expect(longest(stateId)).toBeLessThanOrEqual(MIDDLE_MAX);
 	});
 
-	it('grows keys only logarithmically at the top and bottom', () => {
+	it(`stays within 4 characters over ${N} inserts at the top and ${N} at the bottom`, () => {
 		const { project, stateId } = seedColumn('middle');
 		for (let i = 0; i < N; i++) {
 			seedTicket(db, { projectId: project.id, title: `top${i}`, placement: 'top' });
@@ -161,7 +168,7 @@ describe('rank stability', () => {
 		const ranks = listColumn(db, stateId);
 		expect(ranks[0].title).toBe(`top${N - 1}`);
 		expect(ranks.at(-1)!.title).toBe(`bottom${N - 1}`);
-		expect(Math.max(...ranks.map((t) => t.rank.length))).toBeLessThanOrEqual(4);
+		expect(longest(stateId)).toBeLessThanOrEqual(4);
 	});
 });
 
