@@ -9,12 +9,14 @@ import { seedProject, seedTicket, seedUser, TODO } from '#lib/server/test/fixtur
 import { DomainError } from './errors.ts';
 import {
 	addQuestTicket,
+	addQuestTickets,
 	addQuestTicketWithChildren,
 	createQuest,
 	deleteQuest,
 	rankQuestTicket,
 	readQuest,
 	removeQuestTicket,
+	removeQuestTickets,
 	updateQuest
 } from './quests.ts';
 import {
@@ -410,6 +412,52 @@ describe('Quest writes', () => {
 
 		const deleted = expectOneEvent(() => deleteQuest(db, actor, questId));
 		expect(deleted).toMatchObject({ type: 'quest.deleted', data: { id: questId } });
+	});
+});
+
+describe('bulk Quest membership', () => {
+	it('records one Event per call, naming only the Tickets that changed', () => {
+		const project = seedProject(db, 'AM');
+		const [a, b, c] = [1, 2, 3].map(() => seedTicket(db, { projectId: project.id }));
+		const questId = createQuest(db, actor, { name: 'Launch', ownerId: actor.id }).id;
+		addQuestTicket(db, actor, questId, b.id);
+		const quest = () => json(readQuest(db, questId));
+
+		const added = recorded(() => addQuestTickets(db, actor, questId, [a.id, b.id, c.id]));
+		expect(shape(added)).toEqual([
+			['quest.tickets_added', { quest: quest(), ticketIds: [a.id, c.id] }]
+		]);
+
+		const removed = recorded(() => removeQuestTickets(db, actor, questId, [c.id, a.id]));
+		expect(shape(removed)).toEqual([
+			['quest.tickets_removed', { quest: quest(), ticketIds: [c.id, a.id] }]
+		]);
+	});
+
+	it('records no Event when every Ticket is skipped', () => {
+		const project = seedProject(db, 'AM');
+		const a = seedTicket(db, { projectId: project.id });
+		const questId = createQuest(db, actor, { name: 'Launch', ownerId: actor.id }).id;
+		addQuestTicket(db, actor, questId, a.id);
+
+		const found = recorded(() => {
+			addQuestTickets(db, actor, questId, [a.id]);
+			removeQuestTickets(db, actor, questId, [seedTicket(db, { projectId: project.id }).id]);
+		});
+
+		expect(found.filter((e) => e.type.startsWith('quest.'))).toEqual([]);
+	});
+
+	it('records nothing when a Ticket is unknown', () => {
+		const project = seedProject(db, 'AM');
+		const a = seedTicket(db, { projectId: project.id });
+		const questId = createQuest(db, actor, { name: 'Launch', ownerId: actor.id }).id;
+
+		const found = recorded(() =>
+			expect(() => addQuestTickets(db, actor, questId, [a.id, 999])).toThrow(DomainError)
+		);
+
+		expect(found).toEqual([]);
 	});
 });
 

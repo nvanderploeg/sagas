@@ -1,19 +1,24 @@
-import { generateKeyBetween } from 'fractional-indexing';
+import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { DomainError } from './errors.ts';
 
 export type Placement = 'top' | 'bottom' | { before: number } | { after: number };
 
 type Entry = { id: number; rank: string };
 
+export type NameTicket = (id: number) => string;
+
+const byId: NameTicket = (id) => `Ticket ${id}`;
+
 // Ranks compare by code unit, as SQLite's default BINARY collation does.
 export function rankAt(
 	column: Entry[],
 	subject: { id: number | null; rank?: string },
 	placement: Placement,
-	scope: 'State' | 'Quest'
+	scope: 'State' | 'Quest',
+	name: NameTicket = byId
 ): string {
 	const others = column.filter((entry) => entry.id !== subject.id);
-	const index = insertionIndex(others, subject.id, placement, scope);
+	const index = insertionIndex(others, subject.id, placement, scope, name);
 	const lo = others[index - 1]?.rank ?? null;
 	const hi = others[index]?.rank ?? null;
 	const current = subject.rank;
@@ -23,11 +28,24 @@ export function rankAt(
 	return generateKeyBetween(lo, hi);
 }
 
+// Ranks for `count` new entries placed together, in order.
+export function ranksAt(
+	column: Entry[],
+	placement: Placement,
+	scope: 'State' | 'Quest',
+	count: number,
+	name: NameTicket = byId
+): string[] {
+	const index = insertionIndex(column, null, placement, scope, name);
+	return generateNKeysBetween(column[index - 1]?.rank ?? null, column[index]?.rank ?? null, count);
+}
+
 function insertionIndex(
 	others: Entry[],
 	subjectId: number | null,
 	placement: Placement,
-	scope: string
+	scope: string,
+	name: NameTicket
 ): number {
 	if (placement === 'top') return 0;
 	if (placement === 'bottom') return others.length;
@@ -39,7 +57,7 @@ function insertionIndex(
 				throw new DomainError('invalid', 'A Ticket cannot be placed relative to itself');
 			}
 			const at = others.findIndex((entry) => entry.id === anchor);
-			if (at < 0) throw new DomainError('invalid', `Ticket ${anchor} is not in the same ${scope}`);
+			if (at < 0) throw new DomainError('invalid', `${name(anchor)} is not in the same ${scope}`);
 			return before ? at : at + 1;
 		}
 	}

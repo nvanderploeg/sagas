@@ -11,6 +11,7 @@ import { listSubstates } from './states.ts';
 import {
 	readTicket,
 	selectTicketViews,
+	ticketName,
 	toTicketView,
 	type Ticket,
 	type TicketView
@@ -136,7 +137,13 @@ export function createTicket(db: Db, actor: Actor, input: TicketSpec): TicketVie
 		const parentId = input.parentId ?? null;
 		if (parentId !== null) assertParent(tx, null, parentId);
 
-		const rank = rankAt(columnOf(tx, state.id), { id: null }, input.placement ?? 'bottom', 'State');
+		const rank = rankAt(
+			columnOf(tx, state.id),
+			{ id: null },
+			input.placement ?? 'bottom',
+			'State',
+			ticketName(tx)
+		);
 		const number = allocateNumber(tx, project.id);
 		const ticket = tx
 			.insert(tickets)
@@ -200,7 +207,8 @@ export function updateTicket(
 				columnOf(tx, stateId),
 				{ id: ticketId, rank: moving ? undefined : ticket.rank },
 				patch.placement ?? 'bottom',
-				'State'
+				'State',
+				ticketName(tx)
 			);
 		}
 
@@ -253,7 +261,8 @@ export function moveTicket(db: Db, actor: Actor, ticketId: number, input: MoveTa
 			columnOf(tx, state.id),
 			{ id: ticketId },
 			input.placement ?? 'bottom',
-			'State'
+			'State',
+			ticketName(tx)
 		);
 
 		const number = allocateNumber(tx, target.id);
@@ -282,7 +291,7 @@ export function rankTicket(
 ): TicketView {
 	return write(db, actor, (tx) => {
 		const ticket = getTicket(tx, ticketId);
-		const rank = rankAt(columnOf(tx, ticket.stateId), ticket, placement, 'State');
+		const rank = rankAt(columnOf(tx, ticket.stateId), ticket, placement, 'State', ticketName(tx));
 		if (rank === ticket.rank) return { value: readTicket(tx, ticketId), events: [] };
 		tx.update(tickets).set({ rank }).where(eq(tickets.id, ticketId)).run();
 		return {

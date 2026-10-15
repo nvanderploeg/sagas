@@ -113,6 +113,16 @@ describe('rankTicket', () => {
 		);
 		expect(getTicket(db, byTitle.a.id).rank).toBe(byTitle.a.rank);
 	});
+
+	it('names an anchor in another State by its key', () => {
+		const { project, byTitle } = seedColumn('a');
+		const doing = createState(db, actor, project.id, style('doing'));
+		const elsewhere = seedTicket(db, { projectId: project.id, stateId: doing.id });
+
+		expect(() => rankTicket(db, actor, byTitle.a.id, { after: elsewhere.id })).toThrow(
+			'AM-2 is not in the same State'
+		);
+	});
 });
 
 describe('rank key length', () => {
