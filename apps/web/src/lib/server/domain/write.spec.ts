@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
-import { events, tickets } from '#lib/server/db/schema.ts';
+import { events, quests, tickets, users } from '#lib/server/db/schema.ts';
 import { subscribe } from '#lib/server/events/bus.ts';
 import { eventsSince } from '#lib/server/events/log.ts';
 import type { WorkloadEvent } from '#lib/server/events/types.ts';
@@ -55,7 +55,13 @@ let unsubscribe: () => void;
 
 beforeEach(() => {
 	db = testDb();
-	actor = { id: seedUser(db, 'writer') };
+	actor = {
+		id: db
+			.insert(users)
+			.values({ kind: 'agent', username: 'writer', displayName: 'The Writer' })
+			.returning()
+			.get().id
+	};
 	published = [];
 	unsubscribe = subscribe((event) => published.push(event));
 });
@@ -69,214 +75,341 @@ const style = (key: string) => ({ key, label: key, color: '#000000', icon: 'dot'
 const json = (value: unknown) => JSON.parse(JSON.stringify(value));
 const lastSeq = () => db.select().from(events).all().at(-1)?.seq ?? 0;
 
-// Runs one write and returns the Events it recorded.
+// Runs one write and returns the Events it recorded, after checking they were published as stored.
 function recorded(action: () => unknown): WorkloadEvent[] {
 	const before = lastSeq();
 	published = [];
 	action();
-	return eventsSince(db, before);
+	const found = eventsSince(db, before);
+	expect(published).toEqual(found);
+	return found;
 }
 
 function expectOneEvent(action: () => unknown): WorkloadEvent {
 	const found = recorded(action);
 	expect(found).toHaveLength(1);
-	expect(published).toEqual(found);
-	expect(found[0].actorId).toBe(actor.id);
 	return found[0];
 }
 
+const shape = (found: WorkloadEvent[]) => found.map((e) => [e.type, e.data]);
+
+describe('the Event record', () => {
+	it("carries the seq, type, time, the actor's display info and the data", () => {
+		const event = expectOneEvent(() =>
+			createProject(db, actor, { name: 'Amber', key: 'AM', initialState: TODO })
+		);
+
+		expect(Object.keys(event).sort()).toEqual(['actor', 'createdAt', 'data', 'seq', 'type']);
+		expect(event.actor).toEqual({
+			id: actor.id,
+			kind: 'agent',
+			username: 'writer',
+			displayName: 'The Writer'
+		});
+		expect(event.createdAt).toBeInstanceOf(Date);
+	});
+});
+
 describe('Project config writes', () => {
-	it('records one Event per write, by the actor, with the Project config as its snapshot', () => {
+	it('record one Event each, carrying the Project config and the State or Substate they touch', () => {
 		const project = seedProject(db, 'AM');
 		const todo = project.initialStateId!;
 		let doingId = 0;
 		let reviewId = 0;
 		let qaId = 0;
+		const config = () => json(readProject(db, project.id));
 
-		const cases: [string, () => void][] = [
-			['project.updated', () => updateProject(db, actor, project.id, { name: 'Amber' })],
-			['project.updated', () => renameProjectKey(db, actor, project.id, 'AB')],
-			['state.created', () => (doingId = createState(db, actor, project.id, style('doing')).id)],
-			['state.updated', () => updateState(db, actor, doingId, { label: 'Doing' })],
-			['state.updated', () => moveState(db, actor, doingId, 0)],
-			['project.updated', () => setInitialState(db, actor, project.id, doingId)],
-			['substate.created', () => (reviewId = createSubstate(db, actor, todo, style('review')).id)],
-			['substate.created', () => (qaId = createSubstate(db, actor, todo, style('qa')).id)],
-			['substate.updated', () => updateSubstate(db, actor, qaId, { color: '#ffffff' })],
-			['substate.updated', () => moveSubstate(db, actor, qaId, 0)],
-			['state.updated', () => setDefaultSubstate(db, actor, todo, qaId)],
-			['substate.deleted', () => deleteSubstate(db, actor, reviewId)]
+		const cases: [string, () => void, () => object][] = [
+			[
+				'project.updated',
+				() => updateProject(db, actor, project.id, { name: 'Amber' }),
+				() => ({ project: config() })
+			],
+			[
+				'state.created',
+				() => (doingId = createState(db, actor, project.id, style('doing')).id),
+				() => ({ project: config(), stateId: doingId })
+			],
+			[
+				'state.updated',
+				() => updateState(db, actor, doingId, { label: 'Doing' }),
+				() => ({ project: config(), stateId: doingId })
+			],
+			[
+				'state.updated',
+				() => moveState(db, actor, doingId, 0),
+				() => ({ project: config(), stateId: doingId })
+			],
+			[
+				'project.updated',
+				() => setInitialState(db, actor, project.id, doingId),
+				() => ({ project: config() })
+			],
+			[
+				'substate.created',
+				() => (reviewId = createSubstate(db, actor, todo, style('review')).id),
+				() => ({ project: config(), stateId: todo, substateId: reviewId })
+			],
+			[
+				'substate.created',
+				() => (qaId = createSubstate(db, actor, todo, style('qa')).id),
+				() => ({ project: config(), stateId: todo, substateId: qaId })
+			],
+			[
+				'substate.updated',
+				() => updateSubstate(db, actor, qaId, { color: '#ffffff' }),
+				() => ({ project: config(), stateId: todo, substateId: qaId })
+			],
+			[
+				'substate.updated',
+				() => moveSubstate(db, actor, qaId, 0),
+				() => ({ project: config(), stateId: todo, substateId: qaId })
+			],
+			[
+				'state.updated',
+				() => setDefaultSubstate(db, actor, todo, qaId),
+				() => ({ project: config(), stateId: todo })
+			],
+			[
+				'substate.deleted',
+				() => deleteSubstate(db, actor, reviewId),
+				() => ({ project: config(), stateId: todo, substateId: reviewId })
+			],
+			[
+				'state.deleted',
+				() => {
+					setInitialState(db, actor, project.id, todo);
+					deleteState(db, actor, doingId);
+				},
+				() => ({ project: config(), stateId: doingId })
+			]
 		];
 
-		for (const [type, action] of cases) {
-			const event = expectOneEvent(action);
+		for (const [type, action, data] of cases) {
+			const found = recorded(action);
+			const event = found.at(-1)!;
 			expect(event.type, type).toBe(type);
-			expect(event.projectIds).toEqual([project.id]);
-			expect(event.snapshot).toEqual(json(readProject(db, project.id)));
+			expect(event.data, type).toEqual(data());
 		}
 	});
 
-	it('names the State and Substate a config Event is about', () => {
-		const project = seedProject(db, 'AM');
-		const todo = project.initialStateId!;
-
-		const sub = expectOneEvent(() => createSubstate(db, actor, todo, style('review')));
-		const doing = createState(db, actor, project.id, style('doing'));
-		const removed = expectOneEvent(() => deleteState(db, actor, doing.id));
-
-		expect(sub.entityIds).toEqual({
-			projectId: project.id,
-			stateId: todo,
-			substateId: (sub.snapshot as { states: { substates: { id: number }[] }[] }).states[0]
-				.substates[0].id
-		});
-		expect(removed).toMatchObject({
-			type: 'state.deleted',
-			entityIds: { projectId: project.id, stateId: doing.id }
-		});
-	});
-
-	it('records project.created and project.deleted, with no snapshot once the Project is gone', () => {
+	it('records project.created with the config, and project.deleted with the Tickets it took', () => {
 		let projectId = 0;
 		const created = expectOneEvent(
 			() =>
 				(projectId = createProject(db, actor, { name: 'Amber', key: 'AM', initialState: TODO }).id)
 		);
-		const config = json(readProject(db, projectId));
+		expect(created).toMatchObject({
+			type: 'project.created',
+			data: { project: json(readProject(db, projectId)) }
+		});
+		const a = seedTicket(db, { projectId });
+		const b = seedTicket(db, { projectId, parentId: a.id });
+
 		const deleted = expectOneEvent(() => deleteProject(db, actor, projectId));
 
-		expect(created).toMatchObject({ type: 'project.created', entityIds: { projectId } });
-		expect(created.snapshot).toEqual(config);
 		expect(deleted).toMatchObject({
 			type: 'project.deleted',
-			entityIds: { projectId },
-			projectIds: [projectId],
-			snapshot: null
+			data: { projectId, ticketIds: [a.id, b.id] }
 		});
+	});
+
+	it('records the new key of every Ticket in a Project whose key is renamed', () => {
+		const project = seedProject(db, 'AM');
+		const a = seedTicket(db, { projectId: project.id });
+		const b = seedTicket(db, { projectId: project.id });
+
+		const found = recorded(() => renameProjectKey(db, actor, project.id, 'AB'));
+
+		expect(shape(found)).toEqual([
+			['project.updated', { project: json(readProject(db, project.id)) }],
+			[
+				'ticket.rekeyed',
+				{
+					projectId: project.id,
+					tickets: [
+						{ id: a.id, previousKey: 'AM-1', key: 'AB-1' },
+						{ id: b.id, previousKey: 'AM-2', key: 'AB-2' }
+					]
+				}
+			]
+		]);
+	});
+
+	it("records each Ticket a State's first Substate takes in, with its updatedAt moved", () => {
+		const project = seedProject(db, 'AM');
+		const todo = project.initialStateId!;
+		const a = seedTicket(db, { projectId: project.id });
+		const b = seedTicket(db, { projectId: project.id });
+		db.update(tickets)
+			.set({ updatedAt: new Date(0) })
+			.run();
+		let substateId = 0;
+
+		const found = recorded(() => (substateId = createSubstate(db, actor, todo, style('rev')).id));
+
+		expect(shape(found)).toEqual([
+			[
+				'substate.created',
+				{ project: json(readProject(db, project.id)), stateId: todo, substateId }
+			],
+			['ticket.updated', { ticket: json(readTicket(db, a.id)) }],
+			['ticket.updated', { ticket: json(readTicket(db, b.id)) }]
+		]);
+		expect(readTicket(db, a.id)).toMatchObject({ substateId });
+		expect(readTicket(db, a.id).updatedAt.getTime()).toBeGreaterThan(0);
+	});
+
+	it('records the Children it detaches in other Projects and the Quests it shrinks when deleting a Project', () => {
+		const am = seedProject(db, 'AM');
+		const bl = seedProject(db, 'BL');
+		const parent = seedTicket(db, { projectId: am.id });
+		const child = seedTicket(db, { projectId: bl.id, parentId: parent.id });
+		const quest = createQuest(db, actor, { name: 'Launch', ownerId: actor.id });
+		addQuestTicket(db, actor, quest.id, parent.id);
+		addQuestTicket(db, actor, quest.id, child.id);
+		db.update(tickets)
+			.set({ updatedAt: new Date(0) })
+			.run();
+		db.update(quests)
+			.set({ updatedAt: new Date(0) })
+			.run();
+
+		const found = recorded(() => deleteProject(db, actor, am.id));
+
+		const after = readQuest(db, quest.id);
+		expect(shape(found)).toEqual([
+			['project.deleted', { projectId: am.id, ticketIds: [parent.id] }],
+			['ticket.reparented', { ticket: json(readTicket(db, child.id)) }],
+			['quest.tickets_removed', { quest: json(after), ticketIds: [parent.id] }]
+		]);
+		expect(readTicket(db, child.id).parentId).toBeNull();
+		expect(readTicket(db, child.id).updatedAt.getTime()).toBeGreaterThan(0);
+		expect(after.progress).toEqual({ closed: 0, total: 1 });
+		expect(after.updatedAt.getTime()).toBeGreaterThan(0);
 	});
 });
 
 describe('Ticket writes', () => {
-	it('records one Event per write, by the actor, with the Ticket and its current key', () => {
+	it('record one Event each, carrying the Ticket with its current key', () => {
 		const am = seedProject(db, 'AM');
 		const bl = seedProject(db, 'BL');
 		const ownerId = seedUser(db, 'ada');
 		const parent = seedTicket(db, { projectId: bl.id, ownerId });
 		let ticketId = 0;
+		const ticket = () => ({ ticket: json(readTicket(db, ticketId)) });
 
 		const created = expectOneEvent(
 			() => (ticketId = createTicket(db, actor, { projectId: am.id, title: 'Fix', ownerId }).id)
 		);
-		expect(created).toMatchObject({
-			type: 'ticket.created',
-			entityIds: { ticketId },
-			projectIds: [am.id]
-		});
-		expect(created.snapshot).toEqual(json(readTicket(db, ticketId)));
-		expect((created.snapshot as { key: string }).key).toBe('AM-1');
+		expect(created).toMatchObject({ type: 'ticket.created', data: ticket() });
+		expect(ticket().ticket).toMatchObject({ key: 'AM-1', closed: false });
 
 		const updated = expectOneEvent(() => updateTicket(db, actor, ticketId, { title: 'Fixed' }));
-		expect(updated).toMatchObject({ type: 'ticket.updated', snapshot: { title: 'Fixed' } });
-
-		seedTicket(db, { projectId: am.id, ownerId });
-		const ranked = expectOneEvent(() => rankTicket(db, actor, ticketId, 'bottom'));
-		expect(ranked).toMatchObject({
-			type: 'ticket.ranked',
-			snapshot: { rank: readTicket(db, ticketId).rank }
-		});
+		expect(updated).toMatchObject({ type: 'ticket.updated', data: ticket() });
 
 		const reparented = expectOneEvent(() => setParent(db, actor, ticketId, parent.id));
-		expect(reparented).toMatchObject({
-			type: 'ticket.reparented',
-			projectIds: [am.id, bl.id],
-			snapshot: { parentId: parent.id }
-		});
+		expect(reparented).toMatchObject({ type: 'ticket.reparented', data: ticket() });
 
 		const moved = expectOneEvent(() => moveTicket(db, actor, ticketId, { projectId: bl.id }));
-		expect(moved).toMatchObject({
-			type: 'ticket.moved',
-			projectIds: [am.id, bl.id],
-			snapshot: { key: 'BL-2', projectId: bl.id }
-		});
-
-		const deleted = expectOneEvent(() => deleteTicket(db, actor, parent.id));
-		expect(deleted).toMatchObject({
-			type: 'ticket.deleted',
-			entityIds: { ticketId: parent.id },
-			projectIds: [bl.id],
-			snapshot: null
-		});
+		expect(moved).toMatchObject({ type: 'ticket.moved', data: ticket() });
+		expect(ticket().ticket).toMatchObject({ key: 'BL-2', projectId: bl.id });
 	});
 
-	it('records the Projects of the Children a deleted Ticket leaves without a Parent', () => {
+	it('records a rank change as just the Ticket, its State and its new Rank', () => {
+		const project = seedProject(db, 'AM');
+		const a = seedTicket(db, { projectId: project.id });
+		seedTicket(db, { projectId: project.id });
+
+		const ranked = expectOneEvent(() => rankTicket(db, actor, a.id, 'bottom'));
+
+		expect(ranked).toMatchObject({
+			type: 'ticket.ranked',
+			data: { id: a.id, stateId: a.stateId, rank: readTicket(db, a.id).rank }
+		});
+		expect(Object.keys(ranked.data).sort()).toEqual(['id', 'rank', 'stateId']);
+	});
+
+	it('records the Children it detaches and the Quests it shrinks when deleting a Ticket', () => {
 		const am = seedProject(db, 'AM');
 		const bl = seedProject(db, 'BL');
 		const parent = seedTicket(db, { projectId: am.id });
-		seedTicket(db, { projectId: bl.id, parentId: parent.id });
+		const near = seedTicket(db, { projectId: am.id, parentId: parent.id });
+		const far = seedTicket(db, { projectId: bl.id, parentId: parent.id });
+		const first = createQuest(db, actor, { name: 'One', ownerId: actor.id });
+		const second = createQuest(db, actor, { name: 'Two', ownerId: actor.id });
+		addQuestTicket(db, actor, first.id, parent.id);
+		addQuestTicket(db, actor, second.id, far.id);
+		addQuestTicket(db, actor, second.id, parent.id);
+		db.update(quests)
+			.set({ updatedAt: new Date(0) })
+			.run();
 
-		const deleted = expectOneEvent(() => deleteTicket(db, actor, parent.id));
+		const found = recorded(() => deleteTicket(db, actor, parent.id));
 
-		expect(deleted.projectIds).toEqual([am.id, bl.id]);
+		expect(shape(found)).toEqual([
+			['ticket.deleted', { id: parent.id, projectId: am.id }],
+			['ticket.reparented', { ticket: json(readTicket(db, near.id)) }],
+			['ticket.reparented', { ticket: json(readTicket(db, far.id)) }],
+			['quest.tickets_removed', { quest: json(readQuest(db, first.id)), ticketIds: [parent.id] }],
+			['quest.tickets_removed', { quest: json(readQuest(db, second.id)), ticketIds: [parent.id] }]
+		]);
+		expect(readTicket(db, far.id).parentId).toBeNull();
+		expect(readQuest(db, first.id).updatedAt.getTime()).toBeGreaterThan(0);
 	});
 });
 
 describe('Quest writes', () => {
-	it('records one Event per write, by the actor, with the Quest and every Project it touches', () => {
+	it('record one Event each, carrying the Quest with its member Tickets in order', () => {
 		const am = seedProject(db, 'AM');
 		const bl = seedProject(db, 'BL');
 		const a = seedTicket(db, { projectId: am.id });
 		const b = seedTicket(db, { projectId: bl.id });
-		seedTicket(db, { projectId: bl.id, parentId: b.id });
+		const c = seedTicket(db, { projectId: bl.id, parentId: b.id });
 		let questId = 0;
+		const quest = () => json(readQuest(db, questId));
 
-		const cases: [string, () => unknown, number[]][] = [
+		const cases: [string, () => unknown, () => object][] = [
 			[
 				'quest.created',
 				() => (questId = createQuest(db, actor, { name: 'Launch', ownerId: actor.id }).id),
-				[]
+				() => ({ quest: quest() })
 			],
-			['quest.updated', () => updateQuest(db, actor, questId, { name: 'Ship' }), []],
-			['quest.tickets_added', () => addQuestTicket(db, actor, questId, a.id), [am.id]],
+			[
+				'quest.updated',
+				() => updateQuest(db, actor, questId, { name: 'Ship' }),
+				() => ({ quest: quest() })
+			],
+			[
+				'quest.tickets_added',
+				() => addQuestTicket(db, actor, questId, a.id),
+				() => ({ quest: quest(), ticketIds: [a.id] })
+			],
 			[
 				'quest.tickets_added',
 				() => addQuestTicketWithChildren(db, actor, questId, b.id),
-				[am.id, bl.id]
+				() => ({ quest: quest(), ticketIds: [b.id, c.id] })
 			],
 			[
 				'quest.ticket_ranked',
 				() => rankQuestTicket(db, actor, questId, a.id, 'bottom'),
-				[am.id, bl.id]
+				() => ({ quest: quest(), ticketId: a.id })
 			],
-			['quest.ticket_removed', () => removeQuestTicket(db, actor, questId, a.id), [am.id, bl.id]]
+			[
+				'quest.tickets_removed',
+				() => removeQuestTicket(db, actor, questId, a.id),
+				() => ({ quest: quest(), ticketIds: [a.id] })
+			]
 		];
-		for (const [type, action, projectIds] of cases) {
+		for (const [type, action, data] of cases) {
 			const event = expectOneEvent(action);
 			expect(event.type, type).toBe(type);
-			expect(event.entityIds.questId).toBe(questId);
-			expect(event.projectIds, type).toEqual(projectIds);
-			expect(event.snapshot).toEqual(json(readQuest(db, questId)));
+			expect(event.data, type).toEqual(data());
 		}
+		expect(quest().tickets.map((t: { id: number }) => t.id)).toEqual([b.id, c.id]);
 
 		const deleted = expectOneEvent(() => deleteQuest(db, actor, questId));
-		expect(deleted).toMatchObject({
-			type: 'quest.deleted',
-			entityIds: { questId },
-			projectIds: [bl.id],
-			snapshot: null
-		});
-	});
-
-	it('names the Tickets a membership Event is about', () => {
-		const project = seedProject(db, 'AM');
-		const parent = seedTicket(db, { projectId: project.id });
-		const child = seedTicket(db, { projectId: project.id, parentId: parent.id });
-		const quest = createQuest(db, actor, { name: 'Launch', ownerId: actor.id });
-
-		const added = expectOneEvent(() => addQuestTicketWithChildren(db, actor, quest.id, parent.id));
-		const removed = expectOneEvent(() => removeQuestTicket(db, actor, quest.id, child.id));
-
-		expect(added.entityIds).toEqual({ questId: quest.id, ticketIds: [parent.id, child.id] });
-		expect(removed.entityIds).toEqual({ questId: quest.id, ticketId: child.id });
+		expect(deleted).toMatchObject({ type: 'quest.deleted', data: { id: questId } });
 	});
 });
 
@@ -296,7 +429,6 @@ describe('no-op writes', () => {
 		});
 
 		expect(found).toEqual([]);
-		expect(published).toEqual([]);
 	});
 });
 
@@ -317,10 +449,9 @@ describe('failed writes', () => {
 		});
 
 		expect(found).toEqual([]);
-		expect(published).toEqual([]);
 	});
 
-	it('rolls back the write with its Event when recording the Event fails', () => {
+	it('rolls back the write with its Events when recording them fails', () => {
 		const project = seedProject(db, 'AM');
 		const ghost = { id: 999 };
 		const before = db.select().from(tickets).all();
@@ -332,28 +463,25 @@ describe('failed writes', () => {
 		);
 
 		expect(found).toEqual([]);
-		expect(published).toEqual([]);
 		expect(db.select().from(tickets).all()).toEqual(before);
 	});
 });
 
 describe('publishing', () => {
-	it('publishes each Event after its commit, in seq order, as stored', () => {
-		const project = seedProject(db, 'AM');
-		let seenInside: number | undefined;
-		const stop = subscribe(() => {
-			seenInside ??= db.$client.inTransaction ? 1 : 0;
-		});
+	it("publishes a write's Events after its commit, with consecutive seqs, as stored", () => {
+		const am = seedProject(db, 'AM');
+		const bl = seedProject(db, 'BL');
+		const parent = seedTicket(db, { projectId: am.id });
+		seedTicket(db, { projectId: bl.id, parentId: parent.id });
+		const inside: boolean[] = [];
+		const stop = subscribe(() => inside.push(db.$client.inTransaction));
 
-		seedTicket(db, { projectId: project.id });
-		seedTicket(db, { projectId: project.id });
+		const found = recorded(() => deleteProject(db, actor, am.id));
 		stop();
 
-		expect(seenInside).toBe(0);
-		const stored = eventsSince(db, 0);
-		expect(published).toEqual(stored.slice(-published.length));
-		expect(published.map((e) => e.seq)).toEqual(
-			[...published.map((e) => e.seq)].sort((a, b) => a - b)
-		);
+		expect(found.length).toBeGreaterThan(1);
+		expect(inside).toEqual(found.map(() => false));
+		const first = found[0].seq;
+		expect(found.map((e) => e.seq)).toEqual(found.map((_, i) => first + i));
 	});
 });

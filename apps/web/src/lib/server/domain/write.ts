@@ -1,45 +1,55 @@
+import { eq } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
-import { events } from '../db/schema.ts';
+import { events, users } from '../db/schema.ts';
 import { publish } from '../events/bus.ts';
-import type { EntityIds, EventType, WorkloadEvent } from '../events/types.ts';
+import type { EventActor, EventSpec, WorkloadEvent } from '../events/types.ts';
 
 export type Actor = { id: number };
 
-export type EventSpec = {
-	type: EventType;
-	entityIds: EntityIds;
-	projectIds: Iterable<number | null | undefined>;
-	snapshot: unknown;
-};
-
-// A write that changed nothing returns a null event and records none.
-export type Outcome<T> = { value: T; event: EventSpec | null };
+// Build the Events after the write's last change, so each carries the state as of the commit.
+// List the write's own Event first, then one per side effect a client can see.
+export type Outcome<T> = { value: T; events: EventSpec[] };
 
 export function write<T>(db: Db, actor: Actor, body: (tx: Handle) => Outcome<T>): T {
-	const recorded: WorkloadEvent[] = [];
-	const value = db.transaction((tx) => {
+	const { value, recorded } = db.transaction((tx) => {
 		const outcome = body(tx);
-		if (outcome.event) recorded.push(insertEvent(tx, actor, outcome.event));
-		return outcome.value;
+		return { value: outcome.value, recorded: recordEvents(tx, actor, outcome.events) };
 	});
 	// Publish only after the commit: a listener must never see a write that rolled back.
 	for (const event of recorded) publish(event);
 	return value;
 }
 
-function insertEvent(tx: Handle, actor: Actor, spec: EventSpec): WorkloadEvent {
-	const projectIds = [
-		...new Set([...spec.projectIds].filter((id): id is number => typeof id === 'number'))
-	].sort((a, b) => a - b);
-	return tx
-		.insert(events)
-		.values({
-			type: spec.type,
-			entityIds: spec.entityIds,
-			projectIds,
-			actorId: actor.id,
-			snapshot: spec.snapshot ?? null
+function recordEvents(tx: Handle, actor: Actor, specs: EventSpec[]): WorkloadEvent[] {
+	if (specs.length === 0) return [];
+	const by = eventActor(tx, actor.id);
+	return specs.map((spec) => {
+		const row = tx
+			.insert(events)
+			.values({ type: spec.type, actorId: by.id, data: spec.data })
+			.returning()
+			.get();
+		return {
+			seq: row.seq,
+			type: row.type,
+			actor: by,
+			createdAt: row.createdAt,
+			data: row.data
+		} as WorkloadEvent;
+	});
+}
+
+function eventActor(db: Handle, id: number): EventActor {
+	const row = db
+		.select({
+			id: users.id,
+			kind: users.kind,
+			username: users.username,
+			displayName: users.displayName
 		})
-		.returning()
+		.from(users)
+		.where(eq(users.id, id))
 		.get();
+	if (row === undefined) throw new Error(`Actor ${id} does not exist`);
+	return row;
 }

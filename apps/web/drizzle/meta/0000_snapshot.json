@@ -1,7 +1,7 @@
 {
 	"version": "6",
 	"dialect": "sqlite",
-	"id": "c4259f7c-29b2-4ba3-bd42-36de802f4473",
+	"id": "36e73b0f-7cef-4225-8561-5da5ea001956",
 	"prevId": "00000000-0000-0000-0000-000000000000",
 	"tables": {
 		"api_tokens": {
@@ -101,20 +101,6 @@
 					"notNull": true,
 					"autoincrement": false
 				},
-				"entity_ids": {
-					"name": "entity_ids",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				},
-				"project_ids": {
-					"name": "project_ids",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": true,
-					"autoincrement": false
-				},
 				"actor_id": {
 					"name": "actor_id",
 					"type": "integer",
@@ -129,11 +115,11 @@
 					"notNull": true,
 					"autoincrement": false
 				},
-				"snapshot": {
-					"name": "snapshot",
+				"data": {
+					"name": "data",
 					"type": "text",
 					"primaryKey": false,
-					"notNull": false,
+					"notNull": true,
 					"autoincrement": false
 				}
 			},

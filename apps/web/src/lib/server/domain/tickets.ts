@@ -1,13 +1,30 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { projectKeys, projects, states, ticketKeys, tickets } from '../db/schema.ts';
+import type { EventSpec } from '../events/types.ts';
+import { falloutEvents, prepareTicketDelete } from './cascade.ts';
 import { DomainError } from './errors.ts';
 import { formatTicketKey, parseTicketKey } from './keys.ts';
 import { getProject, getState, getSubstate, getTicket, requireUser } from './lookup.ts';
 import { rankAt, type Placement } from './rank.ts';
 import { listSubstates } from './states.ts';
+import {
+	readTicket,
+	selectTicketViews,
+	toTicketView,
+	type Ticket,
+	type TicketView
+} from './ticket-view.ts';
 import { requireText } from './validate.ts';
-import { write, type Actor, type EventSpec } from './write.ts';
+import { write, type Actor } from './write.ts';
+
+export {
+	readTicket,
+	selectTicketViews,
+	toTicketView,
+	type Ticket,
+	type TicketView
+} from './ticket-view.ts';
 
 const TITLE_MAX = 200;
 export const DESCRIPTION_MAX = 50_000;
@@ -34,27 +51,6 @@ export type TicketPatch = {
 	substateId?: number | null;
 	placement?: Placement;
 };
-
-export type Ticket = typeof tickets.$inferSelect;
-
-export type TicketView = Ticket & { key: string };
-
-export function selectTicketViews(db: Handle) {
-	return db
-		.select({ ticket: tickets, projectKey: projects.key })
-		.from(tickets)
-		.innerJoin(projects, eq(projects.id, tickets.projectId));
-}
-
-export function toTicketView(row: { ticket: Ticket; projectKey: string }): TicketView {
-	return { ...row.ticket, key: formatTicketKey(row.projectKey, row.ticket.number) };
-}
-
-export function readTicket(db: Handle, ticketId: number): TicketView {
-	const row = selectTicketViews(db).where(eq(tickets.id, ticketId)).get();
-	if (row === undefined) throw new DomainError('not_found', 'Ticket not found');
-	return toTicketView(row);
-}
 
 export function ticketKeyOf(db: Handle, ticket: { projectId: number; number: number }): string {
 	return formatTicketKey(getProject(db, ticket.projectId).key, ticket.number);
@@ -112,23 +108,13 @@ export function recordTicketKey(db: Handle, ticketId: number, key: string): void
 	db.insert(ticketKeys).values({ key, ticketId }).run();
 }
 
-function ticketEvent(
+function ticketOutcome(
 	db: Handle,
-	type: EventSpec['type'],
-	ticketId: number,
-	alsoAffects: (number | null | undefined)[] = []
-): EventSpec {
-	const snapshot = readTicket(db, ticketId);
-	return {
-		type,
-		entityIds: { ticketId },
-		projectIds: [snapshot.projectId, ...alsoAffects],
-		snapshot
-	};
-}
-
-function projectOf(db: Handle, ticketId: number | null): number | null {
-	return ticketId === null ? null : getTicket(db, ticketId).projectId;
+	type: 'ticket.created' | 'ticket.updated' | 'ticket.moved' | 'ticket.reparented',
+	ticketId: number
+): { value: TicketView; events: EventSpec[] } {
+	const ticket = readTicket(db, ticketId);
+	return { value: ticket, events: [{ type, data: { ticket } }] };
 }
 
 export function createTicket(db: Db, actor: Actor, input: TicketSpec): TicketView {
@@ -169,8 +155,7 @@ export function createTicket(db: Db, actor: Actor, input: TicketSpec): TicketVie
 			.returning()
 			.get();
 		recordTicketKey(tx, ticket.id, formatTicketKey(project.key, number));
-		const event = ticketEvent(tx, 'ticket.created', ticket.id, [projectOf(tx, parentId)]);
-		return { value: event.snapshot as TicketView, event };
+		return ticketOutcome(tx, 'ticket.created', ticket.id);
 	});
 }
 
@@ -222,11 +207,10 @@ export function updateTicket(
 		const changed = (Object.keys(changes) as (keyof typeof changes)[]).filter(
 			(key) => changes[key] !== ticket[key as keyof Ticket]
 		);
-		if (changed.length === 0) return { value: readTicket(tx, ticketId), event: null };
+		if (changed.length === 0) return { value: readTicket(tx, ticketId), events: [] };
 		changes.updatedAt = new Date();
 		tx.update(tickets).set(changes).where(eq(tickets.id, ticketId)).run();
-		const event = ticketEvent(tx, 'ticket.updated', ticketId);
-		return { value: event.snapshot as TicketView, event };
+		return ticketOutcome(tx, 'ticket.updated', ticketId);
 	});
 }
 
@@ -239,16 +223,12 @@ export function setParent(
 	return write(db, actor, (tx) => {
 		const ticket = getTicket(tx, ticketId);
 		if (parentId !== null) assertParent(tx, ticketId, parentId);
-		if (parentId === ticket.parentId) return { value: readTicket(tx, ticketId), event: null };
+		if (parentId === ticket.parentId) return { value: readTicket(tx, ticketId), events: [] };
 		tx.update(tickets)
 			.set({ parentId, updatedAt: new Date() })
 			.where(eq(tickets.id, ticketId))
 			.run();
-		const event = ticketEvent(tx, 'ticket.reparented', ticketId, [
-			projectOf(tx, ticket.parentId),
-			projectOf(tx, parentId)
-		]);
-		return { value: event.snapshot as TicketView, event };
+		return ticketOutcome(tx, 'ticket.reparented', ticketId);
 	});
 }
 
@@ -289,8 +269,7 @@ export function moveTicket(db: Db, actor: Actor, ticketId: number, input: MoveTa
 			})
 			.where(eq(tickets.id, ticketId))
 			.run();
-		const event = ticketEvent(tx, 'ticket.moved', ticketId, [ticket.projectId]);
-		return { value: event.snapshot as TicketView, event };
+		return ticketOutcome(tx, 'ticket.moved', ticketId);
 	});
 }
 
@@ -304,34 +283,26 @@ export function rankTicket(
 	return write(db, actor, (tx) => {
 		const ticket = getTicket(tx, ticketId);
 		const rank = rankAt(columnOf(tx, ticket.stateId), ticket, placement, 'State');
-		if (rank === ticket.rank) return { value: readTicket(tx, ticketId), event: null };
+		if (rank === ticket.rank) return { value: readTicket(tx, ticketId), events: [] };
 		tx.update(tickets).set({ rank }).where(eq(tickets.id, ticketId)).run();
-		const event = ticketEvent(tx, 'ticket.ranked', ticketId);
-		return { value: event.snapshot as TicketView, event };
+		return {
+			value: readTicket(tx, ticketId),
+			events: [{ type: 'ticket.ranked', data: { id: ticketId, stateId: ticket.stateId, rank } }]
+		};
 	});
 }
 
 export function deleteTicket(db: Db, actor: Actor, ticketId: number): void {
 	write(db, actor, (tx) => {
 		const ticket = getTicket(tx, ticketId);
-		const children = tx
-			.select({ projectId: tickets.projectId })
-			.from(tickets)
-			.where(eq(tickets.parentId, ticketId))
-			.all();
+		const fallout = prepareTicketDelete(tx, eq(tickets.id, ticketId));
 		tx.delete(tickets).where(eq(tickets.id, ticketId)).run();
 		return {
 			value: undefined,
-			event: {
-				type: 'ticket.deleted',
-				entityIds: { ticketId },
-				projectIds: [
-					ticket.projectId,
-					projectOf(tx, ticket.parentId),
-					...children.map((c) => c.projectId)
-				],
-				snapshot: null
-			}
+			events: [
+				{ type: 'ticket.deleted', data: { id: ticketId, projectId: ticket.projectId } },
+				...falloutEvents(tx, fallout)
+			]
 		};
 	});
 }

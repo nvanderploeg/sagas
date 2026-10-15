@@ -1,16 +1,33 @@
-import { asc, gt, lt, lte, max, min, sql } from 'drizzle-orm';
-import type { Handle } from '../db/client.ts';
-import { events } from '../db/schema.ts';
+import { asc, eq, gt, lt, lte, max, min, sql } from 'drizzle-orm';
+import type { Db, Handle } from '../db/client.ts';
+import { events, users } from '../db/schema.ts';
 import type { WorkloadEvent } from './types.ts';
 
 export function eventsSince(db: Handle, seq: number, limit = -1): WorkloadEvent[] {
 	return db
-		.select()
+		.select({
+			seq: events.seq,
+			type: events.type,
+			actor: {
+				id: users.id,
+				kind: users.kind,
+				username: users.username,
+				displayName: users.displayName
+			},
+			createdAt: events.createdAt,
+			data: events.data
+		})
 		.from(events)
+		.innerJoin(users, eq(users.id, events.actorId))
 		.where(gt(events.seq, seq))
 		.orderBy(asc(events.seq))
 		.limit(limit)
-		.all();
+		.all() as WorkloadEvent[];
+}
+
+// Read the seq in the view's transaction: a client drops every Event at or below it.
+export function readAtSeq<T>(db: Db, read: (tx: Handle) => T): { seq: number; value: T } {
+	return db.transaction((tx) => ({ seq: eventWindow(tx).last, value: read(tx) }));
 }
 
 // `oldest` is the first seq still replayable; `last` the newest seq ever assigned, pruned or not.

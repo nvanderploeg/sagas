@@ -14,11 +14,9 @@ CREATE INDEX `api_tokens_user_idx` ON `api_tokens` (`user_id`);--> statement-bre
 CREATE TABLE `events` (
 	`seq` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`type` text NOT NULL,
-	`entity_ids` text NOT NULL,
-	`project_ids` text NOT NULL,
 	`actor_id` integer NOT NULL,
 	`created_at` integer NOT NULL,
-	`snapshot` text,
+	`data` text NOT NULL,
 	FOREIGN KEY (`actor_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint

@@ -59,7 +59,7 @@ describe('Quest CRUD', () => {
 			name: 'Launch',
 			description: 'Ship it',
 			ownerId,
-			ticketIds: [],
+			tickets: [],
 			progress: { closed: 0, total: 0 }
 		});
 		expect(listQuests(db).map((q) => q.id)).toEqual([quest.id]);
@@ -110,7 +110,7 @@ describe('membership', () => {
 		addQuestTicket(db, actor, quest.id, a.id);
 
 		expect(keys(quest.id)).toEqual(['BL-1', 'AM-1']);
-		expect(readQuest(db, quest.id).ticketIds).toEqual([b.id, a.id]);
+		expect(readQuest(db, quest.id).tickets.map((t) => t.id)).toEqual([b.id, a.id]);
 	});
 
 	it('lets one Ticket sit in any number of Quests', () => {
@@ -133,7 +133,7 @@ describe('membership', () => {
 
 		addQuestTicket(db, actor, quest.id, parent.id);
 
-		expect(readQuest(db, quest.id).ticketIds).toEqual([parent.id]);
+		expect(readQuest(db, quest.id).tickets.map((t) => t.id)).toEqual([parent.id]);
 	});
 
 	it('adds the direct Children only through the explicit helper, right after the Ticket', () => {
@@ -153,8 +153,14 @@ describe('membership', () => {
 			after: first.id
 		});
 
-		expect(view.ticketIds).toEqual([first.id, parent.id, child.id, last.id, other.id]);
-		expect(view.ticketIds).not.toContain(grandchild.id);
+		expect(view.tickets.map((t) => t.id)).toEqual([
+			first.id,
+			parent.id,
+			child.id,
+			last.id,
+			other.id
+		]);
+		expect(view.tickets.map((t) => t.id)).not.toContain(grandchild.id);
 		expectDomainError(() => addQuestTicketWithChildren(db, actor, quest.id, parent.id), 'conflict');
 	});
 
@@ -167,7 +173,7 @@ describe('membership', () => {
 		expectDomainError(() => addQuestTicket(db, actor, quest.id, ticket.id), 'conflict');
 		removeQuestTicket(db, actor, quest.id, ticket.id);
 		expectDomainError(() => removeQuestTicket(db, actor, quest.id, ticket.id), 'not_found');
-		expect(readQuest(db, quest.id).ticketIds).toEqual([]);
+		expect(readQuest(db, quest.id).tickets.map((t) => t.id)).toEqual([]);
 	});
 
 	it('refuses an unknown Ticket or Quest', () => {
@@ -192,8 +198,8 @@ describe('membership', () => {
 
 		deleteTicket(db, actor, gone.id);
 
-		expect(readQuest(db, first.id).ticketIds).toEqual([kept.id]);
-		expect(readQuest(db, second.id).ticketIds).toEqual([kept.id]);
+		expect(readQuest(db, first.id).tickets.map((t) => t.id)).toEqual([kept.id]);
+		expect(readQuest(db, second.id).tickets.map((t) => t.id)).toEqual([kept.id]);
 	});
 });
 
@@ -227,7 +233,7 @@ describe('Quest order', () => {
 
 		updateTicket(db, actor, b.id, { placement: 'bottom' });
 
-		expect(readQuest(db, quest.id).ticketIds).toEqual([b.id, a.id]);
+		expect(readQuest(db, quest.id).tickets.map((t) => t.id)).toEqual([b.id, a.id]);
 	});
 
 	it('refuses to rank against a Ticket outside the Quest, or a Ticket not in it', () => {

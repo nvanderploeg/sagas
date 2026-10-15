@@ -1,9 +1,11 @@
 import { asc, eq } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
+import type { EventSpec } from '../events/types.ts';
 import { projectKeys, projects, tickets } from '../db/schema.ts';
+import { falloutEvents, prepareTicketDelete } from './cascade.ts';
 import { DomainError } from './errors.ts';
 import { getProject, getState } from './lookup.ts';
-import { configEvent } from './project-view.ts';
+import { projectEvent } from './project-view.ts';
 import { CLOSED_STATE, insertState, type StyleSpec } from './states.ts';
 import { formatTicketKey, normalizeProjectKey } from './keys.ts';
 import { recordTicketKey } from './tickets.ts';
@@ -11,7 +13,7 @@ import { requireText } from './validate.ts';
 import { write, type Actor } from './write.ts';
 
 export type Project = typeof projects.$inferSelect;
-export { readProject, type ProjectView } from './project-view.ts';
+export { readBoard, readProject, type BoardView, type ProjectView } from './project-view.ts';
 
 export function listProjects(db: Handle) {
 	return db.select().from(projects).orderBy(asc(projects.id)).all();
@@ -36,7 +38,7 @@ export function createProject(
 			.where(eq(projects.id, project.id))
 			.returning()
 			.get();
-		return { value, event: configEvent(tx, 'project.created', { projectId: project.id }) };
+		return { value, events: [projectEvent(tx, 'project.created', project.id)] };
 	});
 }
 
@@ -49,14 +51,14 @@ export function updateProject(
 	return write(db, actor, (tx) => {
 		const project = getProject(tx, projectId);
 		const name = requireText(patch.name, 'Project name', 120);
-		if (name === project.name) return { value: project, event: null };
+		if (name === project.name) return { value: project, events: [] };
 		const value = tx
 			.update(projects)
 			.set({ name })
 			.where(eq(projects.id, projectId))
 			.returning()
 			.get();
-		return { value, event: configEvent(tx, 'project.updated', { projectId }) };
+		return { value, events: [projectEvent(tx, 'project.updated', projectId)] };
 	});
 }
 
@@ -64,7 +66,7 @@ export function renameProjectKey(db: Db, actor: Actor, projectId: number, input:
 	return write(db, actor, (tx) => {
 		const project = getProject(tx, projectId);
 		const key = normalizeProjectKey(input);
-		if (key === project.key) return { value: project, event: null };
+		if (key === project.key) return { value: project, events: [] };
 		assertKeyAvailable(tx, key, projectId);
 
 		tx.insert(projectKeys).values({ key, projectId }).onConflictDoNothing().run();
@@ -72,15 +74,25 @@ export function renameProjectKey(db: Db, actor: Actor, projectId: number, input:
 			.select({ id: tickets.id, number: tickets.number })
 			.from(tickets)
 			.where(eq(tickets.projectId, projectId))
+			.orderBy(asc(tickets.id))
 			.all();
-		for (const ticket of held) recordTicketKey(tx, ticket.id, formatTicketKey(key, ticket.number));
+		const rekeyed = held.map((ticket) => ({
+			id: ticket.id,
+			previousKey: formatTicketKey(project.key, ticket.number),
+			key: formatTicketKey(key, ticket.number)
+		}));
+		for (const ticket of rekeyed) recordTicketKey(tx, ticket.id, ticket.key);
 		const value = tx
 			.update(projects)
 			.set({ key })
 			.where(eq(projects.id, projectId))
 			.returning()
 			.get();
-		return { value, event: configEvent(tx, 'project.updated', { projectId }) };
+		const events: EventSpec[] = [projectEvent(tx, 'project.updated', projectId)];
+		if (rekeyed.length > 0) {
+			events.push({ type: 'ticket.rekeyed', data: { projectId, tickets: rekeyed } });
+		}
+		return { value, events };
 	});
 }
 
@@ -92,29 +104,36 @@ export function setInitialState(db: Db, actor: Actor, projectId: number, stateId
 			throw new DomainError('invalid', 'The Initial State must belong to the Project');
 		}
 		if (state.isClosed) throw new DomainError('invalid', 'The Initial State cannot be Closed');
-		if (project.initialStateId === stateId) return { value: project, event: null };
+		if (project.initialStateId === stateId) return { value: project, events: [] };
 		const value = tx
 			.update(projects)
 			.set({ initialStateId: stateId })
 			.where(eq(projects.id, projectId))
 			.returning()
 			.get();
-		return { value, event: configEvent(tx, 'project.updated', { projectId }) };
+		return { value, events: [projectEvent(tx, 'project.updated', projectId)] };
 	});
 }
 
 export function deleteProject(db: Db, actor: Actor, projectId: number): void {
 	write(db, actor, (tx) => {
 		getProject(tx, projectId);
+		const held = eq(tickets.projectId, projectId);
+		const ticketIds = tx
+			.select({ id: tickets.id })
+			.from(tickets)
+			.where(held)
+			.orderBy(asc(tickets.id))
+			.all()
+			.map((row) => row.id);
+		const fallout = prepareTicketDelete(tx, held);
 		tx.delete(projects).where(eq(projects.id, projectId)).run();
 		return {
 			value: undefined,
-			event: {
-				type: 'project.deleted',
-				entityIds: { projectId },
-				projectIds: [projectId],
-				snapshot: null
-			}
+			events: [
+				{ type: 'project.deleted', data: { projectId, ticketIds } },
+				...falloutEvents(tx, fallout)
+			]
 		};
 	});
 }
