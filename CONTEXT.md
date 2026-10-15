@@ -58,5 +58,8 @@ The State a new Ticket lands in. Each Project picks its own; it can't be Closed.
 **Substate**:
 An optional subdivision of one State (`In Progress › Code review`), configured per Project, Closed included. When a State has Substates, a Ticket in that State is always in one of them, and the State names a default Substate to land in.
 
+**Rank**:
+A Ticket's position within its State's board column, set by dragging. Top is next. There is no priority field.
+
 **Quest**:
 A named, ordered set of Tickets that may span Projects, with a description and an Owner. A Ticket can be in any number of Quests. Membership is explicit: adding a Ticket never adds its Children. A Quest has no State; its progress is its Closed Tickets over all its Tickets.
