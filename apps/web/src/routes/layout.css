@@ -42,6 +42,17 @@ body {
 	outline-offset: 2px;
 }
 
+/* CSS motion only: Svelte transitions take their durations from motion.ms. */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	::before,
+	::after {
+		animation: none !important;
+		transition: none !important;
+		scroll-behavior: auto !important;
+	}
+}
+
 @layer components {
 	.field {
 		@apply rounded-lg border-line bg-panel px-2.5 py-1.5 text-sm text-ink shadow-none;

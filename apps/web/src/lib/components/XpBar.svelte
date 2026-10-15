@@ -219,13 +219,7 @@
 		}
 
 		.moment {
-			animation: fade 3.6s step-end forwards;
-		}
-
-		@keyframes fade {
-			100% {
-				opacity: 0;
-			}
+			animation: none;
 		}
 	}
 </style>

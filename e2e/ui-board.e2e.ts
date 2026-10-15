@@ -176,20 +176,52 @@ test.describe('board', () => {
 	});
 
 	test.describe('with reduced motion', () => {
-		test('moves land at once and closing plays no burst', async ({ page, ui }) => {
+		test('moves land at once and nothing animates or transitions', async ({ page, ui }) => {
 			const p = ui.project();
 			const a = ui.ticket(p.id, { title: 'Calm' });
+			ui.ticket(p.id, { title: 'Neighbour' });
 			await page.emulateMedia({ reducedMotion: 'reduce' });
+			await page.addInitScript(() => {
+				const seen: string[] = [];
+				(window as unknown as { motion: string[] }).motion = seen;
+				const animate = Element.prototype.animate;
+				Element.prototype.animate = function (keyframes, options) {
+					const duration = typeof options === 'number' ? options : Number(options?.duration ?? 0);
+					if (duration > 0) seen.push(`animate ${duration}ms`);
+					return animate.call(this, keyframes, options);
+				};
+				document.addEventListener('animationstart', (e) =>
+					seen.push(`animation ${e.animationName}`)
+				);
+				document.addEventListener('transitionrun', (e) =>
+					seen.push(`transition ${e.propertyName}`)
+				);
+			});
 			await page.goto(`/p/${p.key}`);
 			await live(page);
+
 			await page.locator(`a[href="/t/${a.key}"]`).focus();
 			await page.keyboard.press('Space');
+			await page.keyboard.press('ArrowDown');
 			await page.keyboard.press('ArrowRight');
 			await page.keyboard.press('ArrowRight');
 			await page.keyboard.press('Space');
-
-			await expect(column(page, 'To do').locator('[data-card]')).toHaveCount(0);
 			await expect.poll(() => cardKeys(column(page, 'Closed'))).toEqual([a.key]);
+			await page.waitForTimeout(300);
+
+			const running = await page.evaluate(() =>
+				document
+					.getAnimations()
+					.filter((animation) => {
+						const { duration } = animation.effect?.getComputedTiming() ?? {};
+						return animation.playState === 'running' && Number(duration) > 0;
+					})
+					.map((animation) => animation.constructor.name)
+			);
+			expect(running).toEqual([]);
+			expect(await page.evaluate(() => (window as unknown as { motion: string[] }).motion)).toEqual(
+				[]
+			);
 			await expect(page.getByTestId('loot-burst')).toHaveCSS('display', 'none');
 		});
 	});
