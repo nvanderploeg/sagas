@@ -33,12 +33,13 @@
 				/>
 			</label>
 			<label class="grid gap-1 text-sm">
-				Password (12 characters or more)
+				Password (7 to 256 characters)
 				<input
 					type="password"
 					name="password"
 					required
-					minlength="12"
+					minlength="7"
+					maxlength="256"
 					autocomplete="new-password"
 					class="rounded border px-2 py-1"
 				/>

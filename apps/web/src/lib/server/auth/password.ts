@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
 import { DomainError } from '#lib/server/domain/errors.ts';
 
-const MIN_LENGTH = 12;
+const MIN_LENGTH = 7;
 const MAX_LENGTH = 256;
 
 export function checkPassword(password: string): string {

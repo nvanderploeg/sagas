@@ -16,8 +16,10 @@ describe('password hashing', () => {
 		expect(await verifyPassword('not-a-hash', 'correct horse battery')).toBe(false);
 	});
 
-	it('rejects a password shorter than 12 characters or longer than 256', async () => {
-		await expect(hashPassword('short')).rejects.toBeInstanceOf(DomainError);
+	it('accepts a password of 7 to 256 characters and rejects any other length', async () => {
+		await expect(hashPassword('x'.repeat(6))).rejects.toMatchObject({ code: 'invalid' });
+		await expect(hashPassword('x'.repeat(7))).resolves.toMatch(/^\$argon2id\$/);
+		await expect(hashPassword('x'.repeat(256))).resolves.toMatch(/^\$argon2id\$/);
 		await expect(hashPassword('x'.repeat(257))).rejects.toBeInstanceOf(DomainError);
 	});
 });

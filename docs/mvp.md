@@ -19,6 +19,7 @@ Attachments (first after MVP), comments, history and audit log, blocked flag, se
 ## Decisions
 
 - **Deployment**: one container, adapter-node, SQLite file at `DATABASE_PATH` on a mounted volume. No other services.
+- **Passwords**: 7–256 characters.
 - **Permissions**: any signed-in User may do anything except manage Users and Invites, which needs an Admin.
 - **Moving a Ticket** to another Project: the caller picks the target State and Substate, defaulting to that Project's Initial State. A Ticket in Closed lands in the target's Closed. Its Parent and Children stay where they are.
 - **Deleting a Ticket** leaves a gap in its Project's numbering.
