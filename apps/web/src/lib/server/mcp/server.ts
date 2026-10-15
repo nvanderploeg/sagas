@@ -32,7 +32,12 @@ export function createMcpServer(db: Db, actor: AuthUser): McpServer {
 
 // Never reuse a server across requests: its tools act as one User, and a stateless transport
 // serves one request.
-export async function handleMcpRequest(db: Db, actor: AuthUser, request: Request) {
+export async function handleMcpRequest(
+	db: Db,
+	actor: AuthUser,
+	request: Request,
+	message: unknown
+) {
 	const server = createMcpServer(db, actor);
 	const transport = new WebStandardStreamableHTTPServerTransport({
 		sessionIdGenerator: undefined,
@@ -40,7 +45,7 @@ export async function handleMcpRequest(db: Db, actor: AuthUser, request: Request
 	});
 	await server.connect(transport);
 	try {
-		return await transport.handleRequest(request);
+		return await transport.handleRequest(request, { parsedBody: message });
 	} finally {
 		await server.close();
 	}
