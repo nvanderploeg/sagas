@@ -170,16 +170,19 @@
 	}
 
 	function onHandleKey(event: KeyboardEvent, ticket: Ticket) {
-		if (!drag) {
-			if (event.key === ' ' || event.key === 'Enter') {
-				event.preventDefault();
-				start = members.findIndex((t) => t.id === ticket.id);
-				drag = { id: ticket.id, mode: 'keyboard', index: start };
-				announcement = `Picked up ${ticket.key}. Arrow keys move it, Space drops it, Escape cancels.`;
-			}
-			return;
-		}
-		if (drag.id !== ticket.id) return;
+		if (drag || (event.key !== ' ' && event.key !== 'Enter')) return;
+		event.preventDefault();
+		// The window handler below would otherwise drop the row on this same key press.
+		event.stopPropagation();
+		start = members.findIndex((t) => t.id === ticket.id);
+		drag = { id: ticket.id, mode: 'keyboard', index: start };
+		announcement = `Picked up ${ticket.key}. Arrow keys move it, Space drops it, Escape cancels.`;
+	}
+
+	function onLiftedKey(event: KeyboardEvent) {
+		if (drag?.mode !== 'keyboard') return;
+		const ticket = members.find((t) => t.id === drag!.id);
+		if (!ticket) return;
 		if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
 			event.preventDefault();
 			const index =
@@ -205,6 +208,8 @@
 <svelte:head>
 	<title>{view?.quest.name ?? 'Quest'} · workload</title>
 </svelte:head>
+
+<svelte:window onkeydown={onLiftedKey} />
 
 {#if view}
 	{@const quest = view.quest}

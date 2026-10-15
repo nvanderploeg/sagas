@@ -220,18 +220,23 @@
 	}
 
 	function onCardKey(event: KeyboardEvent, ticket: Ticket) {
-		if (!drag) {
-			if (event.key === ' ') {
-				event.preventDefault();
-				const at = indexOf(ticket.id);
-				if (!at) return;
-				origin = at;
-				drag = { id: ticket.id, mode: 'keyboard', ...at };
-				announcement = `Picked up ${ticket.key}. Arrow keys move it, Space drops it, Escape cancels.`;
-			}
-			return;
-		}
-		if (drag.id !== ticket.id || drag.mode !== 'keyboard') return;
+		if (drag || event.key !== ' ') return;
+		event.preventDefault();
+		// The window handler below would otherwise drop the card on this same key press.
+		event.stopPropagation();
+		const at = indexOf(ticket.id);
+		if (!at) return;
+		origin = at;
+		drag = { id: ticket.id, mode: 'keyboard', ...at };
+		announcement = `Picked up ${ticket.key}. Arrow keys move it, Space drops it, Escape cancels.`;
+	}
+
+	// Listens on the window: the lifted card is a new element after each move between columns,
+	// and a key can land before focus follows it.
+	function onLiftedKey(event: KeyboardEvent) {
+		if (drag?.mode !== 'keyboard') return;
+		const ticket = board?.tickets.find((t) => t.id === drag!.id);
+		if (!ticket) return;
 		const states = board?.project.states ?? [];
 		const lane = states.findIndex((s) => s.id === drag!.stateId);
 		const length = (stateId: number) =>
@@ -262,8 +267,6 @@
 				origin = null;
 				announcement = `${ticket.key} put back.`;
 				focusCard(ticket.id);
-				return;
-			case 'Tab':
 				return;
 			default:
 				return;
@@ -320,6 +323,8 @@
 		}
 	});
 </script>
+
+<svelte:window onkeydown={onLiftedKey} />
 
 {#if board}
 	<div class="page">

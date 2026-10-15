@@ -121,19 +121,21 @@ test.describe('board', () => {
 
 	test('filters by owner and by assignee', async ({ page, ui }) => {
 		const p = ui.project();
-		const bot = ui.agent(`bot${Date.now().toString(36)}`, 'Filter Bot');
+		const tag = Date.now().toString(36);
+		const name = `Filter Bot ${tag}`;
+		const bot = ui.agent(`bot${tag}`, name);
 		ui.ticket(p.id, { title: 'Mine, unassigned' });
 		ui.ticket(p.id, { title: 'For the bot', assigneeId: bot.id });
 
 		await page.goto(`/p/${p.key}`);
 		const todo = column(page, 'To do');
 		await expect(todo.locator('[data-card]')).toHaveCount(2);
-		await page.getByLabel('Assignee').selectOption({ label: 'Filter Bot' });
+		await page.getByLabel('Assignee').selectOption({ label: name });
 		await expect(todo.locator('[data-card]')).toHaveCount(1);
 		await expect(todo).toContainText('For the bot');
 		await page.getByLabel('Assignee').selectOption({ label: 'Unassigned' });
 		await expect(todo).toContainText('Mine, unassigned');
-		await page.getByLabel('Owner').selectOption({ label: 'Filter Bot' });
+		await page.getByLabel('Owner').selectOption({ label: name });
 		await expect(todo.locator('[data-card]')).toHaveCount(0);
 		await page.getByRole('button', { name: 'Clear filters' }).click();
 		await expect(todo.locator('[data-card]')).toHaveCount(2);

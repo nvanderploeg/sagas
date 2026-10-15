@@ -44,7 +44,9 @@ test.describe('ticket page', () => {
 		const p = ui.project();
 		ui.substate(p.doing, 'Coding');
 		ui.substate(p.doing, 'Review');
-		const bot = ui.agent(`bot${Date.now().toString(36)}`, 'Field Bot');
+		const tag = Date.now().toString(36);
+		const name = `Field Bot ${tag}`;
+		const bot = ui.agent(`bot${tag}`, name);
 		const t = ui.ticket(p.id, { title: 'Fields' });
 		await page.goto(`/t/${t.key}`);
 		await live(page);
@@ -52,8 +54,8 @@ test.describe('ticket page', () => {
 		await page.getByLabel('State', { exact: true }).selectOption({ label: 'In progress' });
 		await expect(page.getByLabel('Substate')).toHaveValue(/\d+/);
 		await page.getByLabel('Substate').selectOption({ label: 'Review' });
-		await page.getByLabel('Assignee').selectOption({ label: 'Field Bot' });
-		await page.getByLabel('Owner').selectOption({ label: 'Field Bot' });
+		await page.getByLabel('Assignee').selectOption({ label: name });
+		await page.getByLabel('Owner').selectOption({ label: name });
 
 		await expect
 			.poll(() => {
