@@ -1,1 +1,121 @@
 @import 'tailwindcss';
+@plugin '@tailwindcss/forms';
+@plugin '@tailwindcss/typography';
+
+@theme {
+	--font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+	--font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+	--color-bg: light-dark(#e8ecef, #0d1114);
+	--color-panel: light-dark(#ffffff, #151b20);
+	--color-panel-2: light-dark(#f2f5f7, #1c242b);
+	--color-ink: light-dark(#121c25, #e8eef2);
+	--color-muted: light-dark(#566573, #8c9aa6);
+	--color-line: light-dark(#d3dbe1, #27323b);
+	--color-danger: light-dark(#b42318, #f97066);
+	--color-xp: light-dark(#7c3aed, #a78bfa);
+	--color-gold: light-dark(#d99a00, #fbbf24);
+}
+
+:root {
+	color-scheme: light dark;
+}
+
+:root[data-theme='light'] {
+	color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+	color-scheme: dark;
+}
+
+body {
+	background: var(--color-bg);
+	color: var(--color-ink);
+	font-family: var(--font-sans);
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+	outline: 2px solid var(--color-ink);
+	outline-offset: 2px;
+}
+
+@layer components {
+	.field {
+		@apply rounded-lg border-line bg-panel px-2.5 py-1.5 text-sm text-ink shadow-none;
+	}
+
+	.field:focus {
+		@apply border-ink ring-0;
+	}
+
+	select.field {
+		@apply pr-8;
+	}
+
+	.btn {
+		@apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-sm font-semibold text-ink transition-colors hover:bg-panel-2 disabled:cursor-not-allowed disabled:opacity-50;
+	}
+
+	.btn-primary {
+		@apply border-ink bg-ink text-panel hover:bg-ink/85;
+	}
+
+	.btn-danger {
+		@apply border-danger/50 text-danger hover:bg-danger/10;
+	}
+
+	.btn-quiet {
+		@apply border-transparent bg-transparent px-2 font-medium text-muted hover:bg-panel-2 hover:text-ink;
+	}
+
+	.panel {
+		@apply rounded-2xl border border-line bg-panel;
+	}
+
+	.label {
+		@apply text-sm font-medium text-muted;
+	}
+
+	.key {
+		@apply font-mono text-[0.78rem] font-semibold tracking-tight whitespace-nowrap text-muted;
+	}
+
+	.error {
+		@apply text-sm text-danger;
+	}
+}
+
+/* Unlayered, so it outranks the typography plugin's own colours. */
+.prose.prose-workload {
+	--tw-prose-body: var(--color-ink);
+	--tw-prose-headings: var(--color-ink);
+	--tw-prose-lead: var(--color-muted);
+	--tw-prose-links: var(--color-ink);
+	--tw-prose-bold: var(--color-ink);
+	--tw-prose-counters: var(--color-muted);
+	--tw-prose-bullets: var(--color-muted);
+	--tw-prose-hr: var(--color-line);
+	--tw-prose-quotes: var(--color-muted);
+	--tw-prose-quote-borders: var(--color-line);
+	--tw-prose-captions: var(--color-muted);
+	--tw-prose-code: var(--color-ink);
+	--tw-prose-pre-code: var(--color-ink);
+	--tw-prose-pre-bg: var(--color-panel-2);
+	--tw-prose-th-borders: var(--color-line);
+	--tw-prose-td-borders: var(--color-line);
+}
+
+.prose.prose-workload :where(code)::before,
+.prose.prose-workload :where(code)::after {
+	content: none;
+}
+
+.prose.prose-workload :where(code):not(:where(pre code)) {
+	padding: 0.1em 0.35em;
+	border-radius: 0.3rem;
+	background: var(--color-panel-2);
+	font-size: 0.86em;
+}
