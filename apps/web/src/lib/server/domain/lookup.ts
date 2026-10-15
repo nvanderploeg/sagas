@@ -1,0 +1,31 @@
+import { eq } from 'drizzle-orm';
+import type { Handle } from '../db/client.ts';
+import { projects, states, substates, tickets, users } from '../db/schema.ts';
+import { DomainError } from './errors.ts';
+
+function must<T>(row: T | undefined, what: string): T {
+	if (row === undefined) throw new DomainError('not_found', `${what} not found`);
+	return row;
+}
+
+export function getProject(db: Handle, id: number) {
+	return must(db.select().from(projects).where(eq(projects.id, id)).get(), 'Project');
+}
+
+export function getState(db: Handle, id: number) {
+	return must(db.select().from(states).where(eq(states.id, id)).get(), 'State');
+}
+
+export function getSubstate(db: Handle, id: number) {
+	return must(db.select().from(substates).where(eq(substates.id, id)).get(), 'Substate');
+}
+
+export function getTicket(db: Handle, id: number) {
+	return must(db.select().from(tickets).where(eq(tickets.id, id)).get(), 'Ticket');
+}
+
+export function requireUser(db: Handle, id: number, field: string): number {
+	const row = db.select({ id: users.id }).from(users).where(eq(users.id, id)).get();
+	if (row === undefined) throw new DomainError('invalid', `${field} does not exist`);
+	return row.id;
+}
