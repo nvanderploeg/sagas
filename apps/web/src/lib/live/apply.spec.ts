@@ -29,6 +29,7 @@ import {
 	deleteTicket,
 	moveTicket,
 	rankTicket,
+	readTicket,
 	setParent,
 	updateTicket
 } from '#lib/server/domain/tickets.ts';
@@ -51,10 +52,11 @@ import {
 	applyToSettings,
 	applyToTicketPage,
 	byRank,
+	RELOAD,
 	type Apply
 } from './apply.ts';
 import { FeedCore, LiveCore } from './core.ts';
-import type { BoardView, LiveEvent } from './types.ts';
+import type { BoardView, LiveEvent, Ticket, TicketPageView } from './types.ts';
 
 // The scenario of events/replica.spec.ts, run through the client's own views and Feed.
 
@@ -252,5 +254,31 @@ describe('applyToBoard', () => {
 		const board = loaded.value as unknown as BoardView;
 		const apply = applyToBoard(am.id);
 		for (const event of events) expect(apply(board, event), event.type).toBe(board);
+	});
+});
+
+describe('applyToTicketPage', () => {
+	it("applies one's own new Parent from the view it shows, and reloads for any other", () => {
+		const am = createProject(db, actor, { name: 'AM', key: 'AM', initialState: TODO });
+		const ticket = (title: string) =>
+			createTicket(db, actor, { projectId: am.id, title, ownerId: actor.id });
+		const [kid, a, b] = [ticket('kid'), ticket('a'), ticket('b')];
+		const loaded = loadOrNull((tx) => readTicketPage(tx, kid.id))!;
+		const page = loaded.value as unknown as TicketPageView;
+		setParent(db, actor, kid.id, a.id);
+		const [event] = toJson(eventsSince(db, loaded.seq)) as LiveEvent[];
+		const parent = (id: number) => toJson(readTicket(db, id)) as Ticket;
+		const showing = (p: Ticket) => ({
+			...page,
+			ticket: { ...page.ticket, parentId: p.id },
+			parent: p
+		});
+
+		expect(applyToTicketPage(page, event)).toBe(RELOAD);
+		expect(applyToTicketPage(page, event, showing(parent(b.id)))).toBe(RELOAD);
+		expect(applyToTicketPage(page, event, showing(parent(a.id)))).toMatchObject({
+			ticket: { id: kid.id, parentId: a.id },
+			parent: parent(a.id)
+		});
 	});
 });

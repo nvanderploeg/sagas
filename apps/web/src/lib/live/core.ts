@@ -107,6 +107,8 @@ export class LiveCore<T> implements Sink {
 	#base: T | null;
 	#seq: number;
 	#pending: Pending<T>[] = [];
+	// The confirmed view missed an Event it could not apply, so it cannot vouch for any write.
+	#stale = false;
 	#cached: { value: T | null } | null = null;
 	#options: LiveOptions<T>;
 	#feed: Feed | null = null;
@@ -153,8 +155,10 @@ export class LiveCore<T> implements Sink {
 		this.#seq = event.seq;
 		const before = this.#base;
 		if (before === null) return;
-		const after = this.#options.apply(before, event);
+		const shown = this.#pending.length > 0 ? (this.value ?? undefined) : undefined;
+		const after = this.#options.apply(before, event, shown);
 		if (after === RELOAD) {
+			this.#stale = true;
 			this.#options.onReload?.();
 			return;
 		}
@@ -165,12 +169,14 @@ export class LiveCore<T> implements Sink {
 	}
 
 	reset(): void {
+		this.#stale = true;
 		this.#options.onReload?.();
 	}
 
 	load(value: T, seq: number): void {
 		this.#base = value;
 		this.#seq = seq;
+		this.#stale = false;
 		this.#settle();
 		this.#changed();
 		this.#feed?.replay(this, seq);
@@ -197,6 +203,7 @@ export class LiveCore<T> implements Sink {
 	}
 
 	#settle(): void {
+		if (this.#stale) return;
 		const kept = this.#pending.filter((p) => p.until === null || p.until > this.#seq);
 		if (kept.length !== this.#pending.length) this.#pending = kept;
 	}

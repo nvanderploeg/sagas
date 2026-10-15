@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { RELOAD } from './apply.ts';
 import { FeedCore, LiveCore } from './core.ts';
 import type { LiveEvent } from './types.ts';
 
@@ -98,6 +99,34 @@ describe('LiveCore', () => {
 			(v) => ({ ...v, title: 'patched' }),
 			async () => ({ seq: 11 })
 		);
+		expect(core.value?.title).toBe('mine');
+	});
+
+	it('keeps its own patch over a view that must reload, until the reload lands', async () => {
+		const reloads: number[] = [];
+		const core = new LiveCore<View>({
+			seq: 10,
+			value: { title: 'loaded', seen: [] },
+			apply: (view, e) => (e.seq === 11 ? RELOAD : apply(view, e)),
+			onReload: () => reloads.push(core.seq)
+		});
+		const write = deferred<{ seq: number }>();
+		const done = core.mutate(
+			(v) => ({ ...v, title: 'mine' }),
+			() => write.promise
+		);
+
+		core.receive(event(11, 'mine'));
+		expect(reloads).toEqual([11]);
+		expect(core.value?.title).toBe('mine');
+
+		write.resolve({ seq: 11 });
+		await done;
+		core.receive(event(12, 'theirs'));
+		expect(core.value?.title).toBe('mine');
+
+		core.load({ title: 'mine', seen: [] }, 12);
+		expect(core.value).toBe(core.confirmed);
 		expect(core.value?.title).toBe('mine');
 	});
 

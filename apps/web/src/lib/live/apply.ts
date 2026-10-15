@@ -18,7 +18,8 @@ import type {
 export const RELOAD = Symbol('reload');
 
 export type Applied<T> = T | null | typeof RELOAD;
-export type Apply<T> = (view: T, event: LiveEvent) => Applied<T>;
+// `shown` is the view with the client's own pending writes over it, when it has any.
+export type Apply<T> = (view: T, event: LiveEvent, shown?: T) => Applied<T>;
 
 const byId = (a: { id: number }, b: { id: number }) => a.id - b.id;
 
@@ -258,7 +259,11 @@ function applyToOptions(
 	}
 }
 
-export function applyToTicketPage(page: TicketPageView, event: LiveEvent): Applied<TicketPageView> {
+export function applyToTicketPage(
+	page: TicketPageView,
+	event: LiveEvent,
+	shown?: TicketPageView
+): Applied<TicketPageView> {
 	const id = page.ticket.id;
 	if (event.type === 'ticket.deleted' && event.data.id === id) return null;
 	if (event.type === 'project.deleted' && event.data.ticketIds.includes(id)) return null;
@@ -272,7 +277,12 @@ export function applyToTicketPage(page: TicketPageView, event: LiveEvent): Appli
 	const changed = changedTicket(event);
 	if (changed) {
 		if (changed.id === id) {
-			if (changed.parentId !== page.ticket.parentId && changed.parentId !== null) return RELOAD;
+			if (changed.parentId !== null && changed.parentId !== page.ticket.parentId) {
+				// The Event names the new Parent but does not carry it; the client's own pending
+				// write may already show it.
+				if (shown?.parent?.id !== changed.parentId) return RELOAD;
+				next.parent = shown.parent;
+			}
 			next.ticket = changed;
 			if (changed.parentId === null) next.parent = null;
 		}
@@ -287,5 +297,6 @@ export function applyToTicketPage(page: TicketPageView, event: LiveEvent): Appli
 		if (page.parent) next.parent = (patchTickets([page.parent], event) ?? [page.parent])[0] ?? null;
 		next.children = patchTickets(page.children, event) ?? page.children;
 	}
-	return next;
+	const same = (Object.keys(next) as (keyof TicketPageView)[]).every((k) => next[k] === page[k]);
+	return same ? page : next;
 }
