@@ -141,6 +141,40 @@ test.describe('board', () => {
 		await expect(todo.locator('[data-card]')).toHaveCount(2);
 	});
 
+	test('leaving the board mid-drag drops the drag and never moves the card', async ({
+		page,
+		ui
+	}) => {
+		const p = ui.project();
+		const a = ui.ticket(p.id, { title: 'Held' });
+		ui.ticket(p.id, { title: 'Target', stateId: p.doing });
+		await page.goto(`/p/${p.key}`);
+		await live(page);
+		const moves: string[] = [];
+		page.on('request', (request) => {
+			if (request.method() === 'POST') moves.push(request.url());
+		});
+
+		const box = (await card(page, a.key).boundingBox())!;
+		const target = (await column(page, 'In progress').boundingBox())!;
+		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(box.x + box.width / 2 + 10, box.y + box.height / 2 + 30, { steps: 4 });
+		await expect(page.getByTestId('floating-card')).toBeVisible();
+		await expect(page.locator('html')).toHaveClass(/dragging/);
+
+		await page.evaluate(() => document.querySelector<HTMLAnchorElement>('a.brand')!.click());
+		await expect(page.getByRole('heading', { level: 1 })).toContainText('Hello');
+		await expect(page.locator('html')).not.toHaveClass(/dragging/);
+		await page.mouse.move(target.x + target.width / 2, target.y + 40, { steps: 6 });
+		await page.mouse.up();
+		await page.keyboard.press('Space');
+		await page.waitForTimeout(400);
+
+		expect(moves).toEqual([]);
+		expect(ui.readTicket(a.id).stateId).toBe(p.todo);
+	});
+
 	test.describe('with reduced motion', () => {
 		test('moves land at once and closing plays no burst', async ({ page, ui }) => {
 			const p = ui.project();

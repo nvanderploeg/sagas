@@ -23,6 +23,7 @@ const EDGE = 56;
 
 // A pointer drag that lifts a card out of a list and follows the pointer with it. Mouse and pen
 // drag from anywhere on the card; touch only from a handle, so a finger still scrolls the board.
+// Construct during component init: when the component goes, so does any drag, without a drop.
 export class PointerDrag {
 	lifted = $state<Lifted | null>(null);
 	#hooks: DragHooks;
@@ -33,9 +34,11 @@ export class PointerDrag {
 	#target: Target | null = null;
 	#frame = 0;
 	#cleanup: (() => void) | null = null;
+	#ended = false;
 
 	constructor(hooks: DragHooks) {
 		this.#hooks = hooks;
+		$effect(() => () => this.#end());
 	}
 
 	get active(): boolean {
@@ -43,7 +46,7 @@ export class PointerDrag {
 	}
 
 	begin(event: PointerEvent, id: number, element: HTMLElement, fromHandle = false): void {
-		if (event.button !== 0 || this.#pending || this.lifted) return;
+		if (this.#ended || event.button !== 0 || this.#pending || this.lifted) return;
 		if (event.pointerType === 'touch' && !fromHandle) return;
 		if (fromHandle) event.preventDefault();
 		this.#pending = { id, element, x: event.clientX, y: event.clientY, pointer: event.pointerId };
@@ -137,6 +140,19 @@ export class PointerDrag {
 	}
 
 	#finish(dropped: boolean): void {
+		const lifted = this.#release();
+		if (!lifted) return;
+		if (dropped) {
+			this.#hooks.drop(new DOMRect(lifted.x, lifted.y, lifted.width, lifted.height));
+		} else this.#hooks.cancel();
+	}
+
+	#end(): void {
+		this.#ended = true;
+		this.#release();
+	}
+
+	#release(): Lifted | null {
 		const lifted = this.lifted;
 		this.#cleanup?.();
 		this.#cleanup = null;
@@ -144,10 +160,7 @@ export class PointerDrag {
 		this.#target = null;
 		cancelAnimationFrame(this.#frame);
 		document.documentElement.classList.remove('dragging');
-		if (!lifted) return;
 		this.lifted = null;
-		if (dropped) {
-			this.#hooks.drop(new DOMRect(lifted.x, lifted.y, lifted.width, lifted.height));
-		} else this.#hooks.cancel();
+		return lifted;
 	}
 }
