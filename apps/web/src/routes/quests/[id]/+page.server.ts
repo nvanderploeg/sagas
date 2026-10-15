@@ -3,13 +3,14 @@ import { getDb } from '#lib/server/db/index.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import {
 	addQuestTicket,
-	addQuestTicketWithChildren,
+	addQuestTickets,
 	deleteQuest,
 	rankQuestTicket,
 	removeQuestTicket,
 	updateQuest,
 	type QuestPatch
 } from '#lib/server/domain/quests.ts';
+import { listChildren } from '#lib/server/domain/tickets.ts';
 import { readAtSeq } from '#lib/server/events/log.ts';
 import { checked, int, perform, placement, signedIn, text } from '#lib/server/ui/form.ts';
 import { readQuestPage, toJson } from '#lib/server/ui/reads.ts';
@@ -48,8 +49,18 @@ export const actions: Actions = {
 		const actor = signedIn(locals);
 		const form = await request.formData();
 		return perform('add', () => {
-			const add = checked(form, 'children') ? addQuestTicketWithChildren : addQuestTicket;
-			add(getDb(), actor, questId(params.id), int(form, 'ticketId'));
+			const db = getDb();
+			const id = questId(params.id);
+			const ticketId = int(form, 'ticketId');
+			if (!checked(form, 'children')) {
+				addQuestTicket(db, actor, id, ticketId);
+				return;
+			}
+			const children = listChildren(db, ticketId).map((child) => child.id);
+			const added = addQuestTickets(db, actor, id, [ticketId, ...children]);
+			if (added.ticketIds.length === 0) {
+				throw new DomainError('conflict', 'The Ticket and its Children are already in the Quest');
+			}
 		});
 	},
 
