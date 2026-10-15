@@ -16,7 +16,7 @@ export type LiveViewOptions<T> = {
 	onEvent?: (event: LiveEvent, before: T, after: T) => void;
 };
 
-// A page's view, kept live by the Stream for as long as the component that makes it is mounted.
+// Construct during component init: it attaches to the Stream on mount and detaches on destroy.
 export class LiveView<T> {
 	current = $state.raw<T | null>(null);
 	#core: LiveCore<T>;

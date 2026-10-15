@@ -10,7 +10,6 @@
 
 	const pct = $derived(total === 0 ? 0 : Math.round((closed / total) * 100));
 	const complete = $derived(total > 0 && closed === total);
-	// One segment per Ticket, while they stay wide enough to read.
 	const segments = $derived(total > 1 && total <= 24 ? total : 0);
 
 	let moment = $state(0);

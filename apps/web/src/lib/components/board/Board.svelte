@@ -91,7 +91,6 @@
 		if (drag && board && !board.tickets.some((t) => t.id === drag!.id)) drag = null;
 	});
 
-	// A Ticket closing while the board watches drops loot, wherever the close came from.
 	let wasClosed: Map<number, boolean> | null = null;
 	$effect(() => {
 		const tickets = board?.tickets;
@@ -307,7 +306,6 @@
 		}
 	}
 
-	// The address follows a Project key rename.
 	$effect(() => {
 		const key = board?.project.key;
 		if (key && resolve('/p/[key]', { key }) !== location.pathname) {

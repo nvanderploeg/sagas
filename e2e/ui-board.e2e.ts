@@ -138,4 +138,23 @@ test.describe('board', () => {
 		await page.getByRole('button', { name: 'Clear filters' }).click();
 		await expect(todo.locator('[data-card]')).toHaveCount(2);
 	});
+
+	test.describe('with reduced motion', () => {
+		test('moves land at once and closing plays no burst', async ({ page, ui }) => {
+			const p = ui.project();
+			const a = ui.ticket(p.id, { title: 'Calm' });
+			await page.emulateMedia({ reducedMotion: 'reduce' });
+			await page.goto(`/p/${p.key}`);
+			await live(page);
+			await page.locator(`a[href="/t/${a.key}"]`).focus();
+			await page.keyboard.press('Space');
+			await page.keyboard.press('ArrowRight');
+			await page.keyboard.press('ArrowRight');
+			await page.keyboard.press('Space');
+
+			await expect(column(page, 'To do').locator('[data-card]')).toHaveCount(0);
+			await expect.poll(() => cardKeys(column(page, 'Closed'))).toEqual([a.key]);
+			await expect(page.getByTestId('loot-burst')).toHaveCSS('display', 'none');
+		});
+	});
 });

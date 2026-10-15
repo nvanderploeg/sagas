@@ -43,7 +43,6 @@ export const load: PageServerLoad = ({ params }) => {
 	}
 };
 
-// A State or Substate key from its label, unique among `taken`.
 function keyFor(label: string, taken: string[]): string {
 	const base =
 		label

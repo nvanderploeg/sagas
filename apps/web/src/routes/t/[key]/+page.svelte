@@ -40,7 +40,6 @@
 	const people = $derived(directory(data.people));
 	const errors = new SvelteMap<string, string>();
 
-	// The key in the address follows the Ticket through moves and Project key renames.
 	$effect(() => {
 		const key = view?.ticket.key;
 		if (key && resolve('/t/[key]', { key }) !== location.pathname) {

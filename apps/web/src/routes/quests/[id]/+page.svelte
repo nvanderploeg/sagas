@@ -85,7 +85,6 @@
 		});
 	}
 
-	// Reordering: one list, the same pointer and keyboard model as the board.
 	type Drag = { id: number; mode: 'pointer' | 'keyboard'; index: number };
 	let drag = $state<Drag | null>(null);
 	let start = -1;

@@ -7,7 +7,6 @@ export type Fields = Record<string, string | number | boolean | null | undefined
 
 export type Done = { seq: number; scope: string } & Record<string, unknown>;
 
-// Calls a form action of the current page from script, as `use:enhance` would.
 export async function act(name: string, fields: Fields, path = location.pathname): Promise<Done> {
 	const body = new FormData();
 	for (const [key, value] of Object.entries(fields)) {

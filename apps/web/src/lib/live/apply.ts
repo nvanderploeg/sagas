@@ -49,14 +49,13 @@ function changedTicket(event: LiveEvent): Ticket | null {
 	}
 }
 
-// The Tickets an Event changes in place: a glow marks them when someone else made the change.
 export function touchedTickets(event: LiveEvent): number[] {
 	const ticket = changedTicket(event);
 	if (ticket) return [ticket.id];
 	return event.type === 'ticket.ranked' ? [event.data.id] : [];
 }
 
-// Rank, rekey and delete Events for a list of Tickets, keyed by id; null when the Event is not one.
+// Null when the Event is not a rank, rekey or delete.
 function patchTickets(list: Ticket[], event: LiveEvent): Ticket[] | null {
 	switch (event.type) {
 		case 'ticket.ranked': {

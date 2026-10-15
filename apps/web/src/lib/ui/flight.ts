@@ -28,7 +28,6 @@ export function cardFlight() {
 	return { leave, arrive };
 }
 
-// Settles a card from where it was let go into its slot.
 export function land(node: Element, from: DOMRect): TransitionConfig {
 	const to = node.getBoundingClientRect();
 	const dx = from.left - to.left;

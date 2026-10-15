@@ -28,7 +28,6 @@ export class FeedCore implements Feed {
 		return this.#from !== null;
 	}
 
-	// The last seq received, for resuming.
 	get last(): number | null {
 		return this.#last;
 	}
@@ -151,7 +150,6 @@ export class LiveCore<T> implements Sink {
 		this.#options.onReload?.();
 	}
 
-	// A fresh load: take it, then replay what the Stream holds after its seq.
 	load(value: T, seq: number): void {
 		this.#base = value;
 		this.#seq = seq;

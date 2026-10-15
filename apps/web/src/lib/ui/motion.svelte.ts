@@ -10,7 +10,6 @@ class Motion {
 		media.addEventListener('change', () => (this.reduced = media.matches));
 	}
 
-	// A duration, or 0 when the User asks for reduced motion.
 	ms(value: number): number {
 		return this.reduced ? 0 : value;
 	}
