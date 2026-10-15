@@ -3,7 +3,7 @@ import type { Db } from '#lib/server/db/client.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { seedActor, seedProject, seedTicket, seedUser } from '#lib/server/test/fixtures.ts';
 import { addQuestTicket, createQuest } from './quests.ts';
-import { createState, listStates } from './states.ts';
+import { createState, listStates, moveState } from './states.ts';
 import { queryTickets, type TicketFilter } from './ticket-query.ts';
 import { rankTicket, setParent, updateTicket } from './tickets.ts';
 
@@ -22,24 +22,31 @@ const keys = (filter: TicketFilter, page = all) =>
 	queryTickets(db, filter, page).tickets.map((t) => t.key);
 
 describe('queryTickets', () => {
-	it('orders by Project, then column, then Rank', () => {
+	it('orders by Project, then State position, then Rank', () => {
 		const am = seedProject(db, 'AM');
 		const ops = seedProject(db, 'OPS');
 		const actor = seedActor(db);
+		const [todo, closed] = listStates(db, am.id);
 		const doing = createState(db, actor, am.id, {
 			key: 'doing',
 			label: 'Doing',
 			color: '#000000',
 			icon: 'dot'
 		});
-		const t1 = seedTicket(db, { projectId: am.id });
+		moveState(db, actor, doing.id, 0);
+		const done = seedTicket(db, { projectId: am.id });
 		seedTicket(db, { projectId: am.id });
 		seedTicket(db, { projectId: ops.id });
 		const t3 = seedTicket(db, { projectId: am.id });
-		updateTicket(db, actor, t1.id, { stateId: doing.id });
+		const t4 = seedTicket(db, { projectId: am.id });
+		updateTicket(db, actor, done.id, { stateId: closed.id });
+		updateTicket(db, actor, t4.id, { stateId: doing.id });
 		rankTicket(db, actor, t3.id, 'top');
 
-		expect(keys({})).toEqual(['AM-3', 'AM-2', 'AM-1', 'OPS-1']);
+		const byPosition = listStates(db, am.id).map((s) => s.id);
+		expect(byPosition).toEqual([doing.id, todo.id, closed.id]);
+		expect(byPosition.toSorted((a, b) => a - b)).not.toEqual(byPosition);
+		expect(keys({})).toEqual(['AM-4', 'AM-3', 'AM-2', 'AM-1', 'OPS-1']);
 	});
 
 	it('filters by State, owner, assignee, Parent and closed', () => {
@@ -75,13 +82,17 @@ describe('queryTickets', () => {
 		expect(queryTickets(db, { questId: quest.id }, all).total).toBe(2);
 	});
 
-	it('pages with offset and limit and counts every match', () => {
+	it('pages in Rank order with offset and limit, and counts every match', () => {
 		const am = seedProject(db, 'AM');
-		for (let i = 0; i < 5; i++) seedTicket(db, { projectId: am.id });
+		const actor = seedActor(db);
+		const made = [1, 2, 3, 4, 5].map(() => seedTicket(db, { projectId: am.id }));
+		rankTicket(db, actor, made[4].id, 'top');
+		rankTicket(db, actor, made[3].id, 'top');
 
+		expect(keys({ projectId: am.id })).toEqual(['AM-4', 'AM-5', 'AM-1', 'AM-2', 'AM-3']);
 		const page = queryTickets(db, { projectId: am.id }, { offset: 2, limit: 2 });
 
-		expect(page.tickets.map((t) => t.key)).toEqual(['AM-3', 'AM-4']);
+		expect(page.tickets.map((t) => t.key)).toEqual(['AM-1', 'AM-2']);
 		expect(page.total).toBe(5);
 	});
 });
