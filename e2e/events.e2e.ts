@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures/index.ts';
+import { connectMcp, uniqueProjectKey } from './fixtures/mcp.ts';
 import { cookieHeader, getNoFollow } from './support/http.ts';
 import { openStream, type Frame } from './support/stream.ts';
 
@@ -245,17 +246,21 @@ test.describe('GET /api/events', () => {
 		}
 	});
 
-	// The bus is in-process, so a seeded write from the test process never reaches an open Stream.
-	// Enable once a public endpoint writes an Event.
-	test.fixme('delivers a write made after the stream opened', async ({ apiToken, seed }) => {
+	// Write through /mcp: the bus is in-process, so a seeded write never reaches an open Stream.
+	test('delivers a write made after the stream opened', async ({ apiToken }) => {
 		const stream = await openStream({ authorization: `Bearer ${apiToken.token}` });
+		const mcp = await connectMcp(apiToken.token);
 		try {
 			await stream.until(ready);
-			const project = seed.project();
+			const { project } = await mcp.ok('create_project', {
+				name: 'Live',
+				key: uniqueProjectKey()
+			});
 			const frames = await stream.until(eventCount(1));
 			expect(frames.find(isEvent)).toMatchObject({ event: 'project.created' });
 			expect(JSON.parse(frames.find(isEvent)!.data!).data.project.id).toBe(project.id);
 		} finally {
+			await mcp.close();
 			await stream.close();
 		}
 	});

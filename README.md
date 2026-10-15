@@ -36,6 +36,22 @@ reverse proxy, have the proxy send `X-Forwarded-Proto` and `X-Forwarded-Host`; t
 is `Secure` exactly when the forwarded protocol is https. `WORKLOAD_PROTOCOL_HEADER` and
 `WORKLOAD_HOST_HEADER` name those headers; set one empty to ignore it (see `.env.example`).
 
+## Connect an agent over MCP
+
+workload serves an MCP server at `/mcp` (Streamable HTTP). It authenticates with an API token and
+acts as that token's User. The first Admin's token is shown once, at the end of `/setup`; for more,
+call the `create_api_token` tool (an Admin can also make an Agent user with `create_agent_user` and
+give it its own token).
+
+With Claude Code:
+
+```sh
+claude mcp add --transport http workload http://localhost:3290/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+The tools are listed in `docs/mcp.md`.
+
 ## Scripts
 
 - `pnpm build`: build every workspace.

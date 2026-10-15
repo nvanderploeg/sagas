@@ -1,11 +1,12 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { questTickets, quests } from '../db/schema.ts';
 import type { EventSpec } from '../events/types.ts';
 import { DomainError } from './errors.ts';
 import { getTicket, requireUser } from './lookup.ts';
 import { getQuest, readQuest, touchQuest, type Quest, type QuestView } from './quest-view.ts';
-import { rankAt, type Placement } from './rank.ts';
+import { rankAt, ranksAt, type Placement } from './rank.ts';
+import { ticketName } from './ticket-view.ts';
 import { DESCRIPTION_MAX, listChildren } from './tickets.ts';
 import { requireText } from './validate.ts';
 import { write, type Actor } from './write.ts';
@@ -126,7 +127,12 @@ export function addQuestTicket(
 		if (members.some((member) => member.id === ticketId)) {
 			throw new DomainError('conflict', 'The Ticket is already in the Quest');
 		}
-		insertMember(tx, questId, ticketId, rankAt(members, { id: ticketId }, placement, 'Quest'));
+		insertMember(
+			tx,
+			questId,
+			ticketId,
+			rankAt(members, { id: ticketId }, placement, 'Quest', ticketName(tx))
+		);
 		touchQuest(tx, questId);
 		return questOutcome(tx, questId, (quest) => ({
 			type: 'quest.tickets_added',
@@ -165,6 +171,75 @@ export function addQuestTicketWithChildren(
 	});
 }
 
+// `ticketIds` lists the Tickets the write changed, in the order given; `skipped` lists the ones
+// already as asked. A Ticket listed twice counts once.
+export type QuestTicketsChange = { quest: QuestView; ticketIds: number[]; skipped: number[] };
+
+function distinctTickets(db: Handle, ticketIds: number[]): number[] {
+	const distinct = [...new Set(ticketIds)];
+	for (const id of distinct) getTicket(db, id);
+	return distinct;
+}
+
+// One write and one Event for the whole list. Membership is explicit, per CONTEXT.md: never add
+// the Tickets' Children here.
+export function addQuestTickets(
+	db: Db,
+	actor: Actor,
+	questId: number,
+	ticketIds: number[],
+	placement: Placement = 'bottom'
+): QuestTicketsChange {
+	return write(db, actor, (tx) => {
+		getQuest(tx, questId);
+		const members = membersOf(tx, questId);
+		const present = new Set(members.map((member) => member.id));
+		const wanted = distinctTickets(tx, ticketIds);
+		const adding = wanted.filter((id) => !present.has(id));
+		const skipped = wanted.filter((id) => present.has(id));
+		if (adding.length === 0) {
+			return { value: { quest: readQuest(tx, questId), ticketIds: [], skipped }, events: [] };
+		}
+		const ranks = ranksAt(members, placement, 'Quest', adding.length, ticketName(tx));
+		tx.insert(questTickets)
+			.values(adding.map((ticketId, i) => ({ questId, ticketId, rank: ranks[i] })))
+			.run();
+		touchQuest(tx, questId);
+		const quest = readQuest(tx, questId);
+		return {
+			value: { quest, ticketIds: adding, skipped },
+			events: [{ type: 'quest.tickets_added', data: { quest, ticketIds: adding } }]
+		};
+	});
+}
+
+export function removeQuestTickets(
+	db: Db,
+	actor: Actor,
+	questId: number,
+	ticketIds: number[]
+): QuestTicketsChange {
+	return write(db, actor, (tx) => {
+		getQuest(tx, questId);
+		const present = new Set(membersOf(tx, questId).map((member) => member.id));
+		const wanted = distinctTickets(tx, ticketIds);
+		const removing = wanted.filter((id) => present.has(id));
+		const skipped = wanted.filter((id) => !present.has(id));
+		if (removing.length === 0) {
+			return { value: { quest: readQuest(tx, questId), ticketIds: [], skipped }, events: [] };
+		}
+		tx.delete(questTickets)
+			.where(and(eq(questTickets.questId, questId), inArray(questTickets.ticketId, removing)))
+			.run();
+		touchQuest(tx, questId);
+		const quest = readQuest(tx, questId);
+		return {
+			value: { quest, ticketIds: removing, skipped },
+			events: [{ type: 'quest.tickets_removed', data: { quest, ticketIds: removing } }]
+		};
+	});
+}
+
 export function removeQuestTicket(
 	db: Db,
 	actor: Actor,
@@ -198,7 +273,7 @@ export function rankQuestTicket(
 		const members = membersOf(tx, questId);
 		const member = members.find((m) => m.id === ticketId);
 		if (member === undefined) throw new DomainError('not_found', 'The Ticket is not in the Quest');
-		const rank = rankAt(members, member, placement, 'Quest');
+		const rank = rankAt(members, member, placement, 'Quest', ticketName(tx));
 		if (rank === member.rank) return { value: readQuest(tx, questId), events: [] };
 		tx.update(questTickets)
 			.set({ rank })

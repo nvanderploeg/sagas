@@ -34,3 +34,10 @@ export function readTicket(db: Handle, ticketId: number): TicketView {
 	if (row === undefined) throw new DomainError('not_found', 'Ticket not found');
 	return toTicketView(row);
 }
+
+export function ticketName(db: Handle): (id: number) => string {
+	return (id) => {
+		const row = selectTicketViews(db).where(eq(tickets.id, id)).get();
+		return row === undefined ? `Ticket ${id}` : toTicketView(row).key;
+	};
+}

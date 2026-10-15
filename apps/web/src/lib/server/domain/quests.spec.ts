@@ -6,6 +6,7 @@ import { seedActor, seedProject, seedTicket, seedUser } from '#lib/server/test/f
 import { DomainError } from './errors.ts';
 import {
 	addQuestTicket,
+	addQuestTickets,
 	addQuestTicketWithChildren,
 	createQuest,
 	deleteQuest,
@@ -16,6 +17,7 @@ import {
 	rankQuestTicket,
 	readQuest,
 	removeQuestTicket,
+	removeQuestTickets,
 	updateQuest
 } from './quests.ts';
 import { listStates } from './states.ts';
@@ -200,6 +202,100 @@ describe('membership', () => {
 
 		expect(readQuest(db, first.id).tickets.map((t) => t.id)).toEqual([kept.id]);
 		expect(readQuest(db, second.id).tickets.map((t) => t.id)).toEqual([kept.id]);
+	});
+});
+
+describe('bulk membership', () => {
+	const ids = (questId: number) => readQuest(db, questId).tickets.map((t) => t.id);
+
+	it('adds Tickets in the order given, at the placement, skipping and reporting members', () => {
+		const project = seedProject(db, 'AM');
+		const [a, b, c, d] = [1, 2, 3, 4].map(() => seedTicket(db, { projectId: project.id }));
+		const quest = seedQuest();
+		addQuestTicket(db, actor, quest.id, a.id);
+		addQuestTicket(db, actor, quest.id, b.id);
+
+		const result = addQuestTickets(db, actor, quest.id, [d.id, b.id, c.id, d.id], {
+			after: a.id
+		});
+
+		expect(result.ticketIds).toEqual([d.id, c.id]);
+		expect(result.skipped).toEqual([b.id]);
+		expect(result.quest.tickets.map((t) => t.id)).toEqual([a.id, d.id, c.id, b.id]);
+		expect(ids(quest.id)).toEqual([a.id, d.id, c.id, b.id]);
+	});
+
+	it('is idempotent: adding members again changes nothing and reports them all', () => {
+		const project = seedProject(db, 'AM');
+		const [a, b] = [1, 2].map(() => seedTicket(db, { projectId: project.id }));
+		const quest = seedQuest();
+		addQuestTickets(db, actor, quest.id, [a.id, b.id]);
+
+		const again = addQuestTickets(db, actor, quest.id, [b.id, a.id], 'top');
+
+		expect(again).toMatchObject({ ticketIds: [], skipped: [b.id, a.id] });
+		expect(ids(quest.id)).toEqual([a.id, b.id]);
+	});
+
+	it('never adds Children', () => {
+		const project = seedProject(db, 'AM');
+		const parent = seedTicket(db, { projectId: project.id });
+		seedTicket(db, { projectId: project.id, parentId: parent.id });
+		const quest = seedQuest();
+
+		addQuestTickets(db, actor, quest.id, [parent.id]);
+
+		expect(ids(quest.id)).toEqual([parent.id]);
+	});
+
+	it('adds none when any Ticket is unknown or the anchor is not a member', () => {
+		const project = seedProject(db, 'AM');
+		const [a, b] = [1, 2].map(() => seedTicket(db, { projectId: project.id }));
+		const quest = seedQuest();
+
+		expectDomainError(() => addQuestTickets(db, actor, quest.id, [a.id, 999]), 'not_found');
+		expectDomainError(
+			() => addQuestTickets(db, actor, quest.id, [a.id], { before: b.id }),
+			'invalid'
+		);
+		expectDomainError(() => addQuestTickets(db, actor, 999, [a.id]), 'not_found');
+		expect(ids(quest.id)).toEqual([]);
+	});
+
+	it('names an anchor outside the Quest by its key', () => {
+		const project = seedProject(db, 'AM');
+		const [a, b] = [1, 2].map(() => seedTicket(db, { projectId: project.id }));
+		const quest = seedQuest();
+
+		expect(() => addQuestTickets(db, actor, quest.id, [a.id], { after: b.id })).toThrow(
+			'AM-2 is not in the same Quest'
+		);
+	});
+
+	it('removes Tickets, skipping and reporting the ones not in the Quest', () => {
+		const project = seedProject(db, 'AM');
+		const [a, b, c] = [1, 2, 3].map(() => seedTicket(db, { projectId: project.id }));
+		const quest = seedQuest();
+		addQuestTickets(db, actor, quest.id, [a.id, b.id]);
+
+		const result = removeQuestTickets(db, actor, quest.id, [c.id, b.id, a.id, b.id]);
+
+		expect(result).toMatchObject({ ticketIds: [b.id, a.id], skipped: [c.id] });
+		expect(ids(quest.id)).toEqual([]);
+		expect(removeQuestTickets(db, actor, quest.id, [a.id])).toMatchObject({
+			ticketIds: [],
+			skipped: [a.id]
+		});
+	});
+
+	it('removes none when any Ticket is unknown', () => {
+		const project = seedProject(db, 'AM');
+		const a = seedTicket(db, { projectId: project.id });
+		const quest = seedQuest();
+		addQuestTicket(db, actor, quest.id, a.id);
+
+		expectDomainError(() => removeQuestTickets(db, actor, quest.id, [a.id, 999]), 'not_found');
+		expect(ids(quest.id)).toEqual([a.id]);
 	});
 });
 
