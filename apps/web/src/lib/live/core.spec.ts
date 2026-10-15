@@ -147,6 +147,33 @@ describe('FeedCore', () => {
 		expect(core.value).toEqual({ title: 't51', seen: [51] });
 	});
 
+	it('caps its buffer by size, and asks a view older than what it dropped to reload', () => {
+		const feed = new FeedCore(2000, 100);
+		feed.start(10);
+		for (const seq of [11, 12, 13]) feed.push(event(seq), 40);
+
+		const stale = live(10);
+		stale.core.connect(feed);
+		expect(stale.reloads).toHaveLength(1);
+
+		const fresh = live(11);
+		fresh.core.connect(feed);
+		expect(fresh.reloads).toHaveLength(0);
+		expect(fresh.core.value?.seen).toEqual([12, 13]);
+	});
+
+	it('measures an Event by its JSON when no size is given', () => {
+		const feed = new FeedCore(2000, 200);
+		feed.start(10);
+		const big = event(11, 'x'.repeat(300));
+		feed.push(big);
+		feed.push(event(12));
+
+		const { core, reloads } = live(10);
+		core.connect(feed);
+		expect(reloads).toHaveLength(1);
+	});
+
 	it('ignores a repeated seq', () => {
 		const feed = new FeedCore();
 		feed.start(0);

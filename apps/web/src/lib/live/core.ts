@@ -15,14 +15,19 @@ export interface Feed {
 }
 
 // One Stream's Events, buffered so a view loaded at an earlier seq can catch up without a gap.
+// The buffer holds at most `limit` Events and about `maxBytes` of their JSON.
 export class FeedCore implements Feed {
 	#sinks = new Set<Sink>();
-	#buffer: LiveEvent[] = [];
+	#buffer: { event: LiveEvent; size: number }[] = [];
+	#bytes = 0;
 	// Every Event after `#from` is in the buffer.
 	#from: number | null = null;
 	#last: number | null = null;
 
-	constructor(private readonly limit = 2000) {}
+	constructor(
+		private readonly limit = 2000,
+		private readonly maxBytes = 5_000_000
+	) {}
 
 	get started(): boolean {
 		return this.#from !== null;
@@ -49,22 +54,35 @@ export class FeedCore implements Feed {
 			sink.reset();
 			return;
 		}
-		for (const event of this.#buffer) if (event.seq > since) sink.receive(event);
+		for (const { event } of this.#buffer) if (event.seq > since) sink.receive(event);
 	}
 
-	push(event: LiveEvent): void {
+	// `size` is the Event's length as JSON, when the caller already has it.
+	push(event: LiveEvent, size = JSON.stringify(event).length): void {
 		if (this.#last !== null && event.seq <= this.#last) return;
 		this.#last = event.seq;
-		this.#buffer.push(event);
-		if (this.#buffer.length > this.limit) {
-			const dropped = this.#buffer.splice(0, this.#buffer.length - this.limit);
-			this.#from = dropped.at(-1)!.seq;
+		this.#buffer.push({ event, size });
+		this.#bytes += size;
+		let drop = 0;
+		let bytes = this.#bytes;
+		while (
+			drop < this.#buffer.length &&
+			(this.#buffer.length - drop > this.limit || bytes > this.maxBytes)
+		) {
+			bytes -= this.#buffer[drop].size;
+			drop += 1;
+		}
+		if (drop > 0) {
+			this.#from = this.#buffer[drop - 1].event.seq;
+			this.#buffer = this.#buffer.slice(drop);
+			this.#bytes = bytes;
 		}
 		for (const sink of [...this.#sinks]) sink.receive(event);
 	}
 
 	reset(seq: number): void {
 		this.#buffer = [];
+		this.#bytes = 0;
 		this.#from = seq;
 		this.#last = seq;
 		for (const sink of [...this.#sinks]) sink.reset();

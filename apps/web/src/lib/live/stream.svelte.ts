@@ -36,7 +36,7 @@ class Stream implements Feed {
 		this.#source = source;
 		this.status = 'connecting';
 		const onEvent = (message: MessageEvent<string>) =>
-			this.#core.push(JSON.parse(message.data) as LiveEvent);
+			this.#core.push(JSON.parse(message.data) as LiveEvent, message.data.length);
 		for (const type of EVENT_TYPES) source.addEventListener(type, onEvent);
 		source.addEventListener('ready', () => {
 			this.status = 'live';
