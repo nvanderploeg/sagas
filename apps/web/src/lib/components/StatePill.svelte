@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { pillColors } from '../ui/contrast.ts';
 	import { glyph } from '../ui/icons.ts';
 
 	let {
@@ -10,9 +11,19 @@
 		variant?: 'dot' | 'pill' | 'badge';
 		label?: string;
 	} = $props();
+
+	const colors = $derived(pillColors(def.color));
 </script>
 
-<span class="mark {variant}" style:--sc={def.color} data-testid="state-pill">
+<span
+	class="mark {variant}"
+	style:--sc={def.color}
+	style:--tint-l={colors.light.tint}
+	style:--tint-d={colors.dark.tint}
+	style:--text-l={colors.light.text}
+	style:--text-d={colors.dark.text}
+	data-testid="state-pill"
+>
 	<span class="glyph" aria-hidden="true">{glyph(def.icon)}</span>
 	{#if variant !== 'dot'}<span class="text">{label ?? def.label}</span>{:else}<span class="sr-only"
 			>{label ?? def.label}</span
@@ -21,9 +32,9 @@
 
 <style>
 	.mark {
-		--tint: color-mix(in srgb, var(--sc) 20%, var(--color-panel));
+		--tint: light-dark(var(--tint-l), var(--tint-d));
 		--edge: color-mix(in srgb, var(--sc) 55%, transparent);
-		--text: color-mix(in srgb, var(--sc) 58%, var(--color-ink));
+		--text: light-dark(var(--text-l), var(--text-d));
 		display: inline-flex;
 		flex: none;
 		align-items: center;

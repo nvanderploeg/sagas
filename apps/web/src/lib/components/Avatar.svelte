@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { initials, personColor, type Person } from '../ui/people.ts';
+	import { personColors } from '../ui/contrast.ts';
+	import { hue, initials, type Person } from '../ui/people.ts';
 
 	let {
 		person,
@@ -10,12 +11,15 @@
 		size?: 'xs' | 'sm' | 'md';
 		title?: string;
 	} = $props();
+
+	const colors = $derived(personColors(hue(person.username)));
 </script>
 
 <span
 	class="avatar {size}"
 	class:agent={person.kind === 'agent'}
-	style:--pc={personColor(person.username)}
+	style:--pc={colors.background}
+	style:--pt={colors.text}
 	title={title ?? person.displayName}
 	data-testid="avatar"
 	><span aria-hidden="true">{initials(person.displayName)}</span><span class="sr-only"
@@ -31,7 +35,7 @@
 		border-radius: 999px;
 		background: var(--pc);
 		box-shadow: 0 0 0 2px var(--color-panel);
-		color: #fff;
+		color: var(--pt);
 		font-weight: 700;
 		letter-spacing: 0.01em;
 		line-height: 1;

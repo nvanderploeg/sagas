@@ -1,3 +1,5 @@
+import { personColors } from './contrast.ts';
+
 // Invalidating this loads the People directory again.
 export const PEOPLE = 'app:people';
 
@@ -26,7 +28,7 @@ export function hue(username: string): number {
 }
 
 export function personColor(username: string): string {
-	return `hsl(${hue(username)} 62% 46%)`;
+	return personColors(hue(username)).background;
 }
 
 export function directory(people: Person[]): Map<number, Person> {
