@@ -87,16 +87,53 @@ export function moveOnBoard(
 	};
 }
 
-// A card for a Ticket still being created. It gives way to the real Ticket as soon as the board
-// holds one it did not know of, with the same title in the same State.
-export function createOnBoard(known: Set<number>, draft: Ticket): (board: BoardView) => BoardView {
-	return (board) => {
-		const landed = board.tickets.some(
-			(t) => !known.has(t.id) && t.stateId === draft.stateId && t.title === draft.title.trim()
+type Draft = { card: Ticket; known: Set<number>; ticketId: number | null };
+
+// Cards for Tickets still being created, each with a client id of its own. A draft gives way to
+// the Ticket its create answered with. Before that answer, a new Ticket with its title in its
+// State stands in for the oldest such draft only, so one Ticket never retires two drafts.
+export class Drafts {
+	#drafts: Draft[] = [];
+
+	// `known` is every Ticket id the board holds as the draft is made.
+	add(card: Ticket, known: Set<number>): (board: BoardView) => BoardView {
+		const draft: Draft = { card, known, ticketId: null };
+		this.#drafts.push(draft);
+		return (board) => {
+			if (this.#landed(board, draft)) return board;
+			const column = columnOf(board, card.stateId);
+			const rank = generateKeyBetween(column.at(-1)?.rank ?? null, null);
+			return { ...board, tickets: [...board.tickets, { ...card, rank }] };
+		};
+	}
+
+	answer(cardId: number, ticketId: number): void {
+		const draft = this.#drafts.find((d) => d.card.id === cardId);
+		if (!draft) return;
+		draft.ticketId = ticketId;
+		draft.known = new Set();
+	}
+
+	forget(cardId: number): void {
+		this.#drafts = this.#drafts.filter((d) => d.card.id !== cardId);
+	}
+
+	#landed(board: BoardView, draft: Draft): boolean {
+		if (draft.ticketId !== null) return board.tickets.some((t) => t.id === draft.ticketId);
+		const alike = (d: Draft) =>
+			d.ticketId === null &&
+			d.card.stateId === draft.card.stateId &&
+			d.card.title === draft.card.title;
+		const claimed = new Set(this.#drafts.map((d) => d.ticketId));
+		const fresh = board.tickets.filter(
+			(t) =>
+				t.id > 0 &&
+				!draft.known.has(t.id) &&
+				!claimed.has(t.id) &&
+				t.stateId === draft.card.stateId &&
+				t.title === draft.card.title
 		);
-		if (landed) return board;
-		const column = columnOf(board, draft.stateId);
-		const rank = generateKeyBetween(column.at(-1)?.rank ?? null, null);
-		return { ...board, tickets: [...board.tickets, { ...draft, rank }] };
-	};
+		const ahead = this.#drafts.slice(0, this.#drafts.indexOf(draft)).filter(alike).length;
+		return fresh.length > ahead;
+	}
 }

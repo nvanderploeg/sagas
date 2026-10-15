@@ -8,7 +8,7 @@ import { seedActor, seedProject, seedTicket } from '#lib/server/test/fixtures.ts
 import { toJson } from '#lib/server/ui/reads.ts';
 import { byRank } from '../live/apply.ts';
 import type { BoardView, Ticket } from '../live/types.ts';
-import { createOnBoard, matches, moveOnBoard, placementAt, type Placement } from './board.ts';
+import { Drafts, matches, moveOnBoard, placementAt, type Placement } from './board.ts';
 
 let db: Db;
 let actor: Actor;
@@ -84,19 +84,57 @@ describe('placementAt', () => {
 	});
 });
 
-describe('createOnBoard', () => {
-	it('shows a draft card until the created Ticket arrives, and never both', () => {
+describe('Drafts', () => {
+	it('shows a draft card until its Ticket arrives, and never both', () => {
 		const project = seedProject(db);
 		seedTicket(db, { projectId: project.id, title: 'Existing' });
 		const loaded = toJson(readBoard(db, project.id)) as BoardView;
-		const draft = { ...loaded.tickets[0], id: -1, title: 'Fresh', key: '' };
-		const patch = createOnBoard(new Set(loaded.tickets.map((t) => t.id)), draft);
+		const card = { ...loaded.tickets[0], id: -1, title: 'Fresh', key: '' };
+		const drafts = new Drafts();
+		const patch = drafts.add(card, new Set(loaded.tickets.map((t) => t.id)));
 
 		expect(patch(loaded).tickets.map((t) => t.title)).toEqual(['Existing', 'Fresh']);
 
-		seedTicket(db, { projectId: project.id, title: 'Fresh' });
+		const created = seedTicket(db, { projectId: project.id, title: 'Fresh' });
 		const arrived = toJson(readBoard(db, project.id)) as BoardView;
 		expect(patch(arrived).tickets.map((t) => t.id)).toEqual(arrived.tickets.map((t) => t.id));
+		drafts.answer(-1, created.id);
+		expect(patch(arrived).tickets.map((t) => t.id)).toEqual(arrived.tickets.map((t) => t.id));
+	});
+
+	it('gives way only to the Ticket its create answered with, once it has answered', () => {
+		const project = seedProject(db);
+		const stateId = project.initialStateId!;
+		const drafts = new Drafts();
+		const patch = drafts.add({ ...({} as Ticket), id: -1, stateId, title: 'Mine' }, new Set());
+		drafts.answer(-1, 999);
+
+		const other = seedTicket(db, { projectId: project.id, title: 'Mine' });
+		const board = toJson(readBoard(db, project.id)) as BoardView;
+		expect(patch(board).tickets.map((t) => t.id)).toEqual([other.id, -1]);
+	});
+
+	it('gives each of two drafts with the same title a Ticket of its own', () => {
+		const project = seedProject(db);
+		const loaded = toJson(readBoard(db, project.id)) as BoardView;
+		const stateId = project.initialStateId!;
+		const base = { ...({} as Ticket), stateId, title: 'Same', key: '', rank: '' };
+		const drafts = new Drafts();
+		const patches = [-1, -2].map((id) => drafts.add({ ...base, id }, new Set()));
+		const shown = (board: BoardView) =>
+			patches.reduce((view, patch) => patch(view), board).tickets.map((t) => t.id);
+
+		expect(shown(loaded)).toEqual([-1, -2]);
+		const first = seedTicket(db, { projectId: project.id, title: 'Same' });
+		const one = toJson(readBoard(db, project.id)) as BoardView;
+		expect(shown(one)).toEqual([first.id, -2]);
+
+		drafts.answer(-2, first.id);
+		expect(shown(one)).toEqual([first.id, -1]);
+		const second = seedTicket(db, { projectId: project.id, title: 'Same' });
+		drafts.answer(-1, second.id);
+		const both = toJson(readBoard(db, project.id)) as BoardView;
+		expect(shown(both)).toEqual([first.id, second.id]);
 	});
 });
 

@@ -10,7 +10,7 @@
 	import { act } from '../../ui/act.ts';
 	import {
 		columnOf,
-		createOnBoard,
+		Drafts,
 		encodePlacement,
 		matches,
 		moveOnBoard,
@@ -297,6 +297,8 @@
 		focusCard(ticket.id);
 	}
 
+	const drafts = new Drafts();
+
 	async function quickCreate(state: State) {
 		const title = draftTitle.trim();
 		if (!title || !board) return;
@@ -321,10 +323,13 @@
 			closed: state.isClosed
 		};
 		try {
-			await live.mutate(createOnBoard(known, draft), () =>
-				act('create', { stateId: state.id, title })
-			);
+			await live.mutate(drafts.add(draft, known), async () => {
+				const done = await act('create', { stateId: state.id, title });
+				drafts.answer(draft.id, Number(done.id));
+				return done;
+			});
 		} catch (error) {
+			drafts.forget(draft.id);
 			notices.error(error);
 		}
 	}
