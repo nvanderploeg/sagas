@@ -1,20 +1,30 @@
 import { expect, test } from './fixtures/index.ts';
 import { cookieHeader, getNoFollow } from './support/http.ts';
-import { eventCount, openStream, type Frame } from './support/stream.ts';
+import { openStream, type Frame } from './support/stream.ts';
 
+const CONTROL = new Set(['ready', 'reset']);
+const isEvent = (f: Frame) => f.event !== undefined && !CONTROL.has(f.event);
 const pings = (frames: Frame[]) => frames.filter((f) => f.comment === 'ping').length;
-const types = (frames: Frame[]) => frames.filter((f) => f.event).map((f) => f.event);
-const ids = (frames: Frame[]) => frames.filter((f) => f.event).map((f) => Number(f.id));
+const types = (frames: Frame[]) => frames.filter(isEvent).map((f) => f.event);
+const ids = (frames: Frame[]) => frames.filter(isEvent).map((f) => Number(f.id));
+const eventCount = (n: number) => (frames: Frame[]) => frames.filter(isEvent).length >= n;
+const ready = (frames: Frame[]) => frames.some((f) => f.event === 'ready');
+const control = (event: 'ready' | 'reset', seq: number) => ({
+	id: String(seq),
+	event,
+	data: JSON.stringify({ seq })
+});
 
 test.describe('GET /api/events', () => {
-	test('opens as an event stream with an ok comment', async ({ apiToken }) => {
+	test('opens as an event stream with ready carrying the last seq', async ({ apiToken, seed }) => {
+		const last = seed.lastSeq();
 		const stream = await openStream({ authorization: `Bearer ${apiToken.token}` });
 		try {
 			expect(stream.response.status).toBe(200);
 			expect(stream.response.headers.get('content-type')).toBe('text/event-stream');
 			expect(stream.response.headers.get('cache-control')).toContain('no-cache');
 			const frames = await stream.until((f) => f.length >= 1);
-			expect(frames[0]).toEqual({ comment: 'ok' });
+			expect(frames[0]).toEqual(control('ready', last));
 		} finally {
 			await stream.close();
 		}
@@ -28,13 +38,14 @@ test.describe('GET /api/events', () => {
 		const stream = await openStream({ authorization: `Bearer ${apiToken.token}` });
 		try {
 			const frames = await stream.until((f) => pings(f) >= 2);
-			expect(frames.filter((f) => f.event)).toEqual([]);
+			expect(frames.filter(isEvent)).toEqual([]);
+			expect(frames.filter((f) => f.event)).toEqual([control('ready', seed.lastSeq())]);
 		} finally {
 			await stream.close();
 		}
 	});
 
-	test('replays every Event after ?since, in order, with the stored shape', async ({
+	test('replays every Event after ?since, in order, with the stored shape, then ready', async ({
 		apiToken,
 		seed,
 		admin
@@ -48,18 +59,30 @@ test.describe('GET /api/events', () => {
 			`?since=${before}`
 		);
 		try {
-			const frames = await stream.until(eventCount(2));
+			const frames = await stream.until(ready);
 			expect(types(frames)).toEqual(['project.created', 'ticket.created']);
 			expect(ids(frames)).toEqual([before + 1, before + 2]);
+			expect(frames.filter((f) => f.event).at(-1)).toEqual(control('ready', before + 2));
 
 			const created = JSON.parse(frames.find((f) => f.event === 'ticket.created')!.data!);
 			expect(created).toMatchObject({
 				seq: before + 2,
 				type: 'ticket.created',
-				actorId: admin.id,
-				entityIds: { ticketId: ticket.id },
-				projectIds: [project.id],
-				snapshot: { key: `${project.key}-1`, title: 'Replayed' }
+				actor: {
+					id: admin.id,
+					kind: 'human',
+					username: admin.username,
+					displayName: admin.displayName
+				},
+				data: {
+					ticket: {
+						id: ticket.id,
+						projectId: project.id,
+						key: `${project.key}-1`,
+						title: 'Replayed',
+						closed: false
+					}
+				}
 			});
 		} finally {
 			await stream.close();
@@ -94,7 +117,7 @@ test.describe('GET /api/events', () => {
 		const caughtUp = await openStream({ ...headers, 'last-event-id': String(before + 3) });
 		try {
 			const frames = await caughtUp.until((f) => pings(f) >= 1);
-			expect(frames.filter((f) => f.event)).toEqual([]);
+			expect(frames.filter((f) => f.event)).toEqual([control('ready', before + 3)]);
 		} finally {
 			await caughtUp.close();
 		}
@@ -193,9 +216,10 @@ test.describe('GET /api/events', () => {
 			`?since=${last + 1000}`
 		);
 		try {
-			const frames = await stream.until(eventCount(1));
+			const frames = await stream.until(ready);
 			expect(frames.filter((f) => f.event)).toEqual([
-				{ id: String(last), event: 'reset', data: JSON.stringify({ seq: last }) }
+				control('reset', last),
+				control('ready', last)
 			]);
 		} finally {
 			await stream.close();
@@ -212,7 +236,10 @@ test.describe('GET /api/events', () => {
 		);
 		try {
 			await stream.until((f) => pings(f) >= 1);
-			expect(types(stream.frames())).toEqual(['reset']);
+			expect(stream.frames().filter((f) => f.event)).toEqual([
+				control('reset', last),
+				control('ready', last)
+			]);
 		} finally {
 			await stream.close();
 		}
@@ -223,11 +250,11 @@ test.describe('GET /api/events', () => {
 	test.fixme('delivers a write made after the stream opened', async ({ apiToken, seed }) => {
 		const stream = await openStream({ authorization: `Bearer ${apiToken.token}` });
 		try {
-			await stream.until((f) => f.length >= 1);
+			await stream.until(ready);
 			const project = seed.project();
 			const frames = await stream.until(eventCount(1));
-			expect(frames.find((f) => f.event)).toMatchObject({ event: 'project.created' });
-			expect(JSON.parse(frames.find((f) => f.event)!.data!).entityIds.projectId).toBe(project.id);
+			expect(frames.find(isEvent)).toMatchObject({ event: 'project.created' });
+			expect(JSON.parse(frames.find(isEvent)!.data!).data.project.id).toBe(project.id);
 		} finally {
 			await stream.close();
 		}
@@ -259,9 +286,10 @@ test.describe('GET /api/events', () => {
 
 			const stream = await openStream({ authorization: `Bearer ${apiToken.token}` }, '?since=0');
 			try {
-				const frames = await stream.until(eventCount(1));
+				const frames = await stream.until(ready);
 				expect(frames.filter((f) => f.event)).toEqual([
-					{ id: String(last), event: 'reset', data: JSON.stringify({ seq: last }) }
+					control('reset', last),
+					control('ready', last)
 				]);
 			} finally {
 				await stream.close();
