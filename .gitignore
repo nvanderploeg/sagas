@@ -58,3 +58,5 @@ data/
 test-results/
 playwright-report/
 token.txt
+
+/apps/web/models/

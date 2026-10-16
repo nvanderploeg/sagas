@@ -36,6 +36,13 @@ reverse proxy, have the proxy send `X-Forwarded-Proto` and `X-Forwarded-Host`; t
 is `Secure` exactly when the forwarded protocol is https. `SAGAS_PROTOCOL_HEADER` and
 `SAGAS_HOST_HEADER` name those headers; set one empty to ignore it (see `.env.example`).
 
+## Embedding model
+
+The embedding model (`Xenova/bge-small-en-v1.5`, 8-bit) ships in the image at `/app/models`, fetched
+at build time. The server never downloads a model. For local development, run
+`pnpm --filter web models:fetch` to put it in `apps/web/models`, or set `EMBEDDING_MODEL_DIR` (see
+`.env.example`) to put it elsewhere.
+
 ## Connect an agent over MCP
 
 sagas serves an MCP server at `/mcp` (Streamable HTTP). It authenticates with an API token and

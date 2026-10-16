@@ -17,3 +17,4 @@ test-results
 playwright-report
 .github
 deploy
+apps/web/models

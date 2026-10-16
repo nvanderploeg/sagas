@@ -9,7 +9,8 @@
 		"preview": "vite preview",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"test": "vitest run",
-		"db:generate": "drizzle-kit generate"
+		"db:generate": "drizzle-kit generate",
+		"models:fetch": "node scripts/fetch-model.js"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "^6.0.0",
@@ -33,6 +34,7 @@
 		"#lib/*": "./src/lib/*"
 	},
 	"dependencies": {
+		"@huggingface/transformers": "^4.3.1",
 		"@modelcontextprotocol/sdk": "^1.32.1",
 		"@node-rs/argon2": "^2.2.2",
 		"better-sqlite3": "^13.0.3",
