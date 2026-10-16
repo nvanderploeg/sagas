@@ -7,6 +7,7 @@ import {
 	comments,
 	labourAttributes,
 	labourKeys,
+	labourNeeds,
 	labours,
 	links,
 	mentions,
@@ -14,7 +15,8 @@ import {
 	questLabours,
 	quests,
 	states,
-	surveys
+	surveys,
+	userSkills
 } from '#lib/server/db/schema.ts';
 import { addComment, editComment } from '#lib/server/domain/comments.ts';
 import { createState } from '#lib/server/domain/states.ts';
@@ -26,6 +28,7 @@ import { defineAttribute, RESERVED, setValues } from '../attributes.ts';
 import { contentHash, hashContent } from '../content.ts';
 import { rebuildDerived } from '../derived.ts';
 import { scheduleAgentPruning } from '../prune.ts';
+import { defineSkill } from '../skills.ts';
 import { FEATURES, LATER_FEATURES, type Feature } from './features/index.ts';
 import { pruneSurveys, survey } from './index.ts';
 
@@ -742,6 +745,7 @@ describe('performance', () => {
 		sentiment: 1,
 		pain: 1,
 		delight: 1,
+		skill_fit: 1,
 		impact: 3,
 		'topic:boss': 2
 	};
@@ -751,7 +755,8 @@ describe('performance', () => {
 	}
 
 	// `n` Labours spread over the Realms in turn, two columns each, with Attribute values, Links,
-	// Quests of 100 Labours, Comments, Mentions and Appraisals on them.
+	// Quests of 100 Labours, Comments, Mentions, Appraisals and needed Skills on them, and Skills held
+	// by the workers.
 	function seedBench(perf: Db, keys: string[], n: number) {
 		const admin = seedActor(perf);
 		const realmIds = keys.map((key) => seedRealm(perf, key).id);
@@ -793,6 +798,10 @@ describe('performance', () => {
 			}).attribute;
 			return { impact: impact.id, topic: topic.id };
 		});
+
+		const skillIds = ['vfx', 'audio', 'design'].map(
+			(key) => defineSkill(perf, admin, { key, label: key }).id
+		);
 
 		const perRealm = Math.ceil(n / keys.length);
 		const counter = keys.map(() => 0);
@@ -852,6 +861,34 @@ describe('performance', () => {
 				}
 			}
 			insertAll(held, (part) => tx.insert(labourAttributes).values(part).run());
+
+			insertAll(
+				workers.flatMap((userId, w) =>
+					skillIds.slice(0, 1 + (w % 3)).map((skillId, s) => ({
+						userId,
+						skillId,
+						level: 1 + ((w + s) % 5),
+						setBy: admin.id,
+						setAt: NOW
+					}))
+				),
+				(part) => tx.insert(userSkills).values(part).run()
+			);
+			const needed: (typeof labourNeeds.$inferInsert)[] = [];
+			for (const row of rows) {
+				if (row.id! % 3 === 0) continue;
+				const wanted = skillIds.slice(0, 1 + (row.id! % 3));
+				for (const skillId of wanted) {
+					needed.push({
+						labourId: row.id!,
+						skillId,
+						level: 1 + ((row.id! + skillId) % 5),
+						setBy: admin.id,
+						setAt: NOW
+					});
+				}
+			}
+			insertAll(needed, (part) => tx.insert(labourNeeds).values(part).run());
 
 			const reports: (typeof pulses.$inferInsert)[] = [];
 			realmIds.forEach((realmId, r) => {

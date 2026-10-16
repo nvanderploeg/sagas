@@ -473,7 +473,7 @@ describe('weight keys', () => {
 		expect(result.ignored).toEqual([]);
 	});
 
-	it.each(['similarity', 'affinity', 'skill_fit', 'rank', 'priority'])(
+	it.each(['similarity', 'affinity', 'rank', 'priority'])(
 		'ignores %s, which is recognised but not computed',
 		(key) => {
 			fixture();

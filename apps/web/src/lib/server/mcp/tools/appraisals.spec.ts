@@ -101,14 +101,6 @@ describe('tool registration', () => {
 			expect(tool!.annotations?.readOnlyHint, name).toBe(readOnly);
 		}
 	});
-
-	it('does not offer `needs` anywhere in the appraise input', async () => {
-		const { tools } = await (await connect(admin)).listTools();
-
-		expect(JSON.stringify(tools.find((t) => t.name === 'appraise')!.inputSchema)).not.toContain(
-			'needs'
-		);
-	});
 });
 
 describe('appraise', () => {
@@ -181,7 +173,8 @@ describe('appraise', () => {
 			links: [
 				{ type: 'evidence', from: 'AM-1', to: 'BL-1', note: 'seen there', setBy: 'bob', setAt: now }
 			],
-			mentions: []
+			mentions: [],
+			needs: []
 		});
 	});
 
@@ -562,18 +555,6 @@ describe('appraise', () => {
 			});
 		});
 
-		it('refuses needs on an item as an unknown argument', async () => {
-			const client = await connect(admin);
-			await seed(client, 1);
-
-			const result = await appraise(client, { labour: 'AM-1', needs: [{ kind: 'x' }] });
-
-			expect(result.structuredContent).toMatchObject({
-				error: { code: 'invalid', message: expect.stringContaining('needs') }
-			});
-			expect((await getAppraisal(client, 'AM-1')).unappraised).toBe(true);
-		});
-
 		it('refuses an unknown key on an item, a Reference and a Link', async () => {
 			const client = await connect(admin);
 			await seed(client, 2);
@@ -632,7 +613,8 @@ describe('get_appraisal', () => {
 			stale: false,
 			values: [],
 			links: [],
-			mentions: []
+			mentions: [],
+			needs: []
 		});
 	});
 

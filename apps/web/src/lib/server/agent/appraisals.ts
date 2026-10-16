@@ -17,6 +17,7 @@ import {
 } from './links.ts';
 import { readMentions, type MentionView } from './mentions.ts';
 import { refreshLabourText } from './search.ts';
+import { readNeeds, writeNeeds, type NeedView } from './skills.ts';
 
 export type Reference = { href: string; label: string | null };
 
@@ -34,6 +35,7 @@ export type AppraiseItem = {
 	refs?: { href: string; label?: string | null }[];
 	values?: Record<string, unknown>;
 	links?: LinkInput[];
+	needs?: Record<string, number | null>;
 	stamp?: string;
 };
 
@@ -49,6 +51,7 @@ export type AppraisalView = {
 	stale: boolean;
 	values: ValueView[];
 	links: LinkView[];
+	needs: NeedView[];
 	mentions: MentionView[];
 };
 
@@ -94,6 +97,7 @@ export function readAppraisal(db: Handle, labourId: number): AppraisalView {
 		stale: stamp !== null && stamp.contentHash !== hash,
 		values: readValues(db, labourId),
 		links: readLinks(db, labourId),
+		needs: readNeeds(db, labourId),
 		mentions: readMentions(db, labourId)
 	};
 }
@@ -212,6 +216,7 @@ function applyItem(
 
 	if (item.values !== undefined) writeValues(tx, userId, labour, item.values, now, touched);
 	if (item.links !== undefined) applyLinks(tx, userId, labour.id, item.links, now);
+	if (item.needs !== undefined) writeNeeds(tx, userId, labour.id, item.needs, now);
 
 	if (item.stamp === undefined) return false;
 	if (typeof item.stamp !== 'string') invalid('Stamp must be a content hash');

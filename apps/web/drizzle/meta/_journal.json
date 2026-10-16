@@ -71,6 +71,13 @@
       "when": 1792181995148,
       "tag": "0009_pulses",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1792182432746,
+      "tag": "0010_skills",
+      "breakpoints": true
     }
   ]
 }

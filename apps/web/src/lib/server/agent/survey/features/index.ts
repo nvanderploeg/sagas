@@ -7,6 +7,7 @@ import { mentions } from './mentions.ts';
 import { pulledIn } from './pulled-in.ts';
 import { questFinish } from './quest-finish.ts';
 import { delight, pain, sentiment } from './sentiment.ts';
+import { skillFit } from './skill-fit.ts';
 import type { Feature } from './types.ts';
 import { unblocks } from './unblocks.ts';
 
@@ -24,7 +25,8 @@ const BUILT_IN: Feature[] = [
 	activity,
 	sentiment,
 	pain,
-	delight
+	delight,
+	skillFit
 ];
 
 export const FEATURES: Readonly<Record<string, Feature>> = Object.fromEntries(
@@ -32,4 +34,4 @@ export const FEATURES: Readonly<Record<string, Feature>> = Object.fromEntries(
 );
 
 // Recognised but not computed: a weight on one comes back in `ignored`.
-export const LATER_FEATURES: readonly string[] = ['similarity', 'affinity', 'skill_fit'];
+export const LATER_FEATURES: readonly string[] = ['similarity', 'affinity'];

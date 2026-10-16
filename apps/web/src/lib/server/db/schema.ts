@@ -565,3 +565,69 @@ export const surveys = sqliteTable(
 		check('surveys_results_json', sql.raw(`json_valid("results")`))
 	]
 );
+
+// An ability named once for the instance, per docs/agent-layer-data.md.
+export const skills = sqliteTable(
+	'skills',
+	{
+		id: id(),
+		key: text('key').notNull().unique(),
+		label: text('label').notNull(),
+		rubric: text('rubric').notNull().default(''),
+		createdAt: now(),
+		updatedAt: now('updated_at')
+	},
+	() => [
+		check(
+			'skills_key_format',
+			sql.raw(
+				`"key" GLOB '[a-z]*' AND "key" NOT GLOB '*[^a-z0-9-]*' AND length("key") BETWEEN 1 AND 32`
+			)
+		),
+		check('skills_label_length', sql.raw(`length("label") BETWEEN 1 AND 64`)),
+		check('skills_rubric_length', sql.raw(`length("rubric") <= 4000`))
+	]
+);
+
+export const userSkills = sqliteTable(
+	'user_skills',
+	{
+		userId: integer('user_id')
+			.notNull()
+			.references(() => users.id),
+		skillId: integer('skill_id')
+			.notNull()
+			.references(() => skills.id, { onDelete: 'cascade' }),
+		level: integer('level').notNull(),
+		setBy: integer('set_by')
+			.notNull()
+			.references(() => users.id),
+		setAt: now('set_at')
+	},
+	(t) => [
+		primaryKey({ columns: [t.userId, t.skillId] }),
+		check('user_skills_level', sql.raw(`"level" BETWEEN 1 AND 5`))
+	]
+);
+
+// A Labour needs at most 8, held by the domain.
+export const labourNeeds = sqliteTable(
+	'labour_needs',
+	{
+		labourId: integer('labour_id')
+			.notNull()
+			.references(() => labours.id, { onDelete: 'cascade' }),
+		skillId: integer('skill_id')
+			.notNull()
+			.references(() => skills.id, { onDelete: 'cascade' }),
+		level: integer('level').notNull(),
+		setBy: integer('set_by')
+			.notNull()
+			.references(() => users.id),
+		setAt: now('set_at')
+	},
+	(t) => [
+		primaryKey({ columns: [t.labourId, t.skillId] }),
+		check('labour_needs_level', sql.raw(`"level" BETWEEN 1 AND 5`))
+	]
+);

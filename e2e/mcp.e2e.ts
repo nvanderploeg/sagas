@@ -68,7 +68,10 @@ const TOOLS = [
 	'pulse',
 	'get_sentiment',
 	'file_pulses',
-	'delete_pulse'
+	'delete_pulse',
+	'define_skill',
+	'list_skills',
+	'set_skills'
 ];
 
 const keysOf = (labours: { key: string }[]) => labours.map((t) => t.key);

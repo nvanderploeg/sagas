@@ -52,6 +52,12 @@ const itemShape = z.strictObject({
 		.optional()
 		.describe('Attribute key to value; null clears. As in the Realm of this Labour'),
 	links: z.array(linkShape).optional().describe('Links to add, re-note or remove; others stay'),
+	needs: z
+		.record(z.string(), z.number().int().nullable())
+		.optional()
+		.describe(
+			'Skill key to the level the Labour needs, 1 to 5; null clears. Others stay; a Labour needs at most 8 Skills'
+		),
 	stamp: z
 		.string()
 		.optional()
@@ -63,7 +69,7 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 		'appraise',
 		{
 			kind: 'write',
-			description: `Record what you read of up to ${BATCH_MAX} Labours in one all-or-nothing call: each item may set a Brief, replace References, set Attribute values and add or remove Links to other Labours. Pass \`stamp\`, the contentHash get_appraisal gave you before reading, to mark the Appraisal current; it is stamped only if the Labour's title, description, Labels and Comments are unchanged since. Each item writes only what it names.`,
+			description: `Record what you read of up to ${BATCH_MAX} Labours in one all-or-nothing call: each item may set a Brief, replace References, set Attribute values, add or remove Links to other Labours and set the Skills it needs. Pass \`stamp\`, the contentHash get_appraisal gave you before reading, to mark the Appraisal current; it is stamped only if the Labour's title, description, Labels and Comments are unchanged since. Each item writes only what it names.`,
 			input: {
 				labours: z.array(itemShape).min(1).max(BATCH_MAX).describe(`1 to ${BATCH_MAX} items`)
 			}
@@ -81,6 +87,7 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 					note: link.note,
 					remove: link.remove
 				})),
+				needs: item.needs,
 				stamp: item.stamp
 			}));
 			const results = appraise(db, actor, items);
@@ -101,7 +108,7 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'read',
 			description:
-				"Get a Labour's whole agent layer: Brief, References, Attribute values, Links and the 10 newest Mentions of it in other Labours' text, the stamp of its last Appraisal, and `contentHash`, the hash of what it holds now. Take `contentHash` before you read the Labour, then pass it back as `stamp` to appraise.",
+				"Get a Labour's whole agent layer: Brief, References, Attribute values, Links, needed Skills and the 10 newest Mentions of it in other Labours' text, the stamp of its last Appraisal, and `contentHash`, the hash of what it holds now. Take `contentHash` before you read the Labour, then pass it back as `stamp` to appraise.",
 			input: { labour: labourRef }
 		},
 		(args, present) => {
@@ -140,6 +147,12 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 					note: link.note,
 					setBy: present.username(link.setBy),
 					setAt: link.setAt.toISOString()
+				})),
+				needs: view.needs.map((need) => ({
+					skill: need.key,
+					level: need.level,
+					setBy: present.username(need.setBy),
+					setAt: need.setAt.toISOString()
 				})),
 				mentions: view.mentions.map((mention) => ({
 					in: refs.labourKey(db, mention.sourceLabourId),
