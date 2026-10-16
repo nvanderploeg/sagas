@@ -5,12 +5,14 @@ import { gate, unauthorizedResponse } from '#lib/server/auth/access.ts';
 import { authFromRequest, SESSION_COOKIE } from '#lib/server/auth/request.ts';
 import { hasUsers, seedAdmin } from '#lib/server/auth/users.ts';
 import { eventRetentionMs, seedAdminPassword, seedAdminUsername } from '#lib/server/config.ts';
+import { rebuildDerived } from '#lib/server/agent/derived.ts';
 import { getDb } from '#lib/server/db/index.ts';
 import { schedulePruning } from '#lib/server/events/log.ts';
 
 export const init: ServerInit = async () => {
 	if (building) return;
 	const db = getDb();
+	rebuildDerived(db);
 	if (seedAdminUsername && seedAdminPassword) {
 		await seedAdmin(db, { username: seedAdminUsername, password: seedAdminPassword });
 	}

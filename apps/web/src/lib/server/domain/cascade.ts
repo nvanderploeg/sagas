@@ -1,4 +1,4 @@
-import { and, asc, inArray, not, type SQL } from 'drizzle-orm';
+import { and, asc, inArray, not, sql, type SQL } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
 import { questLabours, labours } from '../db/schema.ts';
 import type { EventSpec } from '../events/types.ts';
@@ -10,6 +10,7 @@ export type Fallout = { orphans: number[]; quests: Map<number, number[]> };
 // Call before the delete. Detach Children here, not by the foreign key, so their updatedAt moves.
 export function prepareLabourDelete(tx: Handle, doomed: SQL): Fallout {
 	const doomedIds = tx.select({ id: labours.id }).from(labours).where(doomed);
+	tx.run(sql`DELETE FROM labour_text WHERE rowid IN (SELECT id FROM labours WHERE ${doomed})`);
 	const orphaned = and(inArray(labours.parentId, doomedIds), not(inArray(labours.id, doomedIds)));
 	const orphans = tx
 		.select({ id: labours.id })

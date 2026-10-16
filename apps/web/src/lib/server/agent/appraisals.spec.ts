@@ -1265,7 +1265,8 @@ describe('readAppraisal', () => {
 			unappraised: true,
 			stale: false,
 			values: [],
-			links: []
+			links: [],
+			mentions: []
 		});
 	});
 

@@ -1,0 +1,2119 @@
+{
+  "id": "5b945862-c459-47d4-9c1c-32f9740d5fed",
+  "prevId": "9d27f3ab-0c71-4555-ae6b-b45d4a46ddfb",
+  "version": "6",
+  "dialect": "sqlite",
+  "tables": {
+    "api_tokens": {
+      "name": "api_tokens",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "api_tokens_token_hash_unique": {
+          "name": "api_tokens_token_hash_unique",
+          "columns": [
+            "token_hash"
+          ],
+          "isUnique": true
+        },
+        "api_tokens_user_idx": {
+          "name": "api_tokens_user_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "api_tokens_user_id_users_id_fk": {
+          "name": "api_tokens_user_id_users_id_fk",
+          "tableFrom": "api_tokens",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "appraisals": {
+      "name": "appraisals",
+      "columns": {
+        "labour_id": {
+          "name": "labour_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "brief": {
+          "name": "brief",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "refs": {
+          "name": "refs",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "set_by": {
+          "name": "set_by",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "set_at": {
+          "name": "set_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "content_hash": {
+          "name": "content_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "appraised_by": {
+          "name": "appraised_by",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "appraised_at": {
+          "name": "appraised_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "appraisals_labour_id_labours_id_fk": {
+          "name": "appraisals_labour_id_labours_id_fk",
+          "tableFrom": "appraisals",
+          "columnsFrom": [
+            "labour_id"
+          ],
+          "tableTo": "labours",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "appraisals_set_by_users_id_fk": {
+          "name": "appraisals_set_by_users_id_fk",
+          "tableFrom": "appraisals",
+          "columnsFrom": [
+            "set_by"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        },
+        "appraisals_appraised_by_users_id_fk": {
+          "name": "appraisals_appraised_by_users_id_fk",
+          "tableFrom": "appraisals",
+          "columnsFrom": [
+            "appraised_by"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "appraisals_refs_json": {
+          "name": "appraisals_refs_json",
+          "value": "json_valid(\"refs\")"
+        },
+        "appraisals_stamp_set": {
+          "name": "appraisals_stamp_set",
+          "value": "(\"content_hash\" IS NULL) = (\"appraised_by\" IS NULL) AND (\"appraised_by\" IS NULL) = (\"appraised_at\" IS NULL)"
+        }
+      }
+    },
+    "attributes": {
+      "name": "attributes",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "realm_id": {
+          "name": "realm_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rubric": {
+          "name": "rubric",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "spec": {
+          "name": "spec",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revised_at": {
+          "name": "revised_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "attributes_realm_key_uq": {
+          "name": "attributes_realm_key_uq",
+          "columns": [
+            "realm_id",
+            "key"
+          ],
+          "isUnique": true
+        },
+        "attributes_realm_position_uq": {
+          "name": "attributes_realm_position_uq",
+          "columns": [
+            "realm_id",
+            "position"
+          ],
+          "isUnique": true
+        },
+        "attributes_realm_id_uq": {
+          "name": "attributes_realm_id_uq",
+          "columns": [
+            "realm_id",
+            "id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "attributes_realm_id_realms_id_fk": {
+          "name": "attributes_realm_id_realms_id_fk",
+          "tableFrom": "attributes",
+          "columnsFrom": [
+            "realm_id"
+          ],
+          "tableTo": "realms",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "attributes_key_format": {
+          "name": "attributes_key_format",
+          "value": "\"key\" GLOB '[a-z]*' AND \"key\" NOT GLOB '*[^a-z0-9-]*' AND length(\"key\") BETWEEN 1 AND 32"
+        },
+        "attributes_kind": {
+          "name": "attributes_kind",
+          "value": "\"kind\" IN ('scale', 'tags', 'text')"
+        },
+        "attributes_spec_json": {
+          "name": "attributes_spec_json",
+          "value": "json_valid(\"spec\")"
+        }
+      }
+    },
+    "comments": {
+      "name": "comments",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "labour_id": {
+          "name": "labour_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "author_id": {
+          "name": "author_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "comments_labour_idx": {
+          "name": "comments_labour_idx",
+          "columns": [
+            "labour_id",
+            "id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "comments_labour_id_labours_id_fk": {
+          "name": "comments_labour_id_labours_id_fk",
+          "tableFrom": "comments",
+          "columnsFrom": [
+            "labour_id"
+          ],
+          "tableTo": "labours",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "comments_author_id_users_id_fk": {
+          "name": "comments_author_id_users_id_fk",
+          "tableFrom": "comments",
+          "columnsFrom": [
+            "author_id"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "derived_builds": {
+      "name": "derived_builds",
+      "columns": {
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "built_at": {
+          "name": "built_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "events": {
+      "name": "events",
+      "columns": {
+        "seq": {
+          "name": "seq",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "data": {
+          "name": "data",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "events_created_idx": {
+          "name": "events_created_idx",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "events_actor_id_users_id_fk": {
+          "name": "events_actor_id_users_id_fk",
+          "tableFrom": "events",
+          "columnsFrom": [
+            "actor_id"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "invites": {
+      "name": "invites",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "used_at": {
+          "name": "used_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "used_by_user_id": {
+          "name": "used_by_user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "invites_token_hash_unique": {
+          "name": "invites_token_hash_unique",
+          "columns": [
+            "token_hash"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "invites_created_by_user_id_users_id_fk": {
+          "name": "invites_created_by_user_id_users_id_fk",
+          "tableFrom": "invites",
+          "columnsFrom": [
+            "created_by_user_id"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        },
+        "invites_used_by_user_id_users_id_fk": {
+          "name": "invites_used_by_user_id_users_id_fk",
+          "tableFrom": "invites",
+          "columnsFrom": [
+            "used_by_user_id"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "invites_used_pair": {
+          "name": "invites_used_pair",
+          "value": "(\"used_at\" IS NULL) = (\"used_by_user_id\" IS NULL)"
+        }
+      }
+    },
+    "labour_attributes": {
+      "name": "labour_attributes",
+      "columns": {
+        "realm_id": {
+          "name": "realm_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "labour_id": {
+          "name": "labour_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "attribute_id": {
+          "name": "attribute_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "set_by": {
+          "name": "set_by",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "set_at": {
+          "name": "set_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "labour_attributes_attribute_idx": {
+          "name": "labour_attributes_attribute_idx",
+          "columns": [
+            "attribute_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "labour_attributes_set_by_users_id_fk": {
+          "name": "labour_attributes_set_by_users_id_fk",
+          "tableFrom": "labour_attributes",
+          "columnsFrom": [
+            "set_by"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        },
+        "labour_attributes_realm_id_labour_id_labours_realm_id_id_fk": {
+          "name": "labour_attributes_realm_id_labour_id_labours_realm_id_id_fk",
+          "tableFrom": "labour_attributes",
+          "columnsFrom": [
+            "realm_id",
+            "labour_id"
+          ],
+          "tableTo": "labours",
+          "columnsTo": [
+            "realm_id",
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "labour_attributes_realm_id_attribute_id_attributes_realm_id_id_fk": {
+          "name": "labour_attributes_realm_id_attribute_id_attributes_realm_id_id_fk",
+          "tableFrom": "labour_attributes",
+          "columnsFrom": [
+            "realm_id",
+            "attribute_id"
+          ],
+          "tableTo": "attributes",
+          "columnsTo": [
+            "realm_id",
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {
+        "labour_attributes_labour_id_attribute_id_pk": {
+          "columns": [
+            "labour_id",
+            "attribute_id"
+          ],
+          "name": "labour_attributes_labour_id_attribute_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "labour_attributes_value_json": {
+          "name": "labour_attributes_value_json",
+          "value": "json_valid(\"value\")"
+        }
+      }
+    },
+    "labour_keys": {
+      "name": "labour_keys",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "labour_id": {
+          "name": "labour_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "labour_keys_labour_idx": {
+          "name": "labour_keys_labour_idx",
+          "columns": [
+            "labour_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "labour_keys_labour_id_labours_id_fk": {
+          "name": "labour_keys_labour_id_labours_id_fk",
+          "tableFrom": "labour_keys",
+          "columnsFrom": [
+            "labour_id"
+          ],
+          "tableTo": "labours",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "labour_keys_format": {
+          "name": "labour_keys_format",
+          "value": "\"key\" GLOB '[A-Z]*-[1-9]*' AND \"key\" NOT GLOB '*[^A-Z0-9-]*' AND \"key\" NOT GLOB '*-*[^0-9]*'"
+        }
+      }
+    },
+    "labours": {
+      "name": "labours",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "realm_id": {
+          "name": "realm_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "number": {
+          "name": "number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "assignee_id": {
+          "name": "assignee_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "state_id": {
+          "name": "state_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "substate_id": {
+          "name": "substate_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "rank": {
+          "name": "rank",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "labels": {
+          "name": "labels",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "labours_realm_number_uq": {
+          "name": "labours_realm_number_uq",
+          "columns": [
+            "realm_id",
+            "number"
+          ],
+          "isUnique": true
+        },
+        "labours_realm_id_uq": {
+          "name": "labours_realm_id_uq",
+          "columns": [
+            "realm_id",
+            "id"
+          ],
+          "isUnique": true
+        },
+        "labours_parent_idx": {
+          "name": "labours_parent_idx",
+          "columns": [
+            "parent_id"
+          ],
+          "isUnique": false
+        },
+        "labours_state_rank_uq": {
+          "name": "labours_state_rank_uq",
+          "columns": [
+            "state_id",
+            "rank"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "labours_realm_id_realms_id_fk": {
+          "name": "labours_realm_id_realms_id_fk",
+          "tableFrom": "labours",
+          "columnsFrom": [
+            "realm_id"
+          ],
+          "tableTo": "realms",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "labours_owner_id_users_id_fk": {
+          "name": "labours_owner_id_users_id_fk",
+          "tableFrom": "labours",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        },
+        "labours_assignee_id_users_id_fk": {
+          "name": "labours_assignee_id_users_id_fk",
+          "tableFrom": "labours",
+          "columnsFrom": [
+            "assignee_id"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        },
+        "labours_parent_id_labours_id_fk": {
+          "name": "labours_parent_id_labours_id_fk",
+          "tableFrom": "labours",
+          "columnsFrom": [
+            "parent_id"
+          ],
+          "tableTo": "labours",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "set null"
+        },
+        "labours_realm_id_state_id_states_realm_id_id_fk": {
+          "name": "labours_realm_id_state_id_states_realm_id_id_fk",
+          "tableFrom": "labours",
+          "columnsFrom": [
+            "realm_id",
+            "state_id"
+          ],
+          "tableTo": "states",
+          "columnsTo": [
+            "realm_id",
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        },
+        "labours_state_id_substate_id_substates_state_id_id_fk": {
+          "name": "labours_state_id_substate_id_substates_state_id_id_fk",
+          "tableFrom": "labours",
+          "columnsFrom": [
+            "state_id",
+            "substate_id"
+          ],
+          "tableTo": "substates",
+          "columnsTo": [
+            "state_id",
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "labours_number_positive": {
+          "name": "labours_number_positive",
+          "value": "\"number\" >= 1"
+        }
+      }
+    },
+    "links": {
+      "name": "links",
+      "columns": {
+        "from_id": {
+          "name": "from_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "to_id": {
+          "name": "to_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "set_by": {
+          "name": "set_by",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "set_at": {
+          "name": "set_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "links_to_type_idx": {
+          "name": "links_to_type_idx",
+          "columns": [
+            "to_id",
+            "type"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "links_from_id_labours_id_fk": {
+          "name": "links_from_id_labours_id_fk",
+          "tableFrom": "links",
+          "columnsFrom": [
+            "from_id"
+          ],
+          "tableTo": "labours",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "links_to_id_labours_id_fk": {
+          "name": "links_to_id_labours_id_fk",
+          "tableFrom": "links",
+          "columnsFrom": [
+            "to_id"
+          ],
+          "tableTo": "labours",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "links_set_by_users_id_fk": {
+          "name": "links_set_by_users_id_fk",
+          "tableFrom": "links",
+          "columnsFrom": [
+            "set_by"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "links_from_id_to_id_type_pk": {
+          "columns": [
+            "from_id",
+            "to_id",
+            "type"
+          ],
+          "name": "links_from_id_to_id_type_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "links_distinct": {
+          "name": "links_distinct",
+          "value": "\"from_id\" <> \"to_id\""
+        },
+        "links_relates_ordered": {
+          "name": "links_relates_ordered",
+          "value": "\"type\" <> 'relates' OR \"from_id\" < \"to_id\""
+        },
+        "links_type": {
+          "name": "links_type",
+          "value": "\"type\" IN ('evidence', 'blocks', 'relates', 'duplicates')"
+        }
+      }
+    },
+    "mentions": {
+      "name": "mentions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "source_labour_id": {
+          "name": "source_labour_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "comment_id": {
+          "name": "comment_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "labour_id": {
+          "name": "labour_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "author_id": {
+          "name": "author_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "mentions_source_target_uq": {
+          "name": "mentions_source_target_uq",
+          "columns": [
+            "source_labour_id",
+            "(CASE WHEN \"comment_id\" IS NULL THEN 0 ELSE \"comment_id\" END)",
+            "(CASE WHEN \"labour_id\" IS NULL THEN 0 ELSE \"labour_id\" END)",
+            "(CASE WHEN \"user_id\" IS NULL THEN 0 ELSE \"user_id\" END)"
+          ],
+          "isUnique": true
+        },
+        "mentions_labour_idx": {
+          "name": "mentions_labour_idx",
+          "columns": [
+            "labour_id",
+            "first_seen_at"
+          ],
+          "isUnique": false
+        },
+        "mentions_user_idx": {
+          "name": "mentions_user_idx",
+          "columns": [
+            "user_id",
+            "first_seen_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "mentions_source_labour_id_labours_id_fk": {
+          "name": "mentions_source_labour_id_labours_id_fk",
+          "tableFrom": "mentions",
+          "columnsFrom": [
+            "source_labour_id"
+          ],
+          "tableTo": "labours",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "mentions_comment_id_comments_id_fk": {
+          "name": "mentions_comment_id_comments_id_fk",
+          "tableFrom": "mentions",
+          "columnsFrom": [
+            "comment_id"
+          ],
+          "tableTo": "comments",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "mentions_labour_id_labours_id_fk": {
+          "name": "mentions_labour_id_labours_id_fk",
+          "tableFrom": "mentions",
+          "columnsFrom": [
+            "labour_id"
+          ],
+          "tableTo": "labours",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "mentions_user_id_users_id_fk": {
+          "name": "mentions_user_id_users_id_fk",
+          "tableFrom": "mentions",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        },
+        "mentions_author_id_users_id_fk": {
+          "name": "mentions_author_id_users_id_fk",
+          "tableFrom": "mentions",
+          "columnsFrom": [
+            "author_id"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "mentions_one_target": {
+          "name": "mentions_one_target",
+          "value": "(\"labour_id\" IS NULL) <> (\"user_id\" IS NULL)"
+        },
+        "mentions_not_self": {
+          "name": "mentions_not_self",
+          "value": "\"labour_id\" IS NULL OR \"labour_id\" <> \"source_labour_id\""
+        }
+      }
+    },
+    "quest_labours": {
+      "name": "quest_labours",
+      "columns": {
+        "quest_id": {
+          "name": "quest_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "labour_id": {
+          "name": "labour_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rank": {
+          "name": "rank",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "added_at": {
+          "name": "added_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "quest_labours_quest_rank_uq": {
+          "name": "quest_labours_quest_rank_uq",
+          "columns": [
+            "quest_id",
+            "rank"
+          ],
+          "isUnique": true
+        },
+        "quest_labours_labour_idx": {
+          "name": "quest_labours_labour_idx",
+          "columns": [
+            "labour_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "quest_labours_quest_id_quests_id_fk": {
+          "name": "quest_labours_quest_id_quests_id_fk",
+          "tableFrom": "quest_labours",
+          "columnsFrom": [
+            "quest_id"
+          ],
+          "tableTo": "quests",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "quest_labours_labour_id_labours_id_fk": {
+          "name": "quest_labours_labour_id_labours_id_fk",
+          "tableFrom": "quest_labours",
+          "columnsFrom": [
+            "labour_id"
+          ],
+          "tableTo": "labours",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {
+        "quest_labours_quest_id_labour_id_pk": {
+          "columns": [
+            "quest_id",
+            "labour_id"
+          ],
+          "name": "quest_labours_quest_id_labour_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "quests": {
+      "name": "quests",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "quests_owner_id_users_id_fk": {
+          "name": "quests_owner_id_users_id_fk",
+          "tableFrom": "quests",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "realm_agent": {
+      "name": "realm_agent",
+      "columns": {
+        "realm_id": {
+          "name": "realm_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "half_life_days": {
+          "name": "half_life_days",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 14
+        },
+        "loudness": {
+          "name": "loudness",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 5
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "realm_agent_realm_id_realms_id_fk": {
+          "name": "realm_agent_realm_id_realms_id_fk",
+          "tableFrom": "realm_agent",
+          "columnsFrom": [
+            "realm_id"
+          ],
+          "tableTo": "realms",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "realm_agent_version": {
+          "name": "realm_agent_version",
+          "value": "\"version\" >= 1"
+        },
+        "realm_agent_half_life": {
+          "name": "realm_agent_half_life",
+          "value": "\"half_life_days\" > 0 AND \"half_life_days\" <= 365"
+        },
+        "realm_agent_loudness": {
+          "name": "realm_agent_loudness",
+          "value": "\"loudness\" > 0"
+        }
+      }
+    },
+    "realm_keys": {
+      "name": "realm_keys",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "realm_id": {
+          "name": "realm_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "realm_keys_realm_idx": {
+          "name": "realm_keys_realm_idx",
+          "columns": [
+            "realm_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "realm_keys_realm_id_realms_id_fk": {
+          "name": "realm_keys_realm_id_realms_id_fk",
+          "tableFrom": "realm_keys",
+          "columnsFrom": [
+            "realm_id"
+          ],
+          "tableTo": "realms",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "realm_keys_format": {
+          "name": "realm_keys_format",
+          "value": "\"key\" GLOB '[A-Z]*' AND \"key\" NOT GLOB '*[^A-Z0-9]*' AND length(\"key\") BETWEEN 2 AND 6"
+        }
+      }
+    },
+    "realms": {
+      "name": "realms",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "labour_counter": {
+          "name": "labour_counter",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "initial_state_id": {
+          "name": "initial_state_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "realms_key_unique": {
+          "name": "realms_key_unique",
+          "columns": [
+            "key"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "realms_id_initial_state_id_states_realm_id_id_fk": {
+          "name": "realms_id_initial_state_id_states_realm_id_id_fk",
+          "tableFrom": "realms",
+          "columnsFrom": [
+            "id",
+            "initial_state_id"
+          ],
+          "tableTo": "states",
+          "columnsTo": [
+            "realm_id",
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "realms_key_format": {
+          "name": "realms_key_format",
+          "value": "\"key\" GLOB '[A-Z]*' AND \"key\" NOT GLOB '*[^A-Z0-9]*' AND length(\"key\") BETWEEN 2 AND 6"
+        },
+        "realms_counter_non_negative": {
+          "name": "realms_counter_non_negative",
+          "value": "\"labour_counter\" >= 0"
+        }
+      }
+    },
+    "sessions": {
+      "name": "sessions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "sessions_user_idx": {
+          "name": "sessions_user_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "sessions_user_id_users_id_fk": {
+          "name": "sessions_user_id_users_id_fk",
+          "tableFrom": "sessions",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "states": {
+      "name": "states",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "realm_id": {
+          "name": "realm_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "color": {
+          "name": "color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "icon": {
+          "name": "icon",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "is_closed": {
+          "name": "is_closed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "default_substate_id": {
+          "name": "default_substate_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "states_realm_key_uq": {
+          "name": "states_realm_key_uq",
+          "columns": [
+            "realm_id",
+            "key"
+          ],
+          "isUnique": true
+        },
+        "states_realm_position_uq": {
+          "name": "states_realm_position_uq",
+          "columns": [
+            "realm_id",
+            "position"
+          ],
+          "isUnique": true
+        },
+        "states_realm_id_uq": {
+          "name": "states_realm_id_uq",
+          "columns": [
+            "realm_id",
+            "id"
+          ],
+          "isUnique": true
+        },
+        "states_one_closed_uq": {
+          "name": "states_one_closed_uq",
+          "columns": [
+            "realm_id"
+          ],
+          "where": "\"is_closed\" = 1",
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "states_realm_id_realms_id_fk": {
+          "name": "states_realm_id_realms_id_fk",
+          "tableFrom": "states",
+          "columnsFrom": [
+            "realm_id"
+          ],
+          "tableTo": "realms",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "states_default_substate_id_substates_id_fk": {
+          "name": "states_default_substate_id_substates_id_fk",
+          "tableFrom": "states",
+          "columnsFrom": [
+            "default_substate_id"
+          ],
+          "tableTo": "substates",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "set null"
+        },
+        "states_id_default_substate_id_substates_state_id_id_fk": {
+          "name": "states_id_default_substate_id_substates_state_id_id_fk",
+          "tableFrom": "states",
+          "columnsFrom": [
+            "id",
+            "default_substate_id"
+          ],
+          "tableTo": "substates",
+          "columnsTo": [
+            "state_id",
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "substates": {
+      "name": "substates",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "state_id": {
+          "name": "state_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "color": {
+          "name": "color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "icon": {
+          "name": "icon",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "substates_state_key_uq": {
+          "name": "substates_state_key_uq",
+          "columns": [
+            "state_id",
+            "key"
+          ],
+          "isUnique": true
+        },
+        "substates_state_position_uq": {
+          "name": "substates_state_position_uq",
+          "columns": [
+            "state_id",
+            "position"
+          ],
+          "isUnique": true
+        },
+        "substates_state_id_uq": {
+          "name": "substates_state_id_uq",
+          "columns": [
+            "state_id",
+            "id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "substates_state_id_states_id_fk": {
+          "name": "substates_state_id_states_id_fk",
+          "tableFrom": "substates",
+          "columnsFrom": [
+            "state_id"
+          ],
+          "tableTo": "states",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "users": {
+      "name": "users",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "is_admin": {
+          "name": "is_admin",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "username": {
+          "name": "username",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "password_hash": {
+          "name": "password_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "must_change_password": {
+          "name": "must_change_password",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "users_username_unique": {
+          "name": "users_username_unique",
+          "columns": [
+            "username"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "users_kind": {
+          "name": "users_kind",
+          "value": "\"kind\" IN ('human', 'agent')"
+        },
+        "users_username_lower": {
+          "name": "users_username_lower",
+          "value": "\"username\" = lower(\"username\")"
+        },
+        "users_password_iff_human": {
+          "name": "users_password_iff_human",
+          "value": "(\"kind\" = 'human') = (\"password_hash\" IS NOT NULL)"
+        },
+        "users_admin_is_human": {
+          "name": "users_admin_is_human",
+          "value": "\"is_admin\" = 0 OR \"kind\" = 'human'"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  },
+  "internal": {
+    "indexes": {
+      "mentions_source_target_uq": {
+        "columns": {
+          "(CASE WHEN \"comment_id\" IS NULL THEN 0 ELSE \"comment_id\" END)": {
+            "isExpression": true
+          },
+          "(CASE WHEN \"labour_id\" IS NULL THEN 0 ELSE \"labour_id\" END)": {
+            "isExpression": true
+          },
+          "(CASE WHEN \"user_id\" IS NULL THEN 0 ELSE \"user_id\" END)": {
+            "isExpression": true
+          }
+        }
+      }
+    }
+  }
+}

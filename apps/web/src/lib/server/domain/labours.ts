@@ -2,6 +2,8 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { realmKeys, realms, states, labourKeys, labours } from '../db/schema.ts';
 import { attachValues, detachValues } from '../agent/attributes.ts';
+import { refreshMentions } from '../agent/mentions.ts';
+import { refreshLabourText } from '../agent/search.ts';
 import type { EventSpec } from '../events/types.ts';
 import { falloutEvents, prepareLabourDelete } from './cascade.ts';
 import { DomainError } from './errors.ts';
@@ -171,6 +173,14 @@ export function createLabour(db: Db, actor: Actor, input: LabourSpec): LabourVie
 			.returning()
 			.get();
 		recordLabourKey(tx, labour.id, formatLabourKey(realm.key, number));
+		refreshLabourText(tx, labour.id);
+		refreshMentions(tx, {
+			sourceLabourId: labour.id,
+			commentId: null,
+			text: description,
+			authorId: actor.id,
+			firstSeenAt: labour.createdAt
+		});
 		return labourOutcome(tx, 'labour.created', labour.id);
 	});
 }
@@ -248,6 +258,18 @@ export function updateLabour(
 		}
 		changes.updatedAt = new Date();
 		tx.update(labours).set(changes).where(eq(labours.id, labourId)).run();
+		if (changed.includes('title') || changed.includes('description')) {
+			refreshLabourText(tx, labourId);
+		}
+		if (changed.includes('description')) {
+			refreshMentions(tx, {
+				sourceLabourId: labourId,
+				commentId: null,
+				text: changes.description!,
+				authorId: actor.id,
+				firstSeenAt: changes.updatedAt
+			});
+		}
 		return labourOutcome(tx, 'labour.updated', labourId);
 	});
 }
@@ -311,6 +333,7 @@ export function moveLabour(db: Db, actor: Actor, labourId: number, input: MoveTa
 			.where(eq(labours.id, labourId))
 			.run();
 		attachValues(tx, labourId, labour.realmId, target.id, detached, movedAt);
+		refreshLabourText(tx, labourId);
 		return labourOutcome(tx, 'labour.moved', labourId);
 	});
 }

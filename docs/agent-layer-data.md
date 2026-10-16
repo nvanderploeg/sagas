@@ -106,7 +106,7 @@ A Realm's agent settings. A Realm without a row reads as version 0 with the defa
 | `first_seen_at`    | timestamp |                                                  |
 
 - `CHECK`: exactly one of `labour_id` and `user_id` is set, and `labour_id` is never `source_labour_id`.
-- `UNIQUE (source_labour_id, ifnull(comment_id, 0), ifnull(labour_id, 0), ifnull(user_id, 0))`: one row per text and target.
+- A unique index on `(source_labour_id, comment_id, labour_id, user_id)` that treats null as 0: one row per text and target.
 - Indexes `(labour_id, first_seen_at)` and `(user_id, first_seen_at)`.
 
 ### `skills`

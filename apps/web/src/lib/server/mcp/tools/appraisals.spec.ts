@@ -180,7 +180,8 @@ describe('appraise', () => {
 			values: [{ key: 'impact', kind: 'scale', value: 4, setBy: 'bob', setAt: now, stale: false }],
 			links: [
 				{ type: 'evidence', from: 'AM-1', to: 'BL-1', note: 'seen there', setBy: 'bob', setAt: now }
-			]
+			],
+			mentions: []
 		});
 	});
 
@@ -630,7 +631,8 @@ describe('get_appraisal', () => {
 			unappraised: true,
 			stale: false,
 			values: [],
-			links: []
+			links: [],
+			mentions: []
 		});
 	});
 

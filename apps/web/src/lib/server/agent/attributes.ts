@@ -6,6 +6,7 @@ import { getLabour, getRealm } from '../domain/lookup.ts';
 import { placeAt, writePositions } from '../domain/positions.ts';
 import { requireMatch, requireText, STATE_KEY } from '../domain/validate.ts';
 import type { Actor } from '../domain/write.ts';
+import { refreshLabourText } from './search.ts';
 
 export type AttributeKind = 'scale' | 'tags' | 'text';
 export type Member = { key: string; label: string; rubric: string };
@@ -439,13 +440,36 @@ function reviseAttribute(tx: Handle, row: AttributeRow, input: AttributeInput, n
 		writePositions(order, (id, position) =>
 			tx.update(attributes).set({ position }).where(eq(attributes.id, id)).run()
 		);
+		if (rows.filter((other) => other.kind === 'text').length > 1) {
+			refreshTextHolders(tx, row.realmId);
+		}
 	}
 	return revised || valuesChanged || label !== row.label || moved;
 }
 
+// notes follow Attribute position: refresh them whenever text Attributes reorder.
+function refreshTextHolders(tx: Handle, realmId: number): void {
+	const holders = tx
+		.selectDistinct({ labourId: labourAttributes.labourId })
+		.from(labourAttributes)
+		.innerJoin(attributes, eq(attributes.id, labourAttributes.attributeId))
+		.where(and(eq(attributes.realmId, realmId), eq(attributes.kind, 'text')))
+		.all();
+	for (const { labourId } of holders) refreshLabourText(tx, labourId);
+}
+
 // Every Attribute deletion goes through here; release what an Attribute owns here too.
 export function removeAttribute(tx: Handle, row: AttributeRow): void {
+	const holders =
+		row.kind === 'text'
+			? tx
+					.select({ labourId: labourAttributes.labourId })
+					.from(labourAttributes)
+					.where(eq(labourAttributes.attributeId, row.id))
+					.all()
+			: [];
 	tx.delete(attributes).where(eq(attributes.id, row.id)).run();
+	for (const { labourId } of holders) refreshLabourText(tx, labourId);
 	writePositions(
 		attributeRows(tx, row.realmId).map((other) => other.id),
 		(id, position) => tx.update(attributes).set({ position }).where(eq(attributes.id, id)).run()
@@ -568,7 +592,9 @@ export function writeValues(
 		return { row, value: normalizeValue(row, raw) };
 	});
 
+	let notesChanged = false;
 	for (const { row, value } of planned) {
+		if (row.kind === 'text') notesChanged = true;
 		const match = and(
 			eq(labourAttributes.labourId, labour.id),
 			eq(labourAttributes.attributeId, row.id)
@@ -594,6 +620,7 @@ export function writeValues(
 			.run();
 		touched.add(labour.realmId);
 	}
+	if (notesChanged) refreshLabourText(tx, labour.id);
 }
 
 export function setValues(

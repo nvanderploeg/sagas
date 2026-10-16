@@ -101,7 +101,7 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'read',
 			description:
-				"Get a Labour's whole agent layer: Brief, References, Attribute values and Links, the stamp of its last Appraisal, and `contentHash`, the hash of what it holds now. Take `contentHash` before you read the Labour, then pass it back as `stamp` to appraise.",
+				"Get a Labour's whole agent layer: Brief, References, Attribute values, Links and the 10 newest Mentions of it in other Labours' text, the stamp of its last Appraisal, and `contentHash`, the hash of what it holds now. Take `contentHash` before you read the Labour, then pass it back as `stamp` to appraise.",
 			input: { labour: labourRef }
 		},
 		(args, present) => {
@@ -140,6 +140,12 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 					note: link.note,
 					setBy: present.username(link.setBy),
 					setAt: link.setAt.toISOString()
+				})),
+				mentions: view.mentions.map((mention) => ({
+					in: refs.labourKey(db, mention.sourceLabourId),
+					comment: mention.commentId,
+					by: present.username(mention.authorId),
+					firstSeenAt: mention.firstSeenAt.toISOString()
 				}))
 			};
 			const state = view.unappraised ? 'unappraised' : view.stale ? 'stale' : 'current';

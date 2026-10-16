@@ -140,7 +140,7 @@ const BOARD_TABLES = new Set([
 function agentRows(): number {
 	const names = db.$client
 		.prepare(
-			"select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like '%drizzle%'"
+			"select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like '%drizzle%' and name not like 'labour_text%' and name <> 'derived_builds'"
 		)
 		.all() as { name: string }[];
 	return names

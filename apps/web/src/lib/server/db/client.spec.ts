@@ -53,6 +53,6 @@ describe('openDatabase', () => {
 		expect(tables).toEqual(
 			expect.arrayContaining(['users', 'realms', 'states', 'substates', 'labours'])
 		);
-		expect(applied).toBe(6);
+		expect(applied).toBe(8);
 	});
 });

@@ -15,6 +15,8 @@ import {
 	type LinkType,
 	type LinkView
 } from './links.ts';
+import { readMentions, type MentionView } from './mentions.ts';
+import { refreshLabourText } from './search.ts';
 
 export type Reference = { href: string; label: string | null };
 
@@ -47,6 +49,7 @@ export type AppraisalView = {
 	stale: boolean;
 	values: ValueView[];
 	links: LinkView[];
+	mentions: MentionView[];
 };
 
 export type UnappraisedReason = 'unappraised' | 'content' | 'values';
@@ -90,7 +93,8 @@ export function readAppraisal(db: Handle, labourId: number): AppraisalView {
 		unappraised: stamp === null,
 		stale: stamp !== null && stamp.contentHash !== hash,
 		values: readValues(db, labourId),
-		links: readLinks(db, labourId)
+		links: readLinks(db, labourId),
+		mentions: readMentions(db, labourId)
 	};
 }
 
@@ -138,6 +142,7 @@ function writeAppraisal(
 		.values({ labourId, ...set })
 		.onConflictDoUpdate({ target: appraisals.labourId, set })
 		.run();
+	if (patch.brief !== undefined) refreshLabourText(tx, labourId);
 }
 
 function writeStamp(tx: Handle, userId: number, labourId: number, hash: string, now: Date): void {

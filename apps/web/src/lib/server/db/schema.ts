@@ -456,3 +456,41 @@ export const links = sqliteTable(
 		check('links_type', sql.raw(`"type" IN ('evidence', 'blocks', 'relates', 'duplicates')`))
 	]
 );
+
+// The version of the build rules each derived structure follows, per docs/agent-layer-data.md.
+export const derivedBuilds = sqliteTable('derived_builds', {
+	name: text('name', { enum: ['labour_text', 'mentions'] }).primaryKey(),
+	version: integer('version').notNull(),
+	builtAt: now('built_at')
+});
+
+// A Labour key or username found in a Labour's description or a Comment, per docs/agent-layer-data.md.
+export const mentions = sqliteTable(
+	'mentions',
+	{
+		id: id(),
+		sourceLabourId: integer('source_labour_id')
+			.notNull()
+			.references(() => labours.id, { onDelete: 'cascade' }),
+		// Null when the Mention is in the description.
+		commentId: integer('comment_id').references(() => comments.id, { onDelete: 'cascade' }),
+		labourId: integer('labour_id').references(() => labours.id, { onDelete: 'cascade' }),
+		userId: integer('user_id').references(() => users.id),
+		authorId: integer('author_id')
+			.notNull()
+			.references(() => users.id),
+		firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull()
+	},
+	(t) => [
+		uniqueIndex('mentions_source_target_uq').on(
+			t.sourceLabourId,
+			sql`(CASE WHEN ${t.commentId} IS NULL THEN 0 ELSE ${t.commentId} END)`,
+			sql`(CASE WHEN ${t.labourId} IS NULL THEN 0 ELSE ${t.labourId} END)`,
+			sql`(CASE WHEN ${t.userId} IS NULL THEN 0 ELSE ${t.userId} END)`
+		),
+		index('mentions_labour_idx').on(t.labourId, t.firstSeenAt),
+		index('mentions_user_idx').on(t.userId, t.firstSeenAt),
+		check('mentions_one_target', sql.raw(`("labour_id" IS NULL) <> ("user_id" IS NULL)`)),
+		check('mentions_not_self', sql.raw(`"labour_id" IS NULL OR "labour_id" <> "source_labour_id"`))
+	]
+);
