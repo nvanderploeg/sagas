@@ -252,11 +252,11 @@ Its polling rests on two reads:
 			weight: number;
 		}[]; // heaviest first, `limit` of them (3)
 	}[];
-	unfiled: { raw_key: string; volume: number; count: number; newest: { id: number; note: string } }[]; // for a Realm; [] for a User
+	unfiled: { rawKey: string; volume: number; count: number; newest: { id: number; note: string } }[]; // for a Realm; [] for a User
 }
 ```
 
-`pulse` answers `{ pulses: { index, status, id? }[] }`, one per item in order. `status` is `filed`, `unfiled` or `skipped` (a repeated `ref`), and `id` names the new Pulse.
+`pulse` answers `{ pulses: { index, status, id }[] }`, one per item in order. `status` is `filed`, `unfiled` or `skipped` (a repeated `ref`), and `id` names the new Pulse, or the earlier one when skipped.
 
 ## Tools
 
@@ -271,7 +271,7 @@ A draft. Each tool's final inputs go into `docs/mcp.md` when it is built.
 | `appraise`         | `labours: [{ labour, brief?, refs?, needs?, values?, links?, stamp? }]`          | `{ appraised: [{ labour, stamped }] }`                 |
 | `get_appraisal`    | `labour`                                                                         | The Labour's whole agent layer, and `content_hash`     |
 | `list_unappraised` | `realm?, limit?, offset?`                                                        | `{ labours: [{ labour, reason }], total, nextOffset }` |
-| `pulse`            | `realm, pulses: [{ key, amount, mood, note, evidence?, half_life_days?, ref? }]` | `{ pulses: [{ index, status, id? }] }`                 |
+| `pulse`            | `realm, pulses: [{ key, amount, mood, note, evidence?, half_life_days?, ref? }]` | `{ pulses: [{ index, status, id }] }`                  |
 | `get_sentiment`    | `realm \| user, limit?`                                                          | `{ asOf, keys, unfiled }`                              |
 | `file_pulses`      | `realm, raw_key, key`                                                            | `{ filed }`                                            |
 | `delete_pulse`     | `pulse`                                                                          | `{ deleted }`                                          |

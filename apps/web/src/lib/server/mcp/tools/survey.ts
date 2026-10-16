@@ -1,3 +1,4 @@
+import { inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import {
 	ASSIGNEES_MAX,
@@ -6,11 +7,13 @@ import {
 	survey,
 	type SurveyInput
 } from '../../agent/survey/index.ts';
+import { realms as realmsTable } from '../../db/schema.ts';
 import { LABELS_MAX, normalizeLabels } from '../../domain/labels.ts';
 import { count } from '../present.ts';
 import * as refs from '../refs.ts';
 import { reply } from '../result.ts';
 import { questRef, realmRef, userRef, type Tools } from '../tool.ts';
+import { pulseDto } from './sentiment.ts';
 
 const filterShape = z.strictObject({
 	include_closed: z
@@ -48,7 +51,7 @@ export function registerSurveyTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'write',
 			description:
-				"Score Labours for a User and get the best back, with why. `weights` maps keys to numbers in [-10, 10] (1 to 64 of them); a Labour's Score is the sum of weight times feature over the keys. A key is a `scale` Attribute (its value scaled to 0..1), a `tags` member as `attr:member` (1 when held, else 0), or a built-in feature in [0, 1]: `keywords` (text match to `query`; needs it), `mentions` (recent mentions of the Labour), `pulled_in` (recent mentions of the User in the Labour), `evidence`, `unblocks`, `quest_finish`, `column` (1 at the top of its State's column), `age`, `activity`. Keys that match nothing, and features this server doesn't compute (`similarity`, `sentiment`, `pain`, `delight`, `affinity`, `skill_fit`), come back in `ignored`. A Labour without the data for an Attribute key takes 0.5 for it and counts in `coverage.missing`. Results run highest Score first; a `temperature` above 0 shuffles them by noise scaled to how far Scores spread, and 0 sorts strictly. Scores from different Surveys do not compare. Each result carries `contributions` (the weight times feature behind its five largest terms) and, with `show`, the values of those Attribute keys. The Survey is stored with its results and kept for 30 days by default.",
+				"Score Labours for a User and get the best back, with why. `weights` maps keys to numbers in [-10, 10] (1 to 64 of them); a Labour's Score is the sum of weight times feature over the keys. A key is a `scale` Attribute (its value scaled to 0..1), a `tags` member as `attr:member` (1 when held, else 0), or a built-in feature in [0, 1]: `keywords` (text match to `query`; needs it), `mentions` (recent mentions of the Labour), `pulled_in` (recent mentions of the User in the Labour), `evidence`, `unblocks`, `quest_finish`, `column` (1 at the top of its State's column), `age`, `activity`, `sentiment`, `pain` and `delight` (how loudly, how badly and how happily people have reported on the Attributes the Labour holds; see get_sentiment). Keys that match nothing, and features this server doesn't compute (`similarity`, `affinity`, `skill_fit`), come back in `ignored`. A Labour without the data for an Attribute key takes 0.5 for it and counts in `coverage.missing`. Results run highest Score first; a `temperature` above 0 shuffles them by noise scaled to how far Scores spread, and 0 sorts strictly. Scores from different Surveys do not compare. Each result carries `contributions` (the weight times feature behind its five largest terms) and, with `show`, the values of those Attribute keys. With `sentiment`, `pain` or `delight` weighted, the result's `sentiment` lists the keys behind them (at most 10, loudest first) with the two heaviest Pulses of each, notes and evidence. The Survey is stored with its results and kept for 30 days by default.",
 			input: {
 				realm: z
 					.union([realmRef, z.array(realmRef).min(1).max(REALMS_MAX)])
@@ -97,6 +100,17 @@ export function registerSurveyTools({ db, actor, define }: Tools): void {
 				show: args.show
 			};
 			const result = survey(db, actor, input);
+			const dto = pulseDto(db, present);
+			const realmKeys = new Map(
+				db
+					.select({ id: realmsTable.id, key: realmsTable.key })
+					.from(realmsTable)
+					.where(
+						inArray(realmsTable.id, [...new Set(result.sentiment.map((entry) => entry.realmId))])
+					)
+					.all()
+					.map((row) => [row.id, row.key])
+			);
 			const data = {
 				survey: result.surveyId,
 				results: result.results.map((item) => ({
@@ -111,7 +125,13 @@ export function registerSurveyTools({ db, actor, define }: Tools): void {
 					contributions: item.contributions,
 					...(item.values === undefined ? {} : { values: item.values })
 				})),
-				sentiment: result.sentiment,
+				sentiment: result.sentiment.map((entry) => ({
+					realm: realmKeys.get(entry.realmId)!,
+					key: entry.key,
+					volume: entry.volume,
+					mood: entry.mood,
+					pulses: entry.pulses.map(dto)
+				})),
 				coverage: result.coverage,
 				ignored: result.ignored
 			};

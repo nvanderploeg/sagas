@@ -495,6 +495,54 @@ export const mentions = sqliteTable(
 	]
 );
 
+// One report into a Realm's Sentiment or a User's Affinity, per docs/agent-layer-data.md.
+export const pulses = sqliteTable(
+	'pulses',
+	{
+		id: id(),
+		realmId: integer('realm_id').references(() => realms.id, { onDelete: 'cascade' }),
+		userId: integer('user_id').references(() => users.id),
+		// Null while unfiled.
+		attributeId: integer('attribute_id').references(() => attributes.id, { onDelete: 'cascade' }),
+		// The member key of a tags Attribute; null otherwise.
+		member: text('member'),
+		rawKey: text('raw_key').notNull(),
+		amount: real('amount').notNull(),
+		mood: real('mood').notNull(),
+		// Null never fades.
+		halfLifeDays: real('half_life_days'),
+		note: text('note').notNull().default(''),
+		// Evidence[]; the shape is in docs/agent-layer-data.md.
+		evidence: text('evidence', { mode: 'json' }).notNull().$type<unknown>().default([]),
+		ref: text('ref'),
+		authorId: integer('author_id')
+			.notNull()
+			.references(() => users.id),
+		createdAt: now()
+	},
+	(t) => [
+		uniqueIndex('pulses_author_ref_key_uq')
+			.on(t.authorId, t.ref, t.rawKey)
+			.where(sql.raw(`"ref" IS NOT NULL`)),
+		index('pulses_realm_attribute_idx').on(t.realmId, t.attributeId, t.member),
+		index('pulses_user_attribute_idx').on(t.userId, t.attributeId, t.member),
+		index('pulses_unfiled_idx').on(t.realmId, t.rawKey).where(sql.raw(`"attribute_id" IS NULL`)),
+		index('pulses_created_idx').on(t.createdAt),
+		check('pulses_one_owner', sql.raw(`("realm_id" IS NULL) <> ("user_id" IS NULL)`)),
+		check(
+			'pulses_unfiled_is_sentiment',
+			sql.raw(`"attribute_id" IS NOT NULL OR ("member" IS NULL AND "realm_id" IS NOT NULL)`)
+		),
+		check('pulses_amount', sql.raw(`"amount" > 0 AND "amount" <= 10`)),
+		check('pulses_mood', sql.raw(`"mood" >= -1 AND "mood" <= 1`)),
+		check(
+			'pulses_half_life',
+			sql.raw(`"half_life_days" IS NULL OR ("half_life_days" > 0 AND "half_life_days" <= 365)`)
+		),
+		check('pulses_evidence_json', sql.raw(`json_valid("evidence")`))
+	]
+);
+
 // A scored request and what it returned, per docs/agent-layer-data.md.
 export const surveys = sqliteTable(
 	'surveys',

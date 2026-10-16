@@ -473,24 +473,18 @@ describe('weight keys', () => {
 		expect(result.ignored).toEqual([]);
 	});
 
-	it.each([
-		'similarity',
-		'sentiment',
-		'pain',
-		'delight',
-		'affinity',
-		'skill_fit',
-		'rank',
-		'priority'
-	])('ignores %s, which is recognised but not computed', (key) => {
-		fixture();
+	it.each(['similarity', 'affinity', 'skill_fit', 'rank', 'priority'])(
+		'ignores %s, which is recognised but not computed',
+		(key) => {
+			fixture();
 
-		const result = run({ weights: { [key]: 5 } });
+			const result = run({ weights: { [key]: 5 } });
 
-		expect(result.ignored).toEqual([key]);
-		expect(result.results[0].score).toBe(0);
-		expect(result.results[0].contributions).toEqual({});
-	});
+			expect(result.ignored).toEqual([key]);
+			expect(result.results[0].score).toBe(0);
+			expect(result.results[0].contributions).toEqual({});
+		}
+	);
 
 	it('ignores keywords without a query, or with a blank one', () => {
 		fixture();

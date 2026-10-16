@@ -64,6 +64,13 @@
       "when": 1792178436225,
       "tag": "0008_surveys",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1792181995148,
+      "tag": "0009_pulses",
+      "breakpoints": true
     }
   ]
 }

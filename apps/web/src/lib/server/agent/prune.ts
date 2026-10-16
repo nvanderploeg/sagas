@@ -1,4 +1,5 @@
 import type { Handle } from '../db/client.ts';
+import { prunePulses } from './sentiment.ts';
 import { pruneSurveys } from './survey/index.ts';
 
 export function scheduleAgentPruning(
@@ -9,6 +10,11 @@ export function scheduleAgentPruning(
 	const prune = () => {
 		try {
 			pruneSurveys(db, surveyRetentionMs);
+		} catch (error) {
+			console.error('sagas agent layer pruning failed', error);
+		}
+		try {
+			prunePulses(db);
 		} catch (error) {
 			console.error('sagas agent layer pruning failed', error);
 		}

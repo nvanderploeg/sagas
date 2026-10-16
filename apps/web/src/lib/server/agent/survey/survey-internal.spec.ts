@@ -10,6 +10,7 @@ import {
 	labours,
 	links,
 	mentions,
+	pulses,
 	questLabours,
 	quests,
 	states,
@@ -173,7 +174,10 @@ describe('querying', () => {
 			quest_finish: 1,
 			column: 1,
 			age: 1,
-			activity: 1
+			activity: 1,
+			sentiment: 1,
+			pain: 1,
+			delight: 1
 		};
 		const run = () => ask(everything, { query: 'labour' });
 		for (let i = 0; i < 3; i += 1) stamp(labour().id);
@@ -735,6 +739,9 @@ describe('performance', () => {
 		column: 1,
 		age: 0.5,
 		activity: 1,
+		sentiment: 1,
+		pain: 1,
+		delight: 1,
 		impact: 3,
 		'topic:boss': 2
 	};
@@ -846,6 +853,32 @@ describe('performance', () => {
 			}
 			insertAll(held, (part) => tx.insert(labourAttributes).values(part).run());
 
+			const reports: (typeof pulses.$inferInsert)[] = [];
+			realmIds.forEach((realmId, r) => {
+				const ids = attributeIds[r];
+				const keys = [
+					{ attributeId: ids.impact, member: null, rawKey: 'impact' },
+					{ attributeId: ids.topic, member: 'ui', rawKey: 'topic:ui' },
+					{ attributeId: ids.topic, member: 'boss', rawKey: 'topic:boss' },
+					{ attributeId: null, member: null, rawKey: 'unheard' }
+				];
+				const moods = [0.5, -0.6, 0.4, 0];
+				for (let i = 0; i < 400; i += 1) {
+					const key = keys[i % keys.length];
+					reports.push({
+						realmId,
+						...key,
+						amount: 1 + (i % 5),
+						mood: moods[i % keys.length] * (0.5 + (i % 3) / 3),
+						halfLifeDays: i % 7 === 0 ? null : 14,
+						note: `Report ${i}`,
+						authorId: admin.id,
+						createdAt: ago(i % 60)
+					});
+				}
+			});
+			insertAll(reports, (part) => tx.insert(pulses).values(part).run());
+
 			const edges = new Map<string, typeof links.$inferInsert>();
 			for (let from = 1; from <= Math.floor(n * 0.6); from += 1) {
 				const to = from + 1 + ((from * 13) % 50);
@@ -953,6 +986,60 @@ describe('performance', () => {
 			perf.$client.close();
 		}
 	});
+
+	it(
+		'scores the Sentiment features at 5,000 Labours holding a 64-member tags Attribute in under 200 ms',
+		{ timeout: 120_000 },
+		() => {
+			const perf = testDb();
+			try {
+				const bench = seedBench(perf, ['PA', 'PB', 'PC'], 5000);
+				const members = Array.from({ length: 64 }, (_, i) => ({
+					key: `m${i}`,
+					label: `M${i}`,
+					rubric: 'r'.repeat(1000)
+				}));
+				const fat = new Map(
+					bench.realmIds.map((id) => [
+						id,
+						defineAttribute(perf, bench.admin, id, {
+							key: 'fat',
+							kind: 'tags',
+							label: 'F',
+							rubric: 'x',
+							spec: { members }
+						}).attribute.id
+					])
+				);
+				const everyone = perf
+					.select({ id: labours.id, realmId: labours.realmId })
+					.from(labours)
+					.all();
+				insertAll(
+					everyone.map((row) => ({
+						realmId: row.realmId,
+						labourId: row.id,
+						attributeId: fat.get(row.realmId)!,
+						value: ['m0', 'm1'],
+						setBy: bench.admin.id,
+						setAt: NOW
+					})),
+					(part) => perf.insert(labourAttributes).values(part).run()
+				);
+				const run = () =>
+					survey(
+						perf,
+						bench.admin,
+						{ weights: { sentiment: 1, pain: 1, delight: 1 }, temperature: 0 },
+						{ now: NOW }
+					);
+				expect(run().coverage.candidates).toBe(5000);
+				expect(medianMs('sentiment features over fat tags at 5,000', run)).toBeLessThan(200);
+			} finally {
+				perf.$client.close();
+			}
+		}
+	);
 
 	it(
 		'costs by the candidates, not the database: 5,000 and 100 of 40,000 Labours',

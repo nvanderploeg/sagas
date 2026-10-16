@@ -64,7 +64,11 @@ const TOOLS = [
 	'appraise',
 	'get_appraisal',
 	'list_unappraised',
-	'survey'
+	'survey',
+	'pulse',
+	'get_sentiment',
+	'file_pulses',
+	'delete_pulse'
 ];
 
 const keysOf = (labours: { key: string }[]) => labours.map((t) => t.key);

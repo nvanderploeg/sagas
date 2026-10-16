@@ -11,6 +11,7 @@ import { registerUserTools } from './tools/users.ts';
 import { registerAttributeTools } from './tools/attributes.ts';
 import { registerAppraisalTools } from './tools/appraisals.ts';
 import { registerSurveyTools } from './tools/survey.ts';
+import { registerSentimentTools } from './tools/sentiment.ts';
 
 const INSTRUCTIONS = `sagas is a labour tracker. Vocabulary:
 - Labour: one unit of work, addressed by its Labour key (AM-123, any case). Moving a Labour or renaming its Realm key gives it a new key; old keys stay Aliases that still resolve.
@@ -25,6 +26,8 @@ const INSTRUCTIONS = `sagas is a labour tracker. Vocabulary:
 - Link: evidence, blocks, relates or duplicates between two Labours; separate from Parent.
 - Survey: a request that scores Labours with weights over Attribute keys, tags members and built-in features, for one User and an optional query. It returns Labours by Score, shuffled by a temperature, and is kept with its results.
 - Score: a Labour's weighted sum in one Survey. Scores from different Surveys don't compare.
+- Sentiment: how a Realm's audience feels about what its Attributes name: for each scale Attribute and each tags member, a volume and a mood from -1 to +1, built from Pulses.
+- Pulse: one report into a Sentiment: an amount and a mood about one key, with a note and evidence. Its weight halves every half-life. A Pulse for a key its Realm lacks stays unfiled until an agent files it.
 Arguments: an id is a JSON number; a string is always a key or a username. "me" names you wherever a User is asked for.
 Every tool acts as the User of your API token (see whoami).`;
 
@@ -42,6 +45,7 @@ export function createMcpServer(db: Db, actor: AuthUser): Server {
 	registerAttributeTools(registry.tools);
 	registerAppraisalTools(registry.tools);
 	registerSurveyTools(registry.tools);
+	registerSentimentTools(registry.tools);
 	server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: registry.list() }));
 	server.setRequestHandler(CallToolRequestSchema, (request) =>
 		registry.call(request.params.name, request.params.arguments)

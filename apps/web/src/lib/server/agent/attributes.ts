@@ -1,6 +1,6 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
-import { attributes, labourAttributes, realmAgent } from '../db/schema.ts';
+import { attributes, labourAttributes, pulses, realmAgent } from '../db/schema.ts';
 import { DomainError } from '../domain/errors.ts';
 import { getLabour, getRealm } from '../domain/lookup.ts';
 import { placeAt, writePositions } from '../domain/positions.ts';
@@ -430,6 +430,14 @@ function reviseAttribute(tx: Handle, row: AttributeRow, input: AttributeInput, n
 	const specChanged = JSON.stringify(spec) !== JSON.stringify(row.spec);
 	const revised = specChanged || rubric !== row.rubric;
 	const valuesChanged = specChanged && reshapeValues(tx, row, spec);
+	if (row.kind === 'tags' && specChanged) {
+		const kept = new Set((spec as TagsSpec).members.map((member) => member.key));
+		const removed = (specOf(row) as TagsSpec).members
+			.map((member) => member.key)
+			.filter((key) => !kept.has(key));
+		unfilePulses(tx, row.id, removed);
+		deleteAffinityPulses(tx, row.id, removed);
+	}
 	if (!revised && label === row.label && !moved) return false;
 
 	tx.update(attributes)
@@ -458,8 +466,36 @@ function refreshTextHolders(tx: Handle, realmId: number): void {
 	for (const { labourId } of holders) refreshLabourText(tx, labourId);
 }
 
+// Only Sentiment Pulses unfile: CHECK `pulses_unfiled_is_sentiment`.
+function unfilePulses(tx: Handle, attributeId: number, members?: string[]): void {
+	if (members?.length === 0) return;
+	const owned = and(eq(pulses.attributeId, attributeId), isNotNull(pulses.realmId));
+	const scope =
+		members === undefined
+			? owned
+			: and(
+					owned,
+					sql`${pulses.member} IN (SELECT value FROM json_each(${JSON.stringify(members)}))`
+				);
+	tx.update(pulses).set({ attributeId: null, member: null }).where(scope).run();
+}
+
+function deleteAffinityPulses(tx: Handle, attributeId: number, members: string[]): void {
+	if (members.length === 0) return;
+	tx.delete(pulses)
+		.where(
+			and(
+				isNull(pulses.realmId),
+				eq(pulses.attributeId, attributeId),
+				sql`${pulses.member} IN (SELECT value FROM json_each(${JSON.stringify(members)}))`
+			)
+		)
+		.run();
+}
+
 // Every Attribute deletion goes through here; release what an Attribute owns here too.
 export function removeAttribute(tx: Handle, row: AttributeRow): void {
+	unfilePulses(tx, row.id);
 	const holders =
 		row.kind === 'text'
 			? tx

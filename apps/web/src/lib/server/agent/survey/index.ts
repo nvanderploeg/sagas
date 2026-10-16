@@ -4,11 +4,14 @@ import { attributes, comments, labourAttributes, labours, surveys } from '../../
 import type { Actor } from '../../domain/write.ts';
 import { hashContent } from '../content.ts';
 import { loadCandidates, type Candidate } from './candidates.ts';
+import type { FeatureContext } from './features/types.ts';
+import { sentimentBlock, type SurveySentiment } from './sentiment-block.ts';
 import { checkRequest, type SurveyInput, type SurveyRequest } from './request.ts';
 import { applyWeights, readVocabulary, type Applied } from './weights.ts';
 
 export type { IncludeClosed, SurveyInput } from './request.ts';
 export { ASSIGNEES_MAX, HAS_MAX, REALMS_MAX } from './request.ts';
+export type { SurveySentiment } from './sentiment-block.ts';
 
 export type SurveyResultItem = {
 	labourId: number;
@@ -34,13 +37,14 @@ export type SurveyCoverage = {
 export type SurveyResult = {
 	surveyId: number;
 	results: SurveyResultItem[];
-	sentiment: [];
+	sentiment: SurveySentiment[];
 	coverage: SurveyCoverage;
 	ignored: string[];
 };
 
 const CONTRIBUTIONS_MAX = 5;
 const EDGE = 1e-12;
+const SENTIMENT_FEATURES = ['sentiment', 'pain', 'delight'];
 
 export function survey(
 	db: Db,
@@ -84,19 +88,16 @@ function runSurvey(
 	);
 
 	const vocabulary = readVocabulary(tx, request.realmIds);
-	const { applied, ignored } = applyWeights(
-		{
-			db: tx,
-			candidates,
-			candidateIds: JSON.stringify(candidates.map((candidate) => candidate.id)),
-			query: request.query,
-			forUserId: request.forUserId,
-			now,
-			queryVector
-		},
-		request.weights,
-		vocabulary
-	);
+	const context: FeatureContext = {
+		db: tx,
+		candidates,
+		candidateIds: JSON.stringify(candidates.map((candidate) => candidate.id)),
+		query: request.query,
+		forUserId: request.forUserId,
+		now,
+		queryVector
+	};
+	const { applied, ignored } = applyWeights(context, request.weights, vocabulary);
 	const shown = (request.show ?? []).filter((key) => vocabulary.attributeKeys.has(key));
 	for (const key of request.show ?? []) {
 		if (!vocabulary.attributeKeys.has(key) && !ignored.includes(key)) ignored.push(key);
@@ -128,6 +129,10 @@ function runSurvey(
 		};
 	});
 
+	const sentiment = applied.some((column) => SENTIMENT_FEATURES.includes(column.key))
+		? sentimentBlock(context, picked)
+		: [];
+
 	const missing: Record<string, number> = {};
 	for (const column of applied) if (column.missing > 0) missing[column.key] = column.missing;
 	const stamped = candidates.filter((candidate) => candidate.contentHash !== null);
@@ -150,7 +155,7 @@ function runSurvey(
 		})
 		.returning({ id: surveys.id })
 		.get();
-	return { surveyId: id, results, sentiment: [], coverage, ignored };
+	return { surveyId: id, results, sentiment, coverage, ignored };
 }
 
 // Board order breaks every tie.
