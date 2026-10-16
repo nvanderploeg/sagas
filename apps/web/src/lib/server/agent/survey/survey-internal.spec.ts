@@ -34,6 +34,7 @@ import { inputHash, rebuildEmbeddingInputs } from '../vectors/input.ts';
 import { defineSkill } from '../skills.ts';
 import { FEATURES, LATER_FEATURES, type Feature } from './features/index.ts';
 import { pruneSurveys, survey } from './index.ts';
+import { budget } from '#lib/server/test/budget.ts';
 
 const NOW = new Date('2026-06-01T00:00:00.000Z');
 const DAY = 24 * 60 * 60 * 1000;
@@ -1074,7 +1075,7 @@ describe('performance', () => {
 			expect(first.coverage.stale).toBeGreaterThan(0);
 			expect(first.results).toHaveLength(15);
 			expectEveryFeature(perf, bench, {});
-			expect(medianMs('survey at 5,000', run)).toBeLessThan(200);
+			expect(medianMs('survey at 5,000', run)).toBeLessThan(budget(200));
 		} finally {
 			perf.$client.close();
 		}
@@ -1127,7 +1128,9 @@ describe('performance', () => {
 						{ now: NOW }
 					);
 				expect(run().coverage.candidates).toBe(5000);
-				expect(medianMs('sentiment features over fat tags at 5,000', run)).toBeLessThan(200);
+				expect(medianMs('sentiment features over fat tags at 5,000', run)).toBeLessThan(
+					budget(200)
+				);
 			} finally {
 				perf.$client.close();
 			}
@@ -1186,8 +1189,8 @@ describe('performance', () => {
 				expect(first.results[0].contributions.similarity).toBeGreaterThan(0);
 				expect(
 					medianMs('similarity and age at 5,000 × 50 KB', run({ similarity: 1, age: 1 }))
-				).toBeLessThan(200);
-				expect(medianMs('age at 5,000 × 50 KB', run({ age: 1 }))).toBeLessThan(100);
+				).toBeLessThan(budget(200));
+				expect(medianMs('age at 5,000 × 50 KB', run({ age: 1 }))).toBeLessThan(budget(100));
 			} finally {
 				perf.$client.close();
 			}
@@ -1211,11 +1214,11 @@ describe('performance', () => {
 
 				expect(run(oneRealm)().coverage.candidates).toBe(5000);
 				expectEveryFeature(perf, bench, oneRealm);
-				expect(medianMs('survey at 5,000 of 40,000', run(oneRealm))).toBeLessThan(200);
+				expect(medianMs('survey at 5,000 of 40,000', run(oneRealm))).toBeLessThan(budget(200));
 
 				expect(run(oneQuest)().coverage.candidates).toBe(100);
 				expectEveryFeature(perf, bench, oneQuest);
-				expect(medianMs('survey at 100 of 40,000', run(oneQuest))).toBeLessThan(50);
+				expect(medianMs('survey at 100 of 40,000', run(oneQuest))).toBeLessThan(budget(50));
 			} finally {
 				perf.$client.close();
 			}

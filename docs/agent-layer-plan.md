@@ -264,7 +264,7 @@ Steps 1 to 4 run one after another: steps 1 to 3 all touch `domain/labours.ts`, 
 - **The image move:** `better-sqlite3`, the entrypoint and the model directory all change at once, and today a broken image only shows up on `main`. Step 6 builds the image on every pull request.
 - **The model in CI:** the real-model specs need its files. CI fetches them once and caches them by model id. Without them, those specs skip and everything else still runs.
 - **Memory:** the model adds about 150 MB of resident memory to the server.
-- **Survey cost:** scoring runs in memory over every candidate. Step 4 sets the bar at 5,000 Labours in under 200 ms.
+- **Survey cost:** scoring runs in memory over every candidate. Step 4 sets the bar at 5,000 Labours in under 200 ms on a developer machine; the timing specs give shared CI runners four times as long (`lib/server/test/budget.ts`).
 - **Randomness:** specs pin `random` and `now`, so tests are repeatable even though a Survey's order isn't.
 
 ## Done

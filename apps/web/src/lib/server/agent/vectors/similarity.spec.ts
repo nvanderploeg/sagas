@@ -10,6 +10,7 @@ import type { Actor } from '#lib/server/domain/write.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { seedActor, seedLabour, seedRealm, seedUser } from '#lib/server/test/fixtures.ts';
 import { refreshEmbeddingInput, writeVector } from './index.ts';
+import { budget } from '#lib/server/test/budget.ts';
 
 const MODEL_ID = 'Xenova/bge-small-en-v1.5@ea104dacec62c0de699686887e3f920caeb4f3e3';
 const DIMENSIONS = 384;
@@ -406,7 +407,7 @@ describe('similarity', () => {
 			expect(result.coverage.unembedded).toBe(0);
 			expect(result.coverage.missing).toEqual({});
 			expect(result.results).toHaveLength(15);
-			expect(median).toBeLessThan(200);
+			expect(median).toBeLessThan(budget(200));
 		});
 	});
 });

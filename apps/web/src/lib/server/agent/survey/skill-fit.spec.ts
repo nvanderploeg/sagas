@@ -11,6 +11,7 @@ import type { Actor } from '#lib/server/domain/write.ts';
 import { listStates } from '#lib/server/domain/states.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { seedActor, seedLabour, seedRealm, seedUser } from '#lib/server/test/fixtures.ts';
+import { budget } from '#lib/server/test/budget.ts';
 
 let db: Db;
 let actor: Actor;
@@ -418,6 +419,6 @@ describe('skill_fit performance', () => {
 		expect(first.coverage.missing).toEqual({});
 		expect(first.results).toHaveLength(15);
 		expect(first.results[0].score).toBeGreaterThanOrEqual(first.results[14].score);
-		expect(times.sort((a, b) => a - b)[1]).toBeLessThan(200);
+		expect(times.sort((a, b) => a - b)[1]).toBeLessThan(budget(200));
 	}, 120_000);
 });
