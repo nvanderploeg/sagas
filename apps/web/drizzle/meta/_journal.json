@@ -57,6 +57,13 @@
       "when": 1792177491321,
       "tag": "0007_labour_text",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792178436225,
+      "tag": "0008_surveys",
+      "breakpoints": true
     }
   ]
 }

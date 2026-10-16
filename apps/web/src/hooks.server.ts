@@ -4,8 +4,14 @@ import { building } from '$app/env';
 import { gate, unauthorizedResponse } from '#lib/server/auth/access.ts';
 import { authFromRequest, SESSION_COOKIE } from '#lib/server/auth/request.ts';
 import { hasUsers, seedAdmin } from '#lib/server/auth/users.ts';
-import { eventRetentionMs, seedAdminPassword, seedAdminUsername } from '#lib/server/config.ts';
+import {
+	eventRetentionMs,
+	seedAdminPassword,
+	seedAdminUsername,
+	surveyRetentionMs
+} from '#lib/server/config.ts';
 import { rebuildDerived } from '#lib/server/agent/derived.ts';
+import { scheduleAgentPruning } from '#lib/server/agent/prune.ts';
 import { getDb } from '#lib/server/db/index.ts';
 import { schedulePruning } from '#lib/server/events/log.ts';
 
@@ -17,6 +23,7 @@ export const init: ServerInit = async () => {
 		await seedAdmin(db, { username: seedAdminUsername, password: seedAdminPassword });
 	}
 	schedulePruning(db, eventRetentionMs);
+	scheduleAgentPruning(db, surveyRetentionMs);
 };
 
 export const handle: Handle = async ({ event, resolve }) => {

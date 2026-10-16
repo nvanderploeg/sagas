@@ -494,3 +494,26 @@ export const mentions = sqliteTable(
 		check('mentions_not_self', sql.raw(`"labour_id" IS NULL OR "labour_id" <> "source_labour_id"`))
 	]
 );
+
+// A scored request and what it returned, per docs/agent-layer-data.md.
+export const surveys = sqliteTable(
+	'surveys',
+	{
+		id: id(),
+		actorId: integer('actor_id')
+			.notNull()
+			.references(() => users.id),
+		forId: integer('for_id')
+			.notNull()
+			.references(() => users.id),
+		request: text('request', { mode: 'json' }).notNull().$type<unknown>(),
+		// Results; the shape is in docs/agent-layer-data.md.
+		results: text('results', { mode: 'json' }).notNull().$type<unknown>(),
+		createdAt: now()
+	},
+	(t) => [
+		index('surveys_created_idx').on(t.createdAt),
+		check('surveys_request_json', sql.raw(`json_valid("request")`)),
+		check('surveys_results_json', sql.raw(`json_valid("results")`))
+	]
+);

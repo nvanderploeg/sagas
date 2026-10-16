@@ -71,7 +71,7 @@ export const DEFAULT_HALF_LIFE_DAYS = 14;
 export const DEFAULT_LOUDNESS = 5;
 
 const KINDS: readonly AttributeKind[] = ['scale', 'tags', 'text'];
-const RESERVED = new Set([
+export const RESERVED = new Set([
 	'rank',
 	'priority',
 	'similarity',

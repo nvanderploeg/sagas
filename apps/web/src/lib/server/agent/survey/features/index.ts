@@ -1,0 +1,38 @@
+import { activity } from './activity.ts';
+import { age } from './age.ts';
+import { column } from './column.ts';
+import { evidence } from './evidence.ts';
+import { keywords } from './keywords.ts';
+import { mentions } from './mentions.ts';
+import { pulledIn } from './pulled-in.ts';
+import { questFinish } from './quest-finish.ts';
+import type { Feature } from './types.ts';
+import { unblocks } from './unblocks.ts';
+
+export type { Feature, FeatureContext } from './types.ts';
+
+const BUILT_IN: Feature[] = [
+	keywords,
+	mentions,
+	pulledIn,
+	evidence,
+	unblocks,
+	questFinish,
+	column,
+	age,
+	activity
+];
+
+export const FEATURES: Readonly<Record<string, Feature>> = Object.fromEntries(
+	BUILT_IN.map((feature) => [feature.name, feature])
+);
+
+// Recognised but not computed: a weight on one comes back in `ignored`.
+export const LATER_FEATURES: readonly string[] = [
+	'similarity',
+	'sentiment',
+	'pain',
+	'delight',
+	'affinity',
+	'skill_fit'
+];

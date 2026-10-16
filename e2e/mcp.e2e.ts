@@ -63,7 +63,8 @@ const TOOLS = [
 	'tune_realm',
 	'appraise',
 	'get_appraisal',
-	'list_unappraised'
+	'list_unappraised',
+	'survey'
 ];
 
 const keysOf = (labours: { key: string }[]) => labours.map((t) => t.key);

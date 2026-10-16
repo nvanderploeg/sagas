@@ -14,6 +14,9 @@ function positiveNumber(name: string, raw: string | undefined, fallback: number)
 export const eventRetentionMs =
 	positiveNumber('EVENT_RETENTION_DAYS', process.env.EVENT_RETENTION_DAYS, 7) * DAY_MS;
 
+export const surveyRetentionMs =
+	positiveNumber('SURVEY_RETENTION_DAYS', process.env.SURVEY_RETENTION_DAYS, 30) * DAY_MS;
+
 export const streamHeartbeatMs = positiveNumber(
 	'STREAM_HEARTBEAT_MS',
 	process.env.STREAM_HEARTBEAT_MS,
