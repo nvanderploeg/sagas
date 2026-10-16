@@ -746,6 +746,7 @@ describe('performance', () => {
 		pain: 1,
 		delight: 1,
 		skill_fit: 1,
+		affinity: 1,
 		impact: 3,
 		'topic:boss': 2
 	};
@@ -915,6 +916,28 @@ describe('performance', () => {
 				}
 			});
 			insertAll(reports, (part) => tx.insert(pulses).values(part).run());
+
+			const habits: (typeof pulses.$inferInsert)[] = [];
+			realmIds.forEach((_, r) => {
+				const ids = attributeIds[r];
+				const keys = [
+					{ attributeId: ids.impact, member: null, rawKey: 'impact', mood: 0.6 },
+					{ attributeId: ids.topic, member: 'ui', rawKey: 'topic:ui', mood: 0.5 },
+					{ attributeId: ids.topic, member: 'boss', rawKey: 'topic:boss', mood: -0.4 }
+				];
+				for (let i = 0; i < 60; i += 1) {
+					habits.push({
+						userId: workers[0],
+						...keys[i % keys.length],
+						amount: 0.5 + (i % 4) / 2,
+						halfLifeDays: 30,
+						note: `Habit ${i}`,
+						authorId: admin.id,
+						createdAt: ago(i % 45)
+					});
+				}
+			});
+			insertAll(habits, (part) => tx.insert(pulses).values(part).run());
 
 			const edges = new Map<string, typeof links.$inferInsert>();
 			for (let from = 1; from <= Math.floor(n * 0.6); from += 1) {

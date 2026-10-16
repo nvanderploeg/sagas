@@ -1,4 +1,5 @@
 import { activity } from './activity.ts';
+import { affinity } from './affinity.ts';
 import { age } from './age.ts';
 import { column } from './column.ts';
 import { evidence } from './evidence.ts';
@@ -26,7 +27,8 @@ const BUILT_IN: Feature[] = [
 	sentiment,
 	pain,
 	delight,
-	skillFit
+	skillFit,
+	affinity
 ];
 
 export const FEATURES: Readonly<Record<string, Feature>> = Object.fromEntries(
@@ -34,4 +36,4 @@ export const FEATURES: Readonly<Record<string, Feature>> = Object.fromEntries(
 );
 
 // Recognised but not computed: a weight on one comes back in `ignored`.
-export const LATER_FEATURES: readonly string[] = ['similarity', 'affinity'];
+export const LATER_FEATURES: readonly string[] = ['similarity'];

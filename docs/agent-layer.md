@@ -368,4 +368,4 @@ A draft. Each tool's final inputs go into `docs/mcp.md` when it is built.
 | `list_skills`      |                                                                                  | `{ skills }`                                           |
 | `set_skills`       | `user, skills: { key: level \| null }`                                           | `{ user, skills }`                                     |
 | `survey`           | See Surveys                                                                      | See Surveys                                            |
-| `report_outcomes`  | `survey, outcomes: [{ labour, verdict }]`                                        | `{ recorded }`                                         |
+| `report_outcomes`  | `survey, outcomes: [{ labour, verdict }]`                                        | `{ outcomes: [{ labour, verdict, recorded }] }`        |

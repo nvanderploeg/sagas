@@ -566,6 +566,29 @@ export const surveys = sqliteTable(
 	]
 );
 
+// What became of a Labour a Survey returned, per docs/agent-layer-data.md.
+export const outcomes = sqliteTable(
+	'outcomes',
+	{
+		surveyId: integer('survey_id')
+			.notNull()
+			.references(() => surveys.id, { onDelete: 'cascade' }),
+		labourId: integer('labour_id')
+			.notNull()
+			.references(() => labours.id, { onDelete: 'cascade' }),
+		verdict: text('verdict', { enum: ['picked', 'skipped', 'done'] }).notNull(),
+		authorId: integer('author_id')
+			.notNull()
+			.references(() => users.id),
+		createdAt: now()
+	},
+	(t) => [
+		primaryKey({ columns: [t.surveyId, t.labourId, t.verdict] }),
+		index('outcomes_labour_idx').on(t.labourId),
+		check('outcomes_verdict', sql.raw(`"verdict" IN ('picked', 'skipped', 'done')`))
+	]
+);
+
 // An ability named once for the instance, per docs/agent-layer-data.md.
 export const skills = sqliteTable(
 	'skills',

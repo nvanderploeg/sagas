@@ -1,3 +1,4 @@
+import { inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import {
 	AMOUNT_MAX,
@@ -8,17 +9,21 @@ import {
 	LIMIT_MAX,
 	postPulses,
 	PULSES_MAX,
+	readAffinity,
 	readSentiment,
 	type Evidence,
 	type PulseInput,
-	type PulseView
+	type PulseView,
+	type SentimentView
 } from '../../agent/sentiment.ts';
 import type { Handle } from '../../db/client.ts';
+import { realms } from '../../db/schema.ts';
+import { DomainError } from '../../domain/errors.ts';
 import { getRealm } from '../../domain/lookup.ts';
 import { count, type Presenter } from '../present.ts';
 import * as refs from '../refs.ts';
 import { reply } from '../result.ts';
-import { labourRef, realmRef, type Tools } from '../tool.ts';
+import { labourRef, realmRef, userRef, type Tools } from '../tool.ts';
 
 const evidenceShape = z.union([
 	z.strictObject({
@@ -116,9 +121,10 @@ export function registerSentimentTools({ db, actor, define }: Tools): void {
 		'get_sentiment',
 		{
 			kind: 'read',
-			description: `Get a Realm's Sentiment: for each key of its Attributes with Pulses, its \`volume\` (the Pulses' summed weights), \`mood\` (their weighted mean, -1 to 1), \`v\` (volume against the Realm's loudness, 0 to 1) and its heaviest Pulses (${LIMIT_DEFAULT} by default, up to ${LIMIT_MAX} with \`limit\`); and \`unfiled\`, the keys Pulses were posted under that the Realm lacks, each with its volume, count and newest Pulse. \`asOf\` is the moment the weights are for.`,
+			description: `Get the Sentiment of a Realm, or the Affinity of a User: for each key with Pulses, its \`volume\` (the Pulses' summed weights), \`mood\` (their weighted mean, -1 to 1), \`v\` (volume against loudness, 0 to 1) and its heaviest Pulses (${LIMIT_DEFAULT} by default, up to ${LIMIT_MAX} with \`limit\`). Give exactly one of \`realm\` and \`user\`. A Realm's loudness is its setting; an Affinity's is 5, and its keys each name their Realm. A Realm's result also has \`unfiled\`, the keys Pulses were posted under that the Realm lacks, each with its volume, count and newest Pulse; a User's is always empty. \`asOf\` is the moment the weights are for.`,
 			input: {
-				realm: realmRef,
+				realm: realmRef.optional().describe('The Realm whose Sentiment to read; not with `user`'),
+				user: userRef.optional().describe('The User whose Affinity to read; not with `realm`'),
 				limit: z
 					.number()
 					.int()
@@ -129,14 +135,14 @@ export function registerSentimentTools({ db, actor, define }: Tools): void {
 			}
 		},
 		(args, present) => {
-			const realmId = refs.realmId(db, args.realm);
-			const view = readSentiment(db, realmId, { limit: args.limit });
-			const realm = getRealm(db, realmId).key;
+			if ((args.realm === undefined) === (args.user === undefined)) {
+				throw new DomainError('invalid', 'Give exactly one of realm and user');
+			}
 			const dto = pulseDto(db, present);
-			const data = {
+			const listed = (view: SentimentView, realmKey: (realmId: number) => string) => ({
 				asOf: view.asOf.toISOString(),
 				keys: view.keys.map((entry) => ({
-					realm,
+					realm: realmKey(entry.realmId),
 					key: entry.key,
 					volume: entry.volume,
 					mood: entry.mood,
@@ -144,10 +150,32 @@ export function registerSentimentTools({ db, actor, define }: Tools): void {
 					pulses: entry.pulses.map((pulse) => ({ ...dto(pulse), weight: pulse.weight }))
 				})),
 				unfiled: view.unfiled
-			};
+			});
+
+			if (args.realm !== undefined) {
+				const realmId = refs.realmId(db, args.realm);
+				const view = readSentiment(db, realmId, { limit: args.limit });
+				const realm = getRealm(db, realmId).key;
+				const data = listed(view, () => realm);
+				return reply(
+					data,
+					`${realm}: ${count(data.keys.length, 'key')} with Pulses, ${data.unfiled.length} unfiled`
+				);
+			}
+			const userId = refs.userId(db, args.user!, actor);
+			const view = readAffinity(db, userId, { limit: args.limit });
+			const realmKeys = new Map(
+				db
+					.select({ id: realms.id, key: realms.key })
+					.from(realms)
+					.where(inArray(realms.id, [...new Set(view.keys.map((entry) => entry.realmId))]))
+					.all()
+					.map((row) => [row.id, row.key])
+			);
+			const data = listed(view, (realmId) => realmKeys.get(realmId)!);
 			return reply(
 				data,
-				`${realm}: ${count(data.keys.length, 'key')} with Pulses, ${data.unfiled.length} unfiled`
+				`${present.username(userId)}'s Affinity: ${count(data.keys.length, 'key')} with Pulses`
 			);
 		}
 	);
@@ -176,7 +204,7 @@ export function registerSentimentTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'destroy',
 			description:
-				"Delete one Pulse by id, whoever posted it; get_sentiment gives the ids. Its weight leaves the Realm's Sentiment at once.",
+				"Delete one Pulse by id, whoever posted it; get_sentiment gives the ids. Its weight leaves the Realm's Sentiment, or the User's Affinity, at once.",
 			input: { pulse: z.number().int().positive().describe('Pulse id') }
 		},
 		(args) => {

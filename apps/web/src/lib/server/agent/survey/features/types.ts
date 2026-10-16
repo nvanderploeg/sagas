@@ -18,7 +18,8 @@ export type FeatureContext = {
 export type Feature = {
 	name: string;
 	needsQuery?: boolean;
-	// Labour id to a value in [0, 1]; null means no data, and a candidate left out takes 0.
+	// Labour id to a value, in [0, 1] unless the feature says otherwise; null means no data, and a
+	// candidate left out takes 0.
 	// Read only rows tied to the candidates.
 	load(ctx: FeatureContext): Map<number, number | null>;
 };

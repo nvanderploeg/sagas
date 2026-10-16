@@ -24,6 +24,10 @@ export function getLabour(db: Handle, id: number) {
 	return must(db.select().from(labours).where(eq(labours.id, id)).get(), 'Labour');
 }
 
+export function getUser(db: Handle, id: number) {
+	return must(db.select().from(users).where(eq(users.id, id)).get(), 'User');
+}
+
 export function requireUser(db: Handle, id: number, field: string): number {
 	const row = db.select({ id: users.id }).from(users).where(eq(users.id, id)).get();
 	if (row === undefined) throw new DomainError('invalid', `${field} does not exist`);

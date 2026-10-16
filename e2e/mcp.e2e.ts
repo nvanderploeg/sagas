@@ -69,6 +69,7 @@ const TOOLS = [
 	'get_sentiment',
 	'file_pulses',
 	'delete_pulse',
+	'report_outcomes',
 	'define_skill',
 	'list_skills',
 	'set_skills'

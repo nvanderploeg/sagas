@@ -12,6 +12,7 @@ import { registerAttributeTools } from './tools/attributes.ts';
 import { registerAppraisalTools } from './tools/appraisals.ts';
 import { registerSurveyTools } from './tools/survey.ts';
 import { registerSentimentTools } from './tools/sentiment.ts';
+import { registerOutcomeTools } from './tools/outcomes.ts';
 import { registerSkillTools } from './tools/skills.ts';
 
 const INSTRUCTIONS = `sagas is a labour tracker. Vocabulary:
@@ -30,6 +31,8 @@ const INSTRUCTIONS = `sagas is a labour tracker. Vocabulary:
 - Skill: an ability named once for the whole instance (vfx, combat-design). Users hold Skills at levels 1 to 5; Labours need them at levels.
 - Sentiment: how a Realm's audience feels about what its Attributes name: for each scale Attribute and each tags member, a volume and a mood from -1 to +1, built from Pulses.
 - Pulse: one report into a Sentiment: an amount and a mood about one key, with a note and evidence. Its weight halves every half-life. A Pulse for a key its Realm lacks stays unfiled until an agent files it.
+- Affinity: a User's own Sentiment: what they tend to pick or skip, built from the Pulses sagas posts for their Outcomes. Read it with get_sentiment's user; the affinity feature scores Labours by it.
+- Outcome: what became of a Labour a Survey returned: picked, skipped or done. report_outcomes records it.
 Arguments: an id is a JSON number; a string is always a key or a username. "me" names you wherever a User is asked for.
 Every tool acts as the User of your API token (see whoami).`;
 
@@ -47,6 +50,7 @@ export function createMcpServer(db: Db, actor: AuthUser): Server {
 	registerAttributeTools(registry.tools);
 	registerAppraisalTools(registry.tools);
 	registerSurveyTools(registry.tools);
+	registerOutcomeTools(registry.tools);
 	registerSentimentTools(registry.tools);
 	registerSkillTools(registry.tools);
 	server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: registry.list() }));

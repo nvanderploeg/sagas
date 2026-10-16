@@ -2,7 +2,7 @@ import { and, eq, sql, type SQL } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { attributes, pulses } from '../db/schema.ts';
 import { DomainError } from '../domain/errors.ts';
-import { getLabour, getRealm } from '../domain/lookup.ts';
+import { getLabour, getRealm, getUser } from '../domain/lookup.ts';
 import { STATE_KEY } from '../domain/validate.ts';
 import type { Actor } from '../domain/write.ts';
 import { readRealmAgent, type TagsSpec } from './attributes.ts';
@@ -62,6 +62,7 @@ export const REF_MAX = 200;
 export const HALF_LIFE_MAX = 365;
 export const LIMIT_DEFAULT = 3;
 export const LIMIT_MAX = 20;
+export const AFFINITY_LOUDNESS = 5;
 
 const FADED = Math.log2(100);
 const DAY = sql.raw(`${DAY_MS}.0`);
@@ -83,10 +84,19 @@ export const keyOf = (attributeId: number, member: string | null) =>
 
 export type KeyTotal = { volume: number; mood: number };
 
-// Totals of the filed Sentiment Pulses matching `where`, over the Pulse aliased `p`.
-export function totalsOf(db: Handle, where: SQL, now: Date) {
+// Whose Pulses a read covers: a Realm's Sentiment or a User's Affinity.
+export type Owner = 'realm' | 'user';
+
+const filedFor = (owner: Owner) =>
+	owner === 'realm'
+		? sql`p.attribute_id IS NOT NULL AND p.realm_id IS NOT NULL`
+		: sql`p.attribute_id IS NOT NULL AND p.user_id IS NOT NULL`;
+
+// Totals of the filed Pulses of `owner` matching `where`, over the Pulse aliased `p`. An Affinity
+// total has a null `realmId`.
+export function totalsOf(db: Handle, where: SQL, now: Date, owner: Owner = 'realm') {
 	const rows = db.all<{
-		realmId: number;
+		realmId: number | null;
 		attributeId: number;
 		member: string | null;
 		volume: number;
@@ -95,7 +105,7 @@ export function totalsOf(db: Handle, where: SQL, now: Date) {
 		SELECT p.realm_id AS realmId, p.attribute_id AS attributeId, p.member AS member,
 			sum(w) AS volume, sum(w * p.mood) AS moody
 		FROM (SELECT *, ${weightOf(now)} AS w FROM pulses p) p
-		WHERE p.attribute_id IS NOT NULL AND p.realm_id IS NOT NULL AND ${where}
+		WHERE ${filedFor(owner)} AND ${where}
 		GROUP BY p.realm_id, p.attribute_id, p.member
 	`);
 	return rows.map((row) => ({
@@ -119,7 +129,7 @@ type PulseRow = {
 };
 
 // Ties go newest first.
-function heaviestOf(db: Handle, where: SQL, limit: number, now: Date) {
+function heaviestOf(db: Handle, where: SQL, limit: number, now: Date, owner: Owner) {
 	const rows = db.all<PulseRow>(sql`
 		SELECT id, attribute_id AS attributeId, member, note, evidence, author_id AS authorId,
 			created_at AS createdAt, w AS weight
@@ -130,7 +140,7 @@ function heaviestOf(db: Handle, where: SQL, limit: number, now: Date) {
 					ORDER BY ${weightOf(now)} DESC, p.created_at DESC, p.id DESC
 				) AS rn
 			FROM pulses p
-			WHERE p.attribute_id IS NOT NULL AND p.realm_id IS NOT NULL AND ${where}
+			WHERE ${filedFor(owner)} AND ${where}
 		)
 		WHERE rn <= ${limit}
 		ORDER BY attribute_id, member, rn
@@ -180,9 +190,10 @@ export function heaviestPulses(
 	db: Handle,
 	where: SQL,
 	limit: number,
-	now: Date
+	now: Date,
+	owner: Owner = 'realm'
 ): Map<string, PulseView[]> {
-	const byKey = heaviestOf(db, where, limit, now);
+	const byKey = heaviestOf(db, where, limit, now, owner);
 	const views = viewPulses(db, [...byKey.values()].flat());
 	return new Map([...byKey].map(([key, list]) => [key, list.map((row) => views.get(row.id)!)]));
 }
@@ -379,16 +390,24 @@ export function postPulses(
 	});
 }
 
+function limitOf(given: number | undefined): number {
+	const limit = given ?? LIMIT_DEFAULT;
+	if (!Number.isInteger(limit) || limit < 1 || limit > LIMIT_MAX) {
+		invalid(`limit must be an integer from 1 to ${LIMIT_MAX}`);
+	}
+	return limit;
+}
+
+const byVolume = (a: SentimentKey, b: SentimentKey) =>
+	b.volume - a.volume || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0) || a.realmId - b.realmId;
+
 export function readSentiment(
 	db: Handle,
 	realmId: number,
 	opts: { limit?: number; now?: Date } = {}
 ): SentimentView {
 	const now = opts.now ?? new Date();
-	const limit = opts.limit ?? LIMIT_DEFAULT;
-	if (!Number.isInteger(limit) || limit < 1 || limit > LIMIT_MAX) {
-		invalid(`limit must be an integer from 1 to ${LIMIT_MAX}`);
-	}
+	const limit = limitOf(opts.limit);
 	getRealm(db, realmId);
 	const { loudness } = readRealmAgent(db, realmId);
 
@@ -415,9 +434,48 @@ export function readSentiment(
 				pulses: listed.get(keyOf(total.attributeId, total.member)) ?? []
 			};
 		})
-		.sort((a, b) => b.volume - a.volume || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+		.sort(byVolume);
 
 	return { asOf: now, keys, unfiled: readUnfiled(db, realmId, now) };
+}
+
+export function readAffinity(
+	db: Handle,
+	userId: number,
+	opts: { limit?: number; now?: Date } = {}
+): SentimentView {
+	const now = opts.now ?? new Date();
+	const limit = limitOf(opts.limit);
+	getUser(db, userId);
+
+	const where = sql`p.user_id = ${userId}`;
+	const names = new Map(
+		db
+			.select({ id: attributes.id, key: attributes.key, realmId: attributes.realmId })
+			.from(attributes)
+			.where(
+				sql`${attributes.id} IN (SELECT DISTINCT attribute_id FROM pulses WHERE user_id = ${userId})`
+			)
+			.all()
+			.map((row) => [row.id, row])
+	);
+	const listed = heaviestPulses(db, where, limit, now, 'user');
+	const keys = totalsOf(db, where, now, 'user')
+		.filter((total) => names.has(total.attributeId))
+		.map((total): SentimentKey => {
+			const attribute = names.get(total.attributeId)!;
+			return {
+				realmId: attribute.realmId,
+				key: total.member === null ? attribute.key : `${attribute.key}:${total.member}`,
+				volume: total.volume,
+				mood: total.mood,
+				v: total.volume / (total.volume + AFFINITY_LOUDNESS),
+				pulses: listed.get(keyOf(total.attributeId, total.member)) ?? []
+			};
+		})
+		.sort(byVolume);
+
+	return { asOf: now, keys, unfiled: [] };
 }
 
 function readUnfiled(db: Handle, realmId: number, now: Date): SentimentView['unfiled'] {

@@ -99,7 +99,7 @@ export function loadStrengths(
 		now
 	);
 	for (const total of totals) {
-		const loud = loudness.get(total.realmId) ?? DEFAULT_LOUDNESS;
+		const loud = loudness.get(total.realmId!) ?? DEFAULT_LOUDNESS;
 		strengths.set(keyOf(total.attributeId, total.member), {
 			volume: total.volume,
 			mood: total.mood,
@@ -122,12 +122,22 @@ type Loaded = {
 };
 
 const loaded = new WeakMap<FeatureContext, Loaded>();
+const heldCache = new WeakMap<FeatureContext, Map<number, HeldKey[]>>();
+
+export function heldOf(ctx: FeatureContext): Map<number, HeldKey[]> {
+	let held = heldCache.get(ctx);
+	if (held === undefined) {
+		held = loadHeldKeys(ctx.db, ctx.candidateIds);
+		heldCache.set(ctx, held);
+	}
+	return held;
+}
 
 // Load the three Sentiment features once per Survey.
 export function loadOf(ctx: FeatureContext): Loaded {
 	const cached = loaded.get(ctx);
 	if (cached !== undefined) return cached;
-	const held = loadHeldKeys(ctx.db, ctx.candidateIds);
+	const held = heldOf(ctx);
 	const strengths = loadStrengths(ctx.db, held, ctx.now);
 
 	const scores: Scores = { sentiment: new Map(), pain: new Map(), delight: new Map() };
