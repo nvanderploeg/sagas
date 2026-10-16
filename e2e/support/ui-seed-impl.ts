@@ -1,6 +1,22 @@
 import type { Db } from '../../apps/web/src/lib/server/db/client.ts';
 import { acceptInvite, createInvite } from '../../apps/web/src/lib/server/auth/invites.ts';
 import { createAgentUser, findUser } from '../../apps/web/src/lib/server/auth/users.ts';
+import { appraise, type AppraiseItem } from '../../apps/web/src/lib/server/agent/appraisals.ts';
+import {
+	defineAttribute,
+	setValues,
+	tuneRealm,
+	type AttributeInput
+} from '../../apps/web/src/lib/server/agent/attributes.ts';
+import { contentHash } from '../../apps/web/src/lib/server/agent/content.ts';
+import { postPulses, type PulseInput } from '../../apps/web/src/lib/server/agent/sentiment.ts';
+import {
+	defineSkill,
+	setSkills,
+	type SkillInput
+} from '../../apps/web/src/lib/server/agent/skills.ts';
+import { pulses } from '../../apps/web/src/lib/server/db/schema.ts';
+import { addComment } from '../../apps/web/src/lib/server/domain/comments.ts';
 import { createRealm, readRealm } from '../../apps/web/src/lib/server/domain/realms.ts';
 import {
 	addQuestLabour,
@@ -92,6 +108,40 @@ export function createUiSeed(db: Db, actorId: number) {
 
 		addToQuest(questId: number, labourId: number) {
 			return addQuestLabour(db, actor, questId, labourId);
+		},
+
+		comment: (labourId: number, body: string) => addComment(db, actor, labourId, body),
+
+		attribute: (realmId: number, input: AttributeInput) =>
+			defineAttribute(db, actor, realmId, input).attribute,
+		tune: (realmId: number, input: { notes?: string; halfLifeDays?: number; loudness?: number }) =>
+			tuneRealm(db, actor, realmId, input),
+		values: (labourId: number, values: Record<string, unknown>) =>
+			setValues(db, actor, labourId, values),
+		appraise: (items: AppraiseItem[]) => appraise(db, actor, items),
+		appraiseAs: (userId: number, items: AppraiseItem[]) =>
+			appraise(db, findUser(db, userId)!, items),
+		contentHash: (labourId: number) => contentHash(db, labourId),
+		skill: (input: SkillInput) => defineSkill(db, actor, input),
+		skills: (userId: number, levels: Record<string, number | null>) =>
+			setSkills(db, actor, userId, levels),
+		pulses: (realmId: number, items: PulseInput[]) => postPulses(db, actor, realmId, items),
+
+		// `member` is null for a scale Attribute.
+		affinity(userId: number, attributeId: number, member: string | null, rawKey: string) {
+			db.insert(pulses)
+				.values({
+					userId,
+					attributeId,
+					member,
+					rawKey,
+					amount: 2,
+					mood: 1,
+					halfLifeDays: null,
+					note: 'seeded',
+					authorId: actor.id
+				})
+				.run();
 		},
 
 		readQuest: (questId: number) => readQuest(db, questId),

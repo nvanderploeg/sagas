@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import RealmLayer from '#lib/components/agent/RealmLayer.svelte';
 	import ConfirmButton from '#lib/components/ConfirmButton.svelte';
 	import StyleForm from '#lib/components/StyleForm.svelte';
 	import { applyToSettings } from '#lib/live/apply.ts';
@@ -280,6 +281,10 @@
 				{@render error('addState')}
 			</div>
 		</section>
+
+		{#key realm.id}
+			<RealmLayer realmId={realm.id} />
+		{/key}
 
 		<section class="panel grid gap-3 p-5" aria-labelledby="danger-heading">
 			<h2 id="danger-heading" class="text-lg font-bold tracking-tight">Delete Realm</h2>

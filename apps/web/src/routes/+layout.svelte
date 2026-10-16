@@ -2,9 +2,12 @@
 	import './layout.css';
 	import AppHeader from '#lib/components/AppHeader.svelte';
 	import Notices from '#lib/components/Notices.svelte';
+	import { advanced } from '#lib/ui/advanced.svelte.ts';
 	import type { LayoutData } from './$types';
 
 	let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
+
+	$effect(() => advanced.start());
 </script>
 
 <a

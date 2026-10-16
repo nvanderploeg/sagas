@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { stream } from '../live/stream.svelte.ts';
 	import type { Person } from '../ui/people.ts';
+	import AdvancedToggle from './AdvancedToggle.svelte';
 	import Avatar from './Avatar.svelte';
 	import ThemeToggle from './ThemeToggle.svelte';
 
@@ -37,6 +38,7 @@
 		{#if stream.status !== 'idle'}
 			<span class="conn" data-testid="connection" data-status={stream.status}>{connection}</span>
 		{/if}
+		<AdvancedToggle />
 		<ThemeToggle />
 		<a class="me" href={resolve('/account')} aria-label="Your account ({user.displayName})">
 			<Avatar person={user} />
