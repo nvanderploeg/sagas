@@ -8,6 +8,8 @@ RUN apt-get update \
 	&& npm install -g pnpm@11.5.2
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY apps/web/package.json apps/web/
+COPY packages/client/package.json packages/client/
+COPY packages/mcp/package.json packages/mcp/
 RUN pnpm install --frozen-lockfile
 COPY apps/web/scripts apps/web/scripts
 RUN EMBEDDING_MODEL_DIR=/models pnpm --filter web models:fetch

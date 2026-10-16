@@ -221,11 +221,16 @@ Every Survey is stored with its request and results.
 
 ## The local helper
 
-A stdio MCP server, `packages/mcp`, that runs beside the agent:
+A stdio MCP server, `packages/mcp` (`sagas-mcp`), that runs beside the agent:
 
-- It passes the sagas tools through.
-- It polls and caches what an agent needs before it asks: each Realm's Attributes, its Sentiment, and the Skills. The cache lives under `${XDG_CONFIG_HOME:-~/.config}/sagas/`.
-- Everything it caches is one call away on `/mcp`, so no tool depends on it.
+- It passes every sagas tool through. `tools/call` returns the server's result as is, `isError` included. When the server can't be reached, the call returns `isError: true` with one text item, the reason.
+- A `tools/call` is sent once. If it fails on the way, even after the server may have run it, the failure is reported and the call is never repeated; only a handshake that failed is retried.
+- It answers `initialize` with the server's `instructions`. At start it tries the server for up to 2 seconds, then falls back to the last instructions it cached, then to none.
+- It polls and caches what an agent needs before it asks: each Realm's Attributes, its Sentiment, and the Skills.
+- It serves the cache as MCP resources and puts a digest of it in the `survey` tool's description. It sends `notifications/tools/list_changed` and `notifications/resources/list_changed` when either changes.
+- Everything it caches is one call away on `/mcp`, so no tool depends on it. It never fails an agent: with the server down it answers from the cache, and with no cache it lists no tools and no resources.
+
+`packages/client` (`@sagas/client`) is the MCP client under it. Its calls return `{ ok: true, value }` or `{ ok: false, warning }` and never throw. It also reads and writes the cache files. The helper holds two clients, one for polling and one for agent calls, so a failed poll never touches an agent's call; a failure retires only its own session, which closes once no request is in flight on it.
 
 Its polling rests on two reads:
 
@@ -257,6 +262,90 @@ Its polling rests on two reads:
 ```
 
 `pulse` answers `{ pulses: { index, status, id }[] }`, one per item in order. `status` is `filed`, `unfiled` or `skipped` (a repeated `ref`), and `id` names the new Pulse, or the earlier one when skipped.
+
+### Configuration
+
+| Variable                | Meaning                                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------------------------- |
+| `SAGAS_URL`             | The server's origin, such as `http://localhost:3290`. The helper talks to `<SAGAS_URL>/mcp`.              |
+| `SAGAS_TOKEN`           | An API token, sent as `Authorization: Bearer <token>`.                                                    |
+| `SAGAS_POLL_MS`         | How often it polls Realms, Attributes and Skills. Default 60,000. `0` turns polling off.                  |
+| `SAGAS_SENTIMENT_MS`    | How often it refreshes Sentiment. Default 300,000. `0` turns it off.                                      |
+| `SAGAS_CALL_TIMEOUT_MS` | How long a passed-through `tools/call` may take. Default 120,000. Polling requests time out after 10,000. |
+
+All are trimmed. An interval other than `0` is held to 5,000–86,400,000. A value that isn't a number warns on stderr and takes the default.
+
+It polls once at start, then on each timer, one poll at a time. A tick that comes while a poll runs waits for it; at most one tick of each kind waits. A failure warns on stderr once and keeps the cache; closing the helper mid-poll warns nothing. On close, a request the agent has in flight gets up to a second to finish.
+
+### Cache
+
+`${XDG_CONFIG_HOME:-~/.config}/sagas/cache/<host>/`, where `<host>` is the URL's host and port, then its path if any, with `:` and `/` replaced by `_` (`localhost_3290`, `example.com_team_sagas`). Directories are `0700` and files `0600`. Each file is `{ format: 1, fetchedAt, data }`, written to a temp file and renamed, and only when its data changed.
+
+What it reads back is checked as deeply as the helper uses it. A file, or a cached tool, that fails the check is ignored as if absent, and the next poll fetches it again; a cached tool must be one an MCP client accepts, with a `name` and an object `inputSchema`.
+
+- `server.json`: `{ instructions }`, the server's instructions.
+- `tools.json`: the last `tools/list` from the server.
+- `realms/<id>.json`: one Realm, by id, with `attributesFetchedAt` and `sentimentAsOf`. A Realm not listed loses its file.
+- `skills.json`: the Skills.
+
+### Tools
+
+`tools/list` answers from `tools.json` without waiting on the server; the list refreshes with each Realm poll (and, while polling is off, in the background after each list). Only with nothing cached does it ask the server first.
+
+### Resources
+
+Served from the cache, as `application/json`, so they work while the server is unreachable and across restarts.
+
+- `sagas://realm/<KEY>`, one per cached Realm, `<KEY>` its current key: `{ realm: { id, key, name }, version, notes, settings, attributes, attributesFetchedAt, sentiment: { asOf, keys, unfiled } | null, sentimentAsOf }`. `attributesFetchedAt` is when the helper fetched these Attributes; a `since` answer that confirms them leaves it alone. `sentimentAsOf` is when it last fetched the Sentiment, null with `sentiment`. `sentiment` is null until the first `get_sentiment` answer, and stays null on a server without that tool.
+- `sagas://skills`: `{ skills, fetchedAt }`, from `list_skills`, `fetchedAt` when these Skills were fetched. It is absent on a server without that tool.
+
+### Digest
+
+The `survey` description gains, after a blank line, `Cached for this instance:` and one line per Realm: its Attributes (`impact (scale 1–5)`, `topic (tags: boss-hp, loot)`, `notes (text)`), then `loud:` and the up to 3 Sentiment keys with the highest `v`, each with its mood rounded to one decimal (`topic:boss-hp mood +0.7`, never `-0.0`). A last line, `Skills: art, code`, names the Skills. The digest is cut to 1,500 characters, ending in `…`.
+
+### Polling
+
+- Each Realm poll calls `tools/list`, `list_realms`, `get_attributes` per Realm and `list_skills`. A Realm not listed loses its file and resource.
+- `get_attributes` carries `since` set to the cached version once a full answer is cached. A `{ realm, version }` answer keeps the cached Attributes.
+- `get_sentiment` runs per Realm on the Sentiment timer, and once for a Realm the first time the helper sees it.
+- It skips `get_sentiment` and `list_skills` when the server doesn't list them.
+
+### Notifications
+
+- `tools/list_changed`: the served tool list changed, which includes the digest text.
+- `resources/list_changed`: the set of resources changed, or the content of one did. These changes don't count: `asOf`, `attributesFetchedAt`, `sentimentAsOf`, `fetchedAt`, a Pulse's `weight`, `v`, and a `volume` or `mood` that stays the same rounded to one decimal.
+- Neither goes out before the client has initialized. A `tools/list` the client made after a change spares it that `tools/list_changed`, never a `resources/list_changed`.
+
+Its polling rests on two reads:
+
+- `get_attributes` returns the Realm's notes, settings and Attributes, each Attribute with how many Labours hold each value, so an agent can score in line with what is already set. With `since` set to the cached version it answers `{ version }` alone when nothing changed. The version rises when values change too, so the counts stay current.
+- `get_sentiment` returns a snapshot with `asOf`. The helper refreshes it on a timer.
+
+`get_sentiment` answers:
+
+```ts
+{
+	asOf: string;
+	keys: {
+		realm: string;
+		key: string; // `attr` or `attr:member`
+		volume: number;
+		mood: number;
+		v: number;
+		pulses: {
+			id: number;
+			note: string;
+			evidence: ({ href: string; label?: string } | { labour: string })[];
+			author: string;
+			createdAt: string;
+			weight: number;
+		}[]; // heaviest first, `limit` of them (3)
+	}[];
+	unfiled: { raw_key: string; volume: number; count: number; newest: { id: number; note: string } }[]; // for a Realm; [] for a User
+}
+```
+
+`pulse` answers `{ pulses: { index, status, id? }[] }`, one per item in order. `status` is `filed`, `unfiled` or `skipped` (a repeated `ref`), and `id` names the new Pulse.
 
 ## Tools
 
