@@ -45,6 +45,7 @@ A result has `structuredContent` and one text item: a one-line summary, a newlin
 - **Comment**: `{ id, labour, author, body, createdAt, updatedAt | null }`. `labour` is the Labour's key, `author` a username, `body` Markdown.
 - **Realm**: `{ id, key, path, name, aliases, initialState, states: [{ id, key, label, color, icon, closed, defaultSubstate, substates: [{ id, key, label, color, icon }] }] }`, States and Substates in order. `initialState` and `defaultSubstate` are keys.
 - **Quest**: `{ id, path, name, description, owner, progress: { closed, total }, labours: Labour[] }`, members in Quest order.
+- **Attribute**: `{ key, kind, label, rubric, spec, position, revisedAt, held, stale, counts }`, in `position` order. `spec` is `{ min, max }` for `scale`, `{ members: [{ key, label, rubric }], max | null }` for `tags` and `{ max }` for `text`. `held` is how many Labours hold a value, `stale` how many of those were set before `revisedAt` (an ISO time), and `counts` the Labours per value: per integer for `scale`, per member (every member, 0 included) for `tags`, empty for `text`.
 - **User**: `{ id, username, displayName, kind, isAdmin }`.
 
 An error is a result with `isError: true`, its message as text, and `structuredContent: { error: { code, message } }`. `code` is `invalid` (bad or unknown arguments included), `not_found` (an unknown tool included), `conflict` or `forbidden`; any other failure is `internal`, with no detail. Messages name Labours by key.
@@ -108,6 +109,19 @@ The Realm's `state` and `substate` arguments resolve within `realm`. Every write
 | `rank_quest_labour`    | `quest, labour, placement` (required)         | `{ quest: Quest }`                                               |
 
 `add_quest_labours` and `remove_quest_labours` are one write each, recording one `quest.labours_added` or `quest.labours_removed` that names only the Labours that changed. `added`, `removed` and `skipped` are Labour keys. A Labour already as asked is skipped, never an error, so a repeated call is safe; a Labour listed twice counts once; an unknown Labour fails the whole call. Labours are added in the order given, and never with their Children.
+
+### Attributes
+
+An agent layer write records no Events (`docs/agent-layer.md`). A Realm's `version` is 0 until its first change and rises by 1 with each call that changes its Attributes, values, notes or settings.
+
+| Tool               | Input                                              | Output                                                                                     |
+| ------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `get_attributes`   | `realm, since?`                                    | `{ realm, version, notes, settings: { halfLifeDays, loudness }, attributes: Attribute[] }` |
+| `define_attribute` | `realm, key, kind, label?, rubric?, spec?, index?` | `{ version, attribute: Attribute }`                                                        |
+| `delete_attribute` | `realm, key`                                       | `{ version, deleted: { key } }`                                                            |
+| `tune_realm`       | `realm, notes?, half_life_days?, loudness?`        | `{ realm, version, notes, settings: { halfLifeDays, loudness } }`                          |
+
+`get_attributes` with `since` equal to the current version answers `{ realm, version }` alone. `define_attribute` creates the Attribute when the Realm has none with that `key` (`label`, `rubric` and, except for `text`, `spec` are then required), and otherwise revises or moves it: what it leaves out stays, `kind` cannot change, and `index` is 0-based among the Realm's Attributes (last on create). `spec` is `{ min, max }` for `scale`, `{ members: [{ key, label, rubric? }], max? }` for `tags` and `{ max? }` for `text`. Narrowing a `scale` clamps its values, removing members takes them out of values, and lowering a `max` below a held value is `conflict`. `delete_attribute` deletes the values too.
 
 ### Users, Invites and API tokens
 

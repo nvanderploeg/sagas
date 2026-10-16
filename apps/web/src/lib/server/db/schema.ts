@@ -5,6 +5,7 @@ import {
 	index,
 	integer,
 	primaryKey,
+	real,
 	sqliteTable,
 	text,
 	uniqueIndex,
@@ -219,6 +220,7 @@ export const labours = sqliteTable(
 	},
 	(t) => [
 		uniqueIndex('labours_realm_number_uq').on(t.realmId, t.number),
+		uniqueIndex('labours_realm_id_uq').on(t.realmId, t.id),
 		index('labours_parent_idx').on(t.parentId),
 		uniqueIndex('labours_state_rank_uq').on(t.stateId, t.rank),
 		foreignKey(() => ({
@@ -317,4 +319,86 @@ export const events = sqliteTable(
 		data: text('data', { mode: 'json' }).notNull().$type<unknown>()
 	},
 	(t) => [index('events_created_idx').on(t.createdAt)]
+);
+
+// A Realm's settings for agents, per docs/agent-layer-data.md. No row reads as version 0.
+export const realmAgent = sqliteTable(
+	'realm_agent',
+	{
+		realmId: integer('realm_id')
+			.primaryKey()
+			.references(() => realms.id, { onDelete: 'cascade' }),
+		version: integer('version').notNull(),
+		notes: text('notes').notNull().default(''),
+		halfLifeDays: real('half_life_days').notNull().default(14),
+		loudness: real('loudness').notNull().default(5),
+		updatedAt: now('updated_at')
+	},
+	() => [
+		check('realm_agent_version', sql.raw(`"version" >= 1`)),
+		check('realm_agent_half_life', sql.raw(`"half_life_days" > 0 AND "half_life_days" <= 365`)),
+		check('realm_agent_loudness', sql.raw(`"loudness" > 0`))
+	]
+);
+
+export const attributes = sqliteTable(
+	'attributes',
+	{
+		id: id(),
+		realmId: integer('realm_id')
+			.notNull()
+			.references(() => realms.id, { onDelete: 'cascade' }),
+		key: text('key').notNull(),
+		kind: text('kind', { enum: ['scale', 'tags', 'text'] }).notNull(),
+		label: text('label').notNull(),
+		rubric: text('rubric').notNull(),
+		// By kind; the shapes are in docs/agent-layer-data.md.
+		spec: text('spec', { mode: 'json' }).notNull().$type<unknown>(),
+		// No >= 0 check: writePositions parks rows on negative positions.
+		position: integer('position').notNull(),
+		createdAt: now(),
+		revisedAt: now('revised_at'),
+		updatedAt: now('updated_at')
+	},
+	(t) => [
+		uniqueIndex('attributes_realm_key_uq').on(t.realmId, t.key),
+		uniqueIndex('attributes_realm_position_uq').on(t.realmId, t.position),
+		uniqueIndex('attributes_realm_id_uq').on(t.realmId, t.id),
+		check(
+			'attributes_key_format',
+			sql.raw(
+				`"key" GLOB '[a-z]*' AND "key" NOT GLOB '*[^a-z0-9-]*' AND length("key") BETWEEN 1 AND 32`
+			)
+		),
+		check('attributes_kind', sql.raw(`"kind" IN ('scale', 'tags', 'text')`)),
+		check('attributes_spec_json', sql.raw(`json_valid("spec")`))
+	]
+);
+
+export const labourAttributes = sqliteTable(
+	'labour_attributes',
+	{
+		realmId: integer('realm_id').notNull(),
+		labourId: integer('labour_id').notNull(),
+		attributeId: integer('attribute_id').notNull(),
+		// By the Attribute's kind; the shapes are in docs/agent-layer-data.md.
+		value: text('value', { mode: 'json' }).notNull().$type<unknown>(),
+		setBy: integer('set_by')
+			.notNull()
+			.references(() => users.id),
+		setAt: now('set_at')
+	},
+	(t) => [
+		primaryKey({ columns: [t.labourId, t.attributeId] }),
+		index('labour_attributes_attribute_idx').on(t.attributeId),
+		foreignKey(() => ({
+			columns: [t.realmId, t.labourId],
+			foreignColumns: [labours.realmId, labours.id]
+		})).onDelete('cascade'),
+		foreignKey(() => ({
+			columns: [t.realmId, t.attributeId],
+			foreignColumns: [attributes.realmId, attributes.id]
+		})).onDelete('cascade'),
+		check('labour_attributes_value_json', sql.raw(`json_valid("value")`))
+	]
 );

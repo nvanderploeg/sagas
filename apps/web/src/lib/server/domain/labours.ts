@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { realmKeys, realms, states, labourKeys, labours } from '../db/schema.ts';
+import { attachValues, detachValues } from '../agent/attributes.ts';
 import type { EventSpec } from '../events/types.ts';
 import { falloutEvents, prepareLabourDelete } from './cascade.ts';
 import { DomainError } from './errors.ts';
@@ -296,6 +297,8 @@ export function moveLabour(db: Db, actor: Actor, labourId: number, input: MoveTa
 
 		const number = allocateNumber(tx, target.id);
 		recordLabourKey(tx, labourId, formatLabourKey(target.key, number));
+		const detached = detachValues(tx, labourId);
+		const movedAt = new Date();
 		tx.update(labours)
 			.set({
 				realmId: target.id,
@@ -303,10 +306,11 @@ export function moveLabour(db: Db, actor: Actor, labourId: number, input: MoveTa
 				stateId: state.id,
 				substateId,
 				rank,
-				updatedAt: new Date()
+				updatedAt: movedAt
 			})
 			.where(eq(labours.id, labourId))
 			.run();
+		attachValues(tx, labourId, labour.realmId, target.id, detached, movedAt);
 		return labourOutcome(tx, 'labour.moved', labourId);
 	});
 }

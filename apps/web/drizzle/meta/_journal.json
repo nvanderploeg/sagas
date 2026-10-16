@@ -29,6 +29,13 @@
       "when": 1792096535393,
       "tag": "0003_password_change",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792176150408,
+      "tag": "0004_attributes",
+      "breakpoints": true
     }
   ]
 }

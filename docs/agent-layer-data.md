@@ -28,19 +28,19 @@ A Realm's agent settings. A Realm without a row reads as version 0 with the defa
 
 ### `attributes`
 
-| Column       | Type      | Rules                                                                        |
-| ------------ | --------- | ---------------------------------------------------------------------------- |
-| `id`         | integer   |                                                                              |
-| `realm_id`   | integer   | → `realms`                                                                   |
-| `key`        | text      | Key format; never changes. Not `rank`, `priority` or a built-in feature name |
-| `kind`       | text      | `scale`, `tags` or `text`; never changes                                     |
-| `label`      | text      | 1–64 characters                                                              |
-| `rubric`     | text      | Markdown, 1–4,000 characters                                                 |
-| `spec`       | json      | By kind; see JSON                                                            |
-| `position`   | integer   | ≥ 0; the Realm's display order                                               |
-| `created_at` | timestamp |                                                                              |
-| `revised_at` | timestamp | Moves when `rubric` or `spec` changes. A value set before it is stale        |
-| `updated_at` | timestamp | Moves on any change                                                          |
+| Column       | Type      | Rules                                                                            |
+| ------------ | --------- | -------------------------------------------------------------------------------- |
+| `id`         | integer   |                                                                                  |
+| `realm_id`   | integer   | → `realms`                                                                       |
+| `key`        | text      | Key format; never changes. Not `rank`, `priority` or a built-in feature name     |
+| `kind`       | text      | `scale`, `tags` or `text`; never changes                                         |
+| `label`      | text      | 1–64 characters                                                                  |
+| `rubric`     | text      | Markdown, 1–4,000 characters                                                     |
+| `spec`       | json      | By kind; see JSON                                                                |
+| `position`   | integer   | The Realm's display order, from 0; no CHECK, since reordering parks rows below 0 |
+| `created_at` | timestamp |                                                                                  |
+| `revised_at` | timestamp | Moves when `rubric` or `spec` changes. A value set before it is stale            |
+| `updated_at` | timestamp | Moves on any change                                                              |
 
 - `UNIQUE (realm_id, key)`, `UNIQUE (realm_id, position)`, and `UNIQUE (realm_id, id)` for the composite foreign key below.
 - At most 32 per Realm, held by the domain.
