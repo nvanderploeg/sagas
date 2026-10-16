@@ -301,6 +301,16 @@ describe('the MCP server', () => {
 		expect(text(old)).toContain('unknown argument "position"');
 	});
 
+	it('gives each Labour, Realm and Quest the path of its page', async () => {
+		const client = await connect(admin);
+		await seedRealm(client, 1);
+		const { quest } = await ok(client, 'create_quest', { name: 'Launch' });
+
+		expect((await ok(client, 'get_labour', { labour: 'AM-1' })).labour.path).toBe('/l/AM-1');
+		expect((await ok(client, 'get_realm', { realm: 'AM' })).realm.path).toBe('/r/AM');
+		expect(quest.path).toBe(`/quests/${quest.id}`);
+	});
+
 	it('adds and removes 100 Labours of a Quest with one Event each', async () => {
 		const client = await connect(admin);
 		await seedRealm(client, 100);

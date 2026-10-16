@@ -15,6 +15,7 @@ export type Label = { key: string; label: string };
 export type LabourSummary = {
 	id: number;
 	key: string;
+	path: string;
 	title: string;
 	realm: string;
 	state: Label;
@@ -87,6 +88,7 @@ export class Presenter {
 		return {
 			id: view.id,
 			key: view.key,
+			path: `/l/${view.key}`,
 			title: view.title,
 			realm: this.realmKey(view.realmId),
 			state: this.state(view.stateId),
@@ -153,6 +155,7 @@ export class Presenter {
 		return {
 			id: view.id,
 			key: view.key,
+			path: `/r/${view.key}`,
 			name: view.name,
 			aliases: formerKeys,
 			initialState: keyOf(view.initialStateId, view.states),
@@ -178,6 +181,7 @@ export class Presenter {
 	questSummary(view: QuestView) {
 		return {
 			id: view.id,
+			path: `/quests/${view.id}`,
 			name: view.name,
 			description: view.description,
 			owner: this.username(view.ownerId),
