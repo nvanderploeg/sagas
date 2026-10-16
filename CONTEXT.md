@@ -69,3 +69,55 @@ A Labour's position within its State's board column, set by dragging. Top is nex
 
 **Quest**:
 A named, ordered set of Labours that may span Realms, with a description and an Owner. A Labour can be in any number of Quests. Membership is explicit: adding a Labour never adds its Children. A Quest has no State; its progress is its Closed Labours over all its Labours.
+
+**Agent layer**:
+What sagas holds for agents rather than people: Attributes, Appraisals, Links, Mentions, Skills, Sentiment, Affinity, Surveys and Outcomes. Any User may change any of it, whoever set it; each value keeps who set it and when. The contract is `docs/agent-layer.md`.
+
+**Advanced view**:
+The switch that shows the agent layer beside what it describes. Off by default; the agent layer shows nowhere else.
+
+**Attribute**:
+A value a Realm defines for agents to set on its Labours: a `scale` (an integer range), `tags` (members from the Attribute's own list) or `text`. Its rubric says what each value means. A Realm has at most 32.
+
+**Appraisal**:
+An agent's reading of one Labour: its Brief and References, stamped with a hash of the content it read. Stale once the Labour's title, description, Labels or Comments change.
+
+**Brief**:
+One or two sentences an agent writes about a Labour for other agents to scan.
+
+**Reference**:
+A URL or repository path an agent attaches to a Labour.
+
+**Link**:
+A typed connection from one Labour to another: `evidence` (it supports the other), `blocks`, `relates` or `duplicates`. Separate from Parent and Children.
+
+**Mention**:
+A Labour key or `@username` in a Labour's description or a Comment, kept with when it first appeared there. sagas derives Mentions from the text; nobody writes them.
+
+**Skill**:
+An ability named once for the whole instance, such as `vfx`. A User holds Skills at levels 1–5, and a Labour can need Skills at levels.
+
+**Sentiment**:
+How a Realm's audience feels about what its Attributes name: for each `scale` Attribute and each `tags` member, a volume and a mood from −1 to +1, built from Pulses.
+
+**Pulse**:
+One report into a Sentiment or an Affinity: an amount and a mood about one key, with a note and evidence. Its weight halves every half-life; a Pulse without one never fades. A Pulse for a key its Realm lacks is unfiled until an agent files it under one.
+
+**Affinity**:
+A User's own Sentiment: what they tend to pick or skip, built from the Pulses sagas posts for their Outcomes.
+
+**Survey**:
+A request that scores Labours with weights over Attribute keys, `tags` members and built-in features, for one User and an optional query. It returns Labours by Score, shuffled by a temperature, and is kept with its results for 30 days by default.
+
+**Score**:
+A Labour's weighted sum in one Survey. Scores from different Surveys don't compare.
+_Avoid_: rank, priority
+
+**Outcome**:
+What became of a Labour a Survey returned: `picked`, `skipped` or `done`.
+
+**Feeder**:
+An Agent user that posts Pulses from what it watches, such as a Discord server or a forum.
+
+**Librarian**:
+The Agent user that keeps the agent layer current: it appraises Labours, turns reports into Pulses, files unfiled Pulses and tends each Realm's Attributes. It is the feeder for a Realm's own tickets. Its role is `docs/librarian.md`.
