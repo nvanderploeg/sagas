@@ -46,6 +46,8 @@ A result has `structuredContent` and one text item: a one-line summary, a newlin
 - **Realm**: `{ id, key, path, name, aliases, initialState, states: [{ id, key, label, color, icon, closed, defaultSubstate, substates: [{ id, key, label, color, icon }] }] }`, States and Substates in order. `initialState` and `defaultSubstate` are keys.
 - **Quest**: `{ id, path, name, description, owner, progress: { closed, total }, labours: Labour[] }`, members in Quest order.
 - **Attribute**: `{ key, kind, label, rubric, spec, position, revisedAt, held, stale, counts }`, in `position` order. `spec` is `{ min, max }` for `scale`, `{ members: [{ key, label, rubric }], max | null }` for `tags` and `{ max }` for `text`. `held` is how many Labours hold a value, `stale` how many of those were set before `revisedAt` (an ISO time), and `counts` the Labours per value: per integer for `scale`, per member (every member, 0 included) for `tags`, empty for `text`.
+- **Appraisal**: `{ labour, brief, refs: [{ href, label | null }], setBy | null, setAt | null, contentHash, stamp: { contentHash, appraisedBy, appraisedAt } | null, unappraised, stale, values: [{ key, kind, value, setBy, setAt, stale }], links: Link[] }`. `labour` is the Labour's key; `setBy` and `appraisedBy` are usernames, and `setBy` and `setAt` are null until a Brief or References are first written; `contentHash` is the hash of the Labour's title, description, Labels and Comments now, and `stamp.contentHash` the one the last stamped Appraisal read. `unappraised` means no stamp, `stale` a stamp whose hash is not `contentHash`. `values` are the Labour's Attribute values.
+- **Link**: `{ type, from, to, note, setBy, setAt }`, `from` and `to` Labour keys, ordered by type (`evidence`, `blocks`, `relates`, `duplicates`), then `from`, then `to`. `evidence`: `from` supports `to`. `blocks`: `to` can't go ahead until `from` is Closed. `duplicates`: `from` repeats `to`. `relates` has no direction and is stored with the lower id as `from`.
 - **User**: `{ id, username, displayName, kind, isAdmin }`.
 
 An error is a result with `isError: true`, its message as text, and `structuredContent: { error: { code, message } }`. `code` is `invalid` (bad or unknown arguments included), `not_found` (an unknown tool included), `conflict` or `forbidden`; any other failure is `internal`, with no detail. Messages name Labours by key.
@@ -122,6 +124,20 @@ An agent layer write records no Events (`docs/agent-layer.md`). A Realm's `versi
 | `tune_realm`       | `realm, notes?, half_life_days?, loudness?`        | `{ realm, version, notes, settings: { halfLifeDays, loudness } }`                          |
 
 `get_attributes` with `since` equal to the current version answers `{ realm, version }` alone. `define_attribute` creates the Attribute when the Realm has none with that `key` (`label`, `rubric` and, except for `text`, `spec` are then required), and otherwise revises or moves it: what it leaves out stays, `kind` cannot change, and `index` is 0-based among the Realm's Attributes (last on create). `spec` is `{ min, max }` for `scale`, `{ members: [{ key, label, rubric? }], max? }` for `tags` and `{ max? }` for `text`. Narrowing a `scale` clamps its values, removing members takes them out of values, and lowering a `max` below a held value is `conflict`. `delete_attribute` deletes the values too.
+
+### Appraisals and Links
+
+An agent layer write records no Events and never changes a Labour's `updatedAt` (`docs/agent-layer.md`). Only `values` change a Realm's `version`.
+
+| Tool               | Input                                                                  | Output                                                                        |
+| ------------------ | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `appraise`         | `labours: [{ labour, brief?, refs?, values?, links?, stamp? }]` (1–50) | `{ appraised: [{ labour, stamped }] }`                                        |
+| `get_appraisal`    | `labour`                                                               | `Appraisal`                                                                   |
+| `list_unappraised` | `realm?, include_closed?, limit? (50, max 200), offset? (0)`           | `{ labours: [{ labour, title, reason }], total, offset, nextOffset \| null }` |
+
+`appraise` is one all-or-nothing write: any error refuses the whole batch. An item writes only what it names, and one naming nothing is fine; the same Labour twice is `invalid`. `brief` is up to 400 characters (`""` clears); `refs` replaces the References (`[]` clears), at most 20, each `{ href, label? }` with `href` 1–500 characters and `label` up to 120, and no `href` twice. `values` is `{ key: value \| null }` as in the Labour's Realm. Each `links` entry is `{ type, to \| from, note?, remove? }`: `to` when the appraised Labour is `from`, `from` when it is `to` ("blocked by AM-3" is `{ type: "blocks", from: "AM-3" }`), exactly one of the two. It adds the Link, or re-notes it when `note` is given; a `note` left out keeps the existing one, and removing an absent Link does nothing. A `blocks` Link that would close a cycle is `conflict`. Take `contentHash` from `get_appraisal` before reading a Labour and pass it back as `stamp`: the item is stamped (`stamped: true`) only if it still matches; otherwise its other writes land and `stamped` is `false`. Without `stamp`, `stamped` is `false`.
+
+`list_unappraised` gives each Labour one `reason`: `unappraised` (never stamped), `content` (stamped, but its title, description, Labels or Comments changed since) or `values` (a value set before its Attribute's `revisedAt`). They come in that order, newest Labour first within each. Closed Labours are left out unless `include_closed` is true.
 
 ### Users, Invites and API tokens
 

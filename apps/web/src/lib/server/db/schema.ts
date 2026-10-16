@@ -402,3 +402,57 @@ export const labourAttributes = sqliteTable(
 		check('labour_attributes_value_json', sql.raw(`json_valid("value")`))
 	]
 );
+
+// A Labour's Brief, References and stamp, per docs/agent-layer-data.md. No row reads as unappraised.
+export const appraisals = sqliteTable(
+	'appraisals',
+	{
+		labourId: integer('labour_id')
+			.primaryKey()
+			.references(() => labours.id, { onDelete: 'cascade' }),
+		brief: text('brief').notNull().default(''),
+		// Reference[]; the shape is in docs/agent-layer-data.md.
+		refs: text('refs', { mode: 'json' }).notNull().$type<unknown>().default([]),
+		// Null until a brief or refs write.
+		setBy: integer('set_by').references(() => users.id),
+		setAt: timestamp('set_at'),
+		contentHash: text('content_hash'),
+		appraisedBy: integer('appraised_by').references(() => users.id),
+		appraisedAt: timestamp('appraised_at')
+	},
+	() => [
+		check('appraisals_refs_json', sql.raw(`json_valid("refs")`)),
+		check(
+			'appraisals_stamp_set',
+			sql.raw(
+				`("content_hash" IS NULL) = ("appraised_by" IS NULL) AND ("appraised_by" IS NULL) = ("appraised_at" IS NULL)`
+			)
+		)
+	]
+);
+
+// A typed connection between two Labours, per docs/agent-layer-data.md.
+export const links = sqliteTable(
+	'links',
+	{
+		fromId: integer('from_id')
+			.notNull()
+			.references(() => labours.id, { onDelete: 'cascade' }),
+		toId: integer('to_id')
+			.notNull()
+			.references(() => labours.id, { onDelete: 'cascade' }),
+		type: text('type', { enum: ['evidence', 'blocks', 'relates', 'duplicates'] }).notNull(),
+		note: text('note').notNull().default(''),
+		setBy: integer('set_by')
+			.notNull()
+			.references(() => users.id),
+		setAt: now('set_at')
+	},
+	(t) => [
+		primaryKey({ columns: [t.fromId, t.toId, t.type] }),
+		index('links_to_type_idx').on(t.toId, t.type),
+		check('links_distinct', sql.raw(`"from_id" <> "to_id"`)),
+		check('links_relates_ordered', sql.raw(`"type" <> 'relates' OR "from_id" < "to_id"`)),
+		check('links_type', sql.raw(`"type" IN ('evidence', 'blocks', 'relates', 'duplicates')`))
+	]
+);

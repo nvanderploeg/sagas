@@ -36,6 +36,13 @@
       "when": 1792176150408,
       "tag": "0004_attributes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792176874346,
+      "tag": "0005_appraisals",
+      "breakpoints": true
     }
   ]
 }

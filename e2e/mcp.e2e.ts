@@ -60,7 +60,10 @@ const TOOLS = [
 	'get_attributes',
 	'define_attribute',
 	'delete_attribute',
-	'tune_realm'
+	'tune_realm',
+	'appraise',
+	'get_appraisal',
+	'list_unappraised'
 ];
 
 const keysOf = (labours: { key: string }[]) => labours.map((t) => t.key);

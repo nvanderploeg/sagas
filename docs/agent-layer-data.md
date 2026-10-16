@@ -68,8 +68,8 @@ A Realm's agent settings. A Realm without a row reads as version 0 with the defa
 | `labour_id`    | integer   | Primary key; → `labours`                                         |
 | `brief`        | text      | ≤ 400 characters; `''` when none                                 |
 | `refs`         | json      | References; see JSON. `'[]'` when none                           |
-| `set_by`       | integer   | → `users`; who last set `brief` or `refs`                        |
-| `set_at`       | timestamp |                                                                  |
+| `set_by`       | integer   | → `users`; who last set `brief` or `refs`. Null until first set  |
+| `set_at`       | timestamp | Null until `brief` or `refs` is first written                    |
 | `content_hash` | text      | 64 hex characters; see Hashes. Null until an Appraisal stamps it |
 | `appraised_by` | integer   | → `users`; null until stamped                                    |
 | `appraised_at` | timestamp | Null until stamped                                               |
