@@ -17,6 +17,8 @@ import {
 } from './links.ts';
 import { readMentions, type MentionView } from './mentions.ts';
 import { refreshLabourText } from './search.ts';
+import { embeddingTextChanged } from './vectors/hook.ts';
+import { refreshEmbeddingInput } from './vectors/input.ts';
 import { readNeeds, writeNeeds, type NeedView } from './skills.ts';
 
 export type Reference = { href: string; label: string | null };
@@ -139,14 +141,19 @@ function writeAppraisal(
 	userId: number,
 	labourId: number,
 	patch: { brief?: string; refs?: Reference[] },
-	now: Date
+	now: Date,
+	rebriefed: Set<number>
 ): void {
+	const before = readRow(tx, labourId)?.brief ?? '';
 	const set = { ...patch, setBy: userId, setAt: now };
 	tx.insert(appraisals)
 		.values({ labourId, ...set })
 		.onConflictDoUpdate({ target: appraisals.labourId, set })
 		.run();
-	if (patch.brief !== undefined) refreshLabourText(tx, labourId);
+	if (patch.brief === undefined) return;
+	refreshLabourText(tx, labourId);
+	refreshEmbeddingInput(tx, labourId);
+	if (patch.brief !== before) rebriefed.add(labourId);
 }
 
 function writeStamp(tx: Handle, userId: number, labourId: number, hash: string, now: Date): void {
@@ -203,7 +210,8 @@ function applyItem(
 	userId: number,
 	item: AppraiseItem,
 	now: Date,
-	touched: Set<number>
+	touched: Set<number>,
+	rebriefed: Set<number>
 ): boolean {
 	const labour = getLabour(tx, item.labourId);
 
@@ -211,7 +219,7 @@ function applyItem(
 	if (item.brief !== undefined) patch.brief = normalizeBrief(item.brief);
 	if (item.refs !== undefined) patch.refs = normalizeRefs(item.refs);
 	if (patch.brief !== undefined || patch.refs !== undefined) {
-		writeAppraisal(tx, userId, labour.id, patch, now);
+		writeAppraisal(tx, userId, labour.id, patch, now, rebriefed);
 	}
 
 	if (item.values !== undefined) writeValues(tx, userId, labour, item.values, now, touched);
@@ -235,7 +243,8 @@ export function appraise(
 	if (!Array.isArray(items) || items.length < 1 || items.length > BATCH_MAX) {
 		invalid(`Appraise takes 1 to ${BATCH_MAX} items`);
 	}
-	return db.transaction((tx) => {
+	const rebriefed = new Set<number>();
+	const results = db.transaction((tx) => {
 		const seen = new Set<number>();
 		for (const item of items) {
 			if (seen.has(item.labourId)) invalid(`${labourName(tx)(item.labourId)} is listed twice`);
@@ -244,11 +253,13 @@ export function appraise(
 		const touched = new Set<number>();
 		const results = items.map((item) => ({
 			labourId: item.labourId,
-			stamped: applyItem(tx, actor.id, item, now, touched)
+			stamped: applyItem(tx, actor.id, item, now, touched, rebriefed)
 		}));
 		bumpRealms(tx, touched, now);
 		return results;
 	});
+	for (const labourId of rebriefed) embeddingTextChanged(labourId);
+	return results;
 }
 
 export type UnappraisedFilter = { realmId?: number; includeClosed?: boolean };

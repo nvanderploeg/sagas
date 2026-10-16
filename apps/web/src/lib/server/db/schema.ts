@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+	blob,
 	check,
 	foreignKey,
 	index,
@@ -459,7 +460,7 @@ export const links = sqliteTable(
 
 // The version of the build rules each derived structure follows, per docs/agent-layer-data.md.
 export const derivedBuilds = sqliteTable('derived_builds', {
-	name: text('name', { enum: ['labour_text', 'mentions'] }).primaryKey(),
+	name: text('name', { enum: ['labour_text', 'mentions', 'embedding_inputs'] }).primaryKey(),
 	version: integer('version').notNull(),
 	builtAt: now('built_at')
 });
@@ -654,3 +655,22 @@ export const labourNeeds = sqliteTable(
 		check('labour_needs_level', sql.raw(`"level" BETWEEN 1 AND 5`))
 	]
 );
+
+// A Labour's embedding, per docs/agent-layer-data.md. Derived: a missing or stale row is rebuilt.
+export const labourVectors = sqliteTable('labour_vectors', {
+	labourId: integer('labour_id')
+		.primaryKey()
+		.references(() => labours.id, { onDelete: 'cascade' }),
+	model: text('model').notNull(),
+	vector: blob('vector', { mode: 'buffer' }).notNull(),
+	inputHash: text('input_hash').notNull(),
+	embeddedAt: now('embedded_at')
+});
+
+// The hash of a Labour's embedding input as its text stands, per docs/agent-layer-data.md.
+export const labourInputs = sqliteTable('labour_inputs', {
+	labourId: integer('labour_id')
+		.primaryKey()
+		.references(() => labours.id, { onDelete: 'cascade' }),
+	inputHash: text('input_hash').notNull()
+});

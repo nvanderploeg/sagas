@@ -1,7 +1,15 @@
 import { asc, eq } from 'drizzle-orm';
+import { generateNKeysBetween } from 'fractional-indexing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
-import { comments, derivedBuilds, events, labours, mentions } from '#lib/server/db/schema.ts';
+import {
+	comments,
+	derivedBuilds,
+	events,
+	labourInputs,
+	labours,
+	mentions
+} from '#lib/server/db/schema.ts';
 import { addComment, editComment } from '#lib/server/domain/comments.ts';
 import { createLabour, moveLabour } from '#lib/server/domain/labours.ts';
 import type { Actor } from '#lib/server/domain/write.ts';
@@ -10,6 +18,7 @@ import { seedActor, seedLabour, seedRealm, seedUser } from '#lib/server/test/fix
 import { appraise } from './appraisals.ts';
 import { defineAttribute } from './attributes.ts';
 import { DERIVED_VERSIONS, rebuildDerived } from './derived.ts';
+import { inputHash } from './vectors/input.ts';
 
 let db: Db;
 let actor: Actor;
@@ -130,17 +139,18 @@ function buildWorld() {
 }
 
 describe('DERIVED_VERSIONS', () => {
-	it('starts both structures at version 1', () => {
-		expect(DERIVED_VERSIONS).toEqual({ labour_text: 1, mentions: 1 });
+	it('starts every structure at version 1', () => {
+		expect(DERIVED_VERSIONS).toEqual({ labour_text: 1, mentions: 1, embedding_inputs: 1 });
 	});
 });
 
 describe('rebuildDerived: what it rebuilds', () => {
-	it('builds both structures on the first run and says so', () => {
+	it('builds every structure on the first run and says so', () => {
 		const names = rebuildDerived(db, BUILT);
 
-		expect([...names].sort()).toEqual(['labour_text', 'mentions']);
+		expect([...names].sort()).toEqual(['embedding_inputs', 'labour_text', 'mentions']);
 		expect(buildRecords()).toMatchObject([
+			{ name: 'embedding_inputs', version: DERIVED_VERSIONS.embedding_inputs, builtAt: BUILT },
 			{ name: 'labour_text', version: DERIVED_VERSIONS.labour_text, builtAt: BUILT },
 			{ name: 'mentions', version: DERIVED_VERSIONS.mentions, builtAt: BUILT }
 		]);
@@ -155,7 +165,7 @@ describe('rebuildDerived: what it rebuilds', () => {
 		const names = rebuildDerived(db, REBUILT);
 
 		expect(names).toEqual([]);
-		expect(buildRecords().map((record) => record.builtAt)).toEqual([BUILT, BUILT]);
+		expect(buildRecords().map((record) => record.builtAt)).toEqual([BUILT, BUILT, BUILT]);
 		expect(textRows()).toEqual(text);
 		expect(mentionRows()).toEqual(rows);
 	});
@@ -173,6 +183,7 @@ describe('rebuildDerived: what it rebuilds', () => {
 		expect(mentionRows().length).toBeGreaterThan(0);
 		expect(textRows()).toEqual([]);
 		expect(buildRecords()).toMatchObject([
+			{ name: 'embedding_inputs', builtAt: BUILT },
 			{ name: 'labour_text', version: DERIVED_VERSIONS.labour_text, builtAt: BUILT },
 			{ name: 'mentions', version: DERIVED_VERSIONS.mentions, builtAt: REBUILT }
 		]);
@@ -191,6 +202,7 @@ describe('rebuildDerived: what it rebuilds', () => {
 		expect(textRows().length).toBeGreaterThan(0);
 		expect(mentionRows()).toEqual([]);
 		expect(buildRecords()).toMatchObject([
+			{ name: 'embedding_inputs', builtAt: BUILT },
 			{ name: 'labour_text', version: DERIVED_VERSIONS.labour_text, builtAt: REBUILT },
 			{ name: 'mentions', version: DERIVED_VERSIONS.mentions, builtAt: BUILT }
 		]);
@@ -218,7 +230,7 @@ describe('rebuildDerived: what it rebuilds', () => {
 
 		rebuildDerived(db);
 
-		expect(buildRecords().map((record) => record.builtAt)).toEqual([T3, T3]);
+		expect(buildRecords().map((record) => record.builtAt)).toEqual([T3, T3, T3]);
 	});
 
 	it('records no Event and moves no updatedAt', () => {
@@ -290,6 +302,64 @@ describe('rebuildDerived: labour_text', () => {
 		rebuildDerived(db, REBUILT);
 
 		expect(textRows().find((r) => r.id === target.id)?.title).toBe('Changed behind its back');
+	});
+});
+
+describe('rebuildDerived: embedding_inputs', () => {
+	const inputRows = () => db.select().from(labourInputs).orderBy(asc(labourInputs.labourId)).all();
+	const redoInputs = () => {
+		db.delete(derivedBuilds).where(eq(derivedBuilds.name, 'embedding_inputs')).run();
+		return rebuildDerived(db, REBUILT);
+	};
+
+	it('rebuilds exactly what the writes kept current', () => {
+		buildWorld();
+		rebuildDerived(db, BUILT);
+		const live = inputRows();
+		expect(live).toHaveLength(db.select().from(labours).all().length);
+		db.delete(labourInputs).run();
+
+		expect(redoInputs()).toEqual(['embedding_inputs']);
+
+		expect(inputRows()).toEqual(live);
+	});
+
+	it('hashes the title, Brief and description as they stand', () => {
+		const { main } = buildWorld();
+		rebuildDerived(db, BUILT);
+		setBody(main.id, 'Edited behind its back');
+
+		redoInputs();
+
+		expect(inputRows().find((r) => r.labourId === main.id)?.inputHash).toBe(
+			inputHash({
+				title: 'Boss HP feels wrong',
+				brief: 'Players say the boss is a sponge',
+				description: 'Edited behind its back'
+			})
+		);
+	});
+
+	it('fills every Labour, past the first chunk', () => {
+		const base = db.select().from(labours).where(eq(labours.id, target.id)).get()!;
+		const ranks = generateNKeysBetween(base.rank, null, 1_200);
+		db.insert(labours)
+			.values(
+				ranks.map((rank, i) => ({
+					realmId: amId,
+					number: 1_000 + i,
+					title: `Bulk ${i}`,
+					ownerId: ada,
+					stateId: base.stateId,
+					rank
+				}))
+			)
+			.run();
+		db.delete(labourInputs).run();
+
+		rebuildDerived(db, BUILT);
+
+		expect(inputRows()).toHaveLength(1_201);
 	});
 });
 
@@ -477,11 +547,15 @@ describe('rebuildDerived: mentions', () => {
 		);
 	});
 
-	it('rebuilds from nothing when both structures are empty', () => {
+	it('rebuilds from nothing when every structure is empty', () => {
 		db.delete(mentions).run();
 		wipeText();
 
-		expect(rebuildDerived(db, BUILT).sort()).toEqual(['labour_text', 'mentions']);
+		expect(rebuildDerived(db, BUILT).sort()).toEqual([
+			'embedding_inputs',
+			'labour_text',
+			'mentions'
+		]);
 		expect(mentionRows()).toEqual([]);
 		expect(textRows().map((r) => r.id)).toEqual([target.id]);
 	});

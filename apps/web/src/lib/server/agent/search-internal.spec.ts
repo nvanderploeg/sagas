@@ -363,14 +363,15 @@ describe('search', () => {
 });
 
 describe('rebuildDerived', () => {
-	it('builds both structures once and records them', () => {
+	it('builds every structure once and records them', () => {
 		const now = new Date('2026-05-01T00:00:00Z');
 
-		expect(rebuildDerived(db, now)).toEqual(['labour_text', 'mentions']);
+		expect(rebuildDerived(db, now)).toEqual(['labour_text', 'mentions', 'embedding_inputs']);
 		expect(rebuildDerived(db, now)).toEqual([]);
 		expect(db.select().from(derivedBuilds).all()).toEqual([
 			{ name: 'labour_text', version: DERIVED_VERSIONS.labour_text, builtAt: now },
-			{ name: 'mentions', version: DERIVED_VERSIONS.mentions, builtAt: now }
+			{ name: 'mentions', version: DERIVED_VERSIONS.mentions, builtAt: now },
+			{ name: 'embedding_inputs', version: DERIVED_VERSIONS.embedding_inputs, builtAt: now }
 		]);
 	});
 

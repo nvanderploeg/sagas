@@ -11,6 +11,7 @@ import {
 	labours,
 	links,
 	mentions,
+	labourVectors,
 	pulses,
 	questLabours,
 	quests,
@@ -28,6 +29,8 @@ import { defineAttribute, RESERVED, setValues } from '../attributes.ts';
 import { contentHash, hashContent } from '../content.ts';
 import { rebuildDerived } from '../derived.ts';
 import { scheduleAgentPruning } from '../prune.ts';
+import { MODEL_ID } from '../vectors/embedder.ts';
+import { inputHash, rebuildEmbeddingInputs } from '../vectors/input.ts';
 import { defineSkill } from '../skills.ts';
 import { FEATURES, LATER_FEATURES, type Feature } from './features/index.ts';
 import { pruneSurveys, survey } from './index.ts';
@@ -747,9 +750,21 @@ describe('performance', () => {
 		delight: 1,
 		skill_fit: 1,
 		affinity: 1,
+		similarity: 1,
 		impact: 3,
 		'topic:boss': 2
 	};
+
+	const QUERY_VECTOR = Float32Array.from({ length: 384 }, (_, i) => (i === 0 ? 1 : 0));
+
+	// A unit vector whose cosine with QUERY_VECTOR runs from 0.3 to 0.95 over the ids.
+	function vectorBlob(id: number): Buffer {
+		const cosine = 0.3 + (0.65 * ((id * 37) % 100)) / 100;
+		const vector = new Float32Array(384);
+		vector[0] = cosine;
+		vector[1] = Math.sqrt(1 - cosine * cosine);
+		return Buffer.from(vector.buffer);
+	}
 
 	function insertAll<T>(rows: T[], insert: (part: T[]) => void) {
 		for (let at = 0; at < rows.length; at += ADD_EVERY) insert(rows.slice(at, at + ADD_EVERY));
@@ -990,6 +1005,21 @@ describe('performance', () => {
 				});
 			}
 			insertAll(briefs, (part) => tx.insert(appraisals).values(part).run());
+
+			insertAll(
+				rows.map((row) => ({
+					labourId: row.id!,
+					model: MODEL_ID,
+					inputHash: inputHash({
+						title: row.title!,
+						brief: row.id! % 2 === 1 ? `Brief ${row.id}` : '',
+						description: row.description!
+					}),
+					vector: vectorBlob(row.id!),
+					embeddedAt: NOW
+				})),
+				(part) => tx.insert(labourVectors).values(part).run()
+			);
 		});
 		rebuildDerived(perf);
 		return { admin, realmIds, workers, questIds };
@@ -1013,7 +1043,7 @@ describe('performance', () => {
 				perf,
 				bench.admin,
 				{ ...everything(bench, more), weights: { [key]: 1 }, temperature: 0, limit: 1 },
-				{ now: NOW }
+				{ now: NOW, queryVector: QUERY_VECTOR }
 			);
 			expect(results[0].contributions[key] ?? 0, key).toBeGreaterThan(0);
 		}
@@ -1035,9 +1065,12 @@ describe('performance', () => {
 		const perf = testDb();
 		try {
 			const bench = seedBench(perf, ['PA', 'PB', 'PC'], 5000);
-			const run = () => survey(perf, bench.admin, everything(bench), { now: NOW });
+			const run = () =>
+				survey(perf, bench.admin, everything(bench), { now: NOW, queryVector: QUERY_VECTOR });
 			const first = run();
 			expect(first.coverage.candidates).toBe(5000);
+			expect(first.coverage.unembedded).toBe(0);
+			expect(first.coverage.missing.similarity).toBeUndefined();
 			expect(first.coverage.stale).toBeGreaterThan(0);
 			expect(first.results).toHaveLength(15);
 			expectEveryFeature(perf, bench, {});
@@ -1102,6 +1135,66 @@ describe('performance', () => {
 	);
 
 	it(
+		'reads no Labour text: 5,000 Labours with 50 KB descriptions survey as fast as short ones',
+		{ timeout: 300_000 },
+		() => {
+			const perf = testDb();
+			try {
+				const admin = seedActor(perf);
+				const realm = seedRealm(perf, 'PA');
+				const ownerId = seedUser(perf, 'owner');
+				const total = 5000;
+				const ranks = generateNKeysBetween(null, null, total);
+				const filler = 'The boss telegraphs its swing too late for players to react. '.repeat(900);
+				const rows = ranks.map((rank, i) => ({
+					id: i + 1,
+					realmId: realm.id,
+					number: i + 1,
+					title: `Labour ${i}`,
+					description: `${i} ${filler}`.slice(0, 50_000),
+					ownerId,
+					stateId: realm.initialStateId!,
+					rank,
+					createdAt: ago(i % 120),
+					updatedAt: ago(i % 30)
+				}));
+				expect(rows[0].description).toHaveLength(50_000);
+				perf.transaction((tx) => {
+					insertAll(rows, (part) => tx.insert(labours).values(part).run());
+					rebuildEmbeddingInputs(tx);
+					insertAll(
+						rows.map((row) => ({
+							labourId: row.id,
+							model: MODEL_ID,
+							inputHash: inputHash({ title: row.title, brief: '', description: row.description }),
+							vector: vectorBlob(row.id),
+							embeddedAt: NOW
+						})),
+						(part) => tx.insert(labourVectors).values(part).run()
+					);
+				});
+				const run = (weights: Record<string, number>) => () =>
+					survey(
+						perf,
+						admin,
+						{ weights, query: 'boss swing', temperature: 0 },
+						{ now: NOW, queryVector: QUERY_VECTOR }
+					);
+
+				const first = run({ similarity: 1, age: 1 })();
+				expect(first.coverage).toMatchObject({ candidates: total, unembedded: 0, missing: {} });
+				expect(first.results[0].contributions.similarity).toBeGreaterThan(0);
+				expect(
+					medianMs('similarity and age at 5,000 × 50 KB', run({ similarity: 1, age: 1 }))
+				).toBeLessThan(200);
+				expect(medianMs('age at 5,000 × 50 KB', run({ age: 1 }))).toBeLessThan(100);
+			} finally {
+				perf.$client.close();
+			}
+		}
+	);
+
+	it(
 		'costs by the candidates, not the database: 5,000 and 100 of 40,000 Labours',
 		{ timeout: 300_000 },
 		() => {
@@ -1111,7 +1204,10 @@ describe('performance', () => {
 				const oneRealm = { realmIds: [bench.realmIds[0]] };
 				const oneQuest = { filter: { questId: bench.questIds[0] } };
 				const run = (more: Partial<Parameters<typeof survey>[2]>) => () =>
-					survey(perf, bench.admin, everything(bench, more), { now: NOW });
+					survey(perf, bench.admin, everything(bench, more), {
+						now: NOW,
+						queryVector: QUERY_VECTOR
+					});
 
 				expect(run(oneRealm)().coverage.candidates).toBe(5000);
 				expectEveryFeature(perf, bench, oneRealm);

@@ -3,19 +3,23 @@ import type { Db, Handle } from '../db/client.ts';
 import { comments, derivedBuilds, labours } from '../db/schema.ts';
 import { refreshMentions } from './mentions.ts';
 import { refreshLabourText } from './search.ts';
+import { rebuildEmbeddingInputs } from './vectors/input.ts';
 
 // Raise a version whenever the rules that build its structure change.
-export const DERIVED_VERSIONS: { labour_text: number; mentions: number } = {
-	labour_text: 1,
-	mentions: 1
-};
+export const DERIVED_VERSIONS: { labour_text: number; mentions: number; embedding_inputs: number } =
+	{
+		labour_text: 1,
+		mentions: 1,
+		embedding_inputs: 1
+	};
 
 const BUILDERS: Record<keyof typeof DERIVED_VERSIONS, (tx: Handle) => void> = {
 	labour_text: rebuildLabourText,
-	mentions: rebuildMentions
+	mentions: rebuildMentions,
+	embedding_inputs: rebuildEmbeddingInputs
 };
 
-// One transaction per structure, so a failed rebuild of one keeps the other.
+// One transaction per structure, so a failed rebuild of one keeps the others.
 export function rebuildDerived(db: Db, now: Date = new Date()): string[] {
 	const rebuilt: string[] = [];
 	for (const name of Object.keys(BUILDERS) as (keyof typeof BUILDERS)[]) {

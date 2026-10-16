@@ -184,23 +184,34 @@ A Realm's agent settings. A Realm without a row reads as version 0 with the defa
 
 ### `labour_vectors`
 
-| Column        | Type      | Rules                                            |
-| ------------- | --------- | ------------------------------------------------ |
-| `labour_id`   | integer   | Primary key; → `labours`                         |
-| `model`       | text      | The model id, such as `Xenova/bge-small-en-v1.5` |
-| `vector`      | blob      | See Vectors                                      |
-| `input_hash`  | text      | 64 hex characters; see Hashes                    |
-| `embedded_at` | timestamp |                                                  |
+| Column        | Type      | Rules                                                                                          |
+| ------------- | --------- | ---------------------------------------------------------------------------------------------- |
+| `labour_id`   | integer   | Primary key; → `labours`                                                                       |
+| `model`       | text      | `<id>@<revision>`, such as `Xenova/bge-small-en-v1.5@ea104dacec62c0de699686887e3f920caeb4f3e3` |
+| `vector`      | blob      | See Vectors                                                                                    |
+| `input_hash`  | text      | 64 hex characters; see Hashes                                                                  |
+| `embedded_at` | timestamp |                                                                                                |
+
+A vector is current when its `model` is the server's, its blob is 1,536 bytes, and its `input_hash` equals the Labour's `labour_inputs.input_hash`; anything else is stale. Deciding it never reads the Labour's text.
+
+### `labour_inputs`
+
+| Column       | Type    | Rules                                                    |
+| ------------ | ------- | -------------------------------------------------------- |
+| `labour_id`  | integer | Primary key; → `labours`                                 |
+| `input_hash` | text    | The hash of the embedding input as it stands; see Hashes |
+
+Derived. Every write that changes a Labour's title, description or Brief rewrites its row in the same transaction; the embedding worker rewrites it from the text it embeds.
 
 ### `derived_builds`
 
-| Column     | Type      | Rules                                                  |
-| ---------- | --------- | ------------------------------------------------------ |
-| `name`     | text      | Primary key: `labour_text` or `mentions`               |
-| `version`  | integer   | The version of the build rules the stored data follows |
-| `built_at` | timestamp |                                                        |
+| Column     | Type      | Rules                                                        |
+| ---------- | --------- | ------------------------------------------------------------ |
+| `name`     | text      | Primary key: `labour_text`, `mentions` or `embedding_inputs` |
+| `version`  | integer   | The version of the build rules the stored data follows       |
+| `built_at` | timestamp |                                                              |
 
-At startup, before the server takes requests, a derived structure whose stored version is behind the code's is rebuilt in one transaction. `labour_text` is rebuilt whole. `mentions` keeps every row whose text and target survive; the contract's Mentions section says how a new row is seeded.
+At startup, before the server takes requests, a derived structure whose stored version is behind the code's is rebuilt in one transaction. `labour_text` and `embedding_inputs` (the rows of `labour_inputs`) are rebuilt whole. `mentions` keeps every row whose text and target survive; the contract's Mentions section says how a new row is seeded.
 
 ### `labour_text`
 
@@ -246,7 +257,7 @@ type Results = { labour: number; score: number }[]; // surveys.results, in the o
 ## Hashes
 
 - `appraisals.content_hash`: the SHA-256 hex of `JSON.stringify({ title, description, labels, comments })`, built with the keys in that order, `labels` as stored, and `comments` the bodies in id order.
-- `labour_vectors.input_hash`: the SHA-256 hex of the embedding input, the title, Brief and description joined by blank lines.
+- `labour_vectors.input_hash` and `labour_inputs.input_hash`: the SHA-256 hex of the embedding input, the title, Brief and description, each trimmed, empty ones dropped, joined by blank lines.
 
 ## Vectors
 
@@ -263,4 +274,4 @@ The agent layer's pruner runs on the Event pruner's schedule and deletes:
 
 - `pnpm --filter web db:generate` produces every table above except `labour_text`, which comes from a custom migration (`drizzle-kit generate --custom`).
 - Each step that changes the schema lands alone: its branch rebases on `main` and regenerates its migration before merging. Never hand-merge `drizzle/meta`; the migrator skips a migration older than the newest one applied.
-- No migration fills derived data. `derived_builds` starts empty, so the first start builds `labour_text` and `mentions` whole, and the embedding queue takes every Labour.
+- No migration fills derived data. `derived_builds` starts empty, so the first start builds `labour_text`, `mentions` and `embedding_inputs` whole, and the embedding queue takes every Labour.

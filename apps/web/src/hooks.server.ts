@@ -5,6 +5,8 @@ import { gate, unauthorizedResponse } from '#lib/server/auth/access.ts';
 import { authFromRequest, SESSION_COOKIE } from '#lib/server/auth/request.ts';
 import { hasUsers, seedAdmin } from '#lib/server/auth/users.ts';
 import {
+	embeddingModelDir,
+	embeddingThreads,
 	eventRetentionMs,
 	seedAdminPassword,
 	seedAdminUsername,
@@ -12,6 +14,13 @@ import {
 } from '#lib/server/config.ts';
 import { rebuildDerived } from '#lib/server/agent/derived.ts';
 import { scheduleAgentPruning } from '#lib/server/agent/prune.ts';
+import { loadEmbedder, setEmbedder } from '#lib/server/agent/vectors/embedder.ts';
+import {
+	createEmbeddingQueue,
+	enqueueStale,
+	setEmbeddingQueue
+} from '#lib/server/agent/vectors/index.ts';
+import type { Db } from '#lib/server/db/client.ts';
 import { getDb } from '#lib/server/db/index.ts';
 import { schedulePruning } from '#lib/server/events/log.ts';
 
@@ -24,7 +33,23 @@ export const init: ServerInit = async () => {
 	}
 	schedulePruning(db, eventRetentionMs);
 	scheduleAgentPruning(db, surveyRetentionMs);
+	void startEmbeddings(db);
 };
+
+async function startEmbeddings(db: Db): Promise<void> {
+	try {
+		const embedder = await loadEmbedder(embeddingModelDir, { threads: embeddingThreads });
+		if (embedder === null) return;
+		setEmbedder(embedder);
+		const queue = createEmbeddingQueue(db, embedder);
+		setEmbeddingQueue(queue);
+		enqueueStale(db, queue).catch((error: unknown) => {
+			console.error('sagas embeddings could not queue stale Labours', error);
+		});
+	} catch (error) {
+		console.error('sagas embeddings failed to start', error);
+	}
+}
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const db = getDb();

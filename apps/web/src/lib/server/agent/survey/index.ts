@@ -4,13 +4,15 @@ import { attributes, comments, labourAttributes, labours, surveys } from '../../
 import type { Actor } from '../../domain/write.ts';
 import { hashContent } from '../content.ts';
 import { loadCandidates, type Candidate } from './candidates.ts';
+import { embeddedOf } from './features/similarity.ts';
 import type { FeatureContext } from './features/types.ts';
 import { sentimentBlock, type SurveySentiment } from './sentiment-block.ts';
 import { checkRequest, type SurveyInput, type SurveyRequest } from './request.ts';
 import { applyWeights, readVocabulary, type Applied } from './weights.ts';
 
 export type { IncludeClosed, SurveyInput } from './request.ts';
-export { ASSIGNEES_MAX, HAS_MAX, REALMS_MAX } from './request.ts';
+export { ASSIGNEES_MAX, HAS_MAX, QUERY_MAX, REALMS_MAX } from './request.ts';
+export { checkRequest as checkSurvey, type SurveyRequest } from './request.ts';
 export type { SurveySentiment } from './sentiment-block.ts';
 
 export type SurveyResultItem = {
@@ -140,7 +142,7 @@ function runSurvey(
 		candidates: candidates.length,
 		unappraised: candidates.length - stamped.length,
 		stale: countStale(tx, stamped),
-		unembedded: candidates.length,
+		unembedded: candidates.length - embeddedOf(context).size,
 		missing
 	};
 

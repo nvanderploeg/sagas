@@ -473,18 +473,23 @@ describe('weight keys', () => {
 		expect(result.ignored).toEqual([]);
 	});
 
-	it.each(['similarity', 'rank', 'priority'])(
-		'ignores %s, which is recognised but not computed',
-		(key) => {
-			fixture();
+	it.each(['rank', 'priority'])('ignores %s, which is recognised but not computed', (key) => {
+		fixture();
 
-			const result = run({ weights: { [key]: 5 } });
+		const result = run({ weights: { [key]: 5 } });
 
-			expect(result.ignored).toEqual([key]);
-			expect(result.results[0].score).toBe(0);
-			expect(result.results[0].contributions).toEqual({});
-		}
-	);
+		expect(result.ignored).toEqual([key]);
+		expect(result.results[0].score).toBe(0);
+		expect(result.results[0].contributions).toEqual({});
+	});
+
+	it('ignores similarity without a query, or with a blank one', () => {
+		fixture();
+
+		expect(run({ weights: { similarity: 1 } }).ignored).toEqual(['similarity']);
+		expect(run({ weights: { similarity: 1 }, query: '  ' }).ignored).toEqual(['similarity']);
+		expect(run({ weights: { similarity: 1 }, query: 'boss' }).ignored).toEqual([]);
+	});
 
 	it('ignores keywords without a query, or with a blank one', () => {
 		fixture();

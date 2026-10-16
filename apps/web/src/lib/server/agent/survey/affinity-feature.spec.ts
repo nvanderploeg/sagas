@@ -93,10 +93,10 @@ describe('the affinity feature', () => {
 	it('is a built-in feature, no longer later', () => {
 		expect(Object.keys(FEATURES)).toContain('affinity');
 		expect(LATER_FEATURES).not.toContain('affinity');
-		expect(LATER_FEATURES).toContain('similarity');
+		expect(LATER_FEATURES).toEqual([]);
 	});
 
-	it('is not ignored when weighted, while a feature not computed still is', () => {
+	it('is not ignored when weighted, while similarity without a query still is', () => {
 		const { bob } = world();
 
 		const result = rank({

@@ -28,6 +28,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm check
+      - id: models
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/web/models
+          key: models-${{ hashFiles('apps/web/scripts/fetch-model.js') }}
+      - if: steps.models.outputs.cache-hit != 'true'
+        run: pnpm --filter web models:fetch
       - run: pnpm test
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm e2e
