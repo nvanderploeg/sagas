@@ -1,7 +1,8 @@
 import { redirect } from '@sveltejs/kit';
 import type { Handle, ServerInit } from '@sveltejs/kit/hooks';
 import { building } from '$app/env';
-import { gate, unauthorizedResponse } from '#lib/server/auth/access.ts';
+import { gate, isMcpPath, unauthorizedResponse } from '#lib/server/auth/access.ts';
+import { resourceMetadataUrl } from '#lib/server/auth/oauth-metadata.ts';
 import { authFromRequest, SESSION_COOKIE } from '#lib/server/auth/request.ts';
 import { hasUsers, seedAdmin } from '#lib/server/auth/users.ts';
 import {
@@ -65,7 +66,11 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (decision === 'setup') redirect(303, '/setup');
 	if (decision === 'login') redirect(303, '/login');
 	if (decision === 'password') redirect(303, '/password');
-	if (decision === 'unauthorized') return unauthorizedResponse();
+	if (decision === 'unauthorized') {
+		return unauthorizedResponse(
+			isMcpPath(event.url.pathname) ? resourceMetadataUrl(event.url.origin) : undefined
+		);
+	}
 	const response = await resolve(event);
 	response.headers.set('x-content-type-options', 'nosniff');
 	response.headers.set('referrer-policy', 'same-origin');

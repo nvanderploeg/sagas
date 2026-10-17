@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gate, isPublicPath, unauthorizedResponse } from './access.ts';
+import { gate, isMcpPath, isPublicPath, unauthorizedResponse } from './access.ts';
 import { apiTokenCredential, sessionCredential } from './credentials.ts';
 import { authFromRequest } from './request.ts';
 import { createFirstAdmin } from './users.ts';
@@ -41,6 +41,36 @@ describe('gate', () => {
 		expect(gate('/mcp', inside)).toBe('pass');
 	});
 
+	it('passes the OAuth discovery and client endpoints signed out and while a password change is pending', () => {
+		const changing = { setupDone: true, signedIn: true, mustChangePassword: true };
+		for (const path of [
+			'/.well-known/oauth-protected-resource',
+			'/.well-known/oauth-protected-resource/mcp',
+			'/.well-known/oauth-authorization-server',
+			'/oauth/register',
+			'/oauth/token'
+		]) {
+			expect(gate(path, fresh), path).toBe('pass');
+			expect(gate(path, none), path).toBe('pass');
+			expect(gate(path, changing), path).toBe('pass');
+		}
+	});
+
+	it('keeps /oauth/authorize a normal page', () => {
+		const changing = { setupDone: true, signedIn: true, mustChangePassword: true };
+		expect(gate('/oauth/authorize', fresh)).toBe('login');
+		expect(gate('/oauth/authorize', none)).toBe('setup');
+		expect(gate('/oauth/authorize', changing)).toBe('password');
+		expect(gate('/oauth/authorize', inside)).toBe('pass');
+	});
+
+	it('recognises the MCP paths', () => {
+		expect(isMcpPath('/mcp')).toBe(true);
+		expect(isMcpPath('/mcp/session')).toBe(true);
+		expect(isMcpPath('/mcpx')).toBe(false);
+		expect(isMcpPath('/api/mcp')).toBe(false);
+	});
+
 	it('recognises the public paths', () => {
 		expect(isPublicPath('/invite/x')).toBe(true);
 		expect(isPublicPath('/inviteX')).toBe(false);
@@ -55,6 +85,16 @@ describe('unauthorizedResponse', () => {
 		expect(response.status).toBe(401);
 		expect(response.headers.get('www-authenticate')).toBe('Bearer');
 		expect(response.headers.get('content-type')).toMatch(/^application\/json/);
+		expect(await response.json()).toEqual({ error: 'unauthorized' });
+	});
+
+	it('points the challenge at the resource metadata when given one', async () => {
+		const response = unauthorizedResponse('https://x.test/.well-known/oauth-protected-resource');
+
+		expect(response.status).toBe(401);
+		expect(response.headers.get('www-authenticate')).toBe(
+			'Bearer resource_metadata="https://x.test/.well-known/oauth-protected-resource"'
+		);
 		expect(await response.json()).toEqual({ error: 'unauthorized' });
 	});
 });

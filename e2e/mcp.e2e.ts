@@ -369,7 +369,9 @@ test.describe('MCP at /mcp', () => {
 			headers: { accept: 'application/json, text/event-stream' }
 		});
 		expect(bare.status()).toBe(401);
-		expect(bare.headers()['www-authenticate']).toBe('Bearer');
+		expect(bare.headers()['www-authenticate']).toBe(
+			`Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`
+		);
 
 		const cookie = await cookieHeader(page.context());
 		const withCookie = await request.post('/mcp', {
