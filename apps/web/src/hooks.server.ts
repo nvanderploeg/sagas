@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { Handle, ServerInit } from '@sveltejs/kit/hooks';
-import { building } from '$app/env';
+import { building, dev } from '$app/env';
+import { crossSiteFormRefusal } from '#lib/server/auth/csrf.ts';
 import { gate, isMcpPath, unauthorizedResponse } from '#lib/server/auth/access.ts';
 import { resourceMetadataUrl } from '#lib/server/auth/oauth-metadata.ts';
 import { scheduleOAuthPruning } from '#lib/server/auth/oauth.ts';
@@ -55,6 +56,12 @@ async function startEmbeddings(db: Db): Promise<void> {
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
+	// Match Kit's built-in rule, which never runs in dev.
+	const refusal = dev
+		? null
+		: crossSiteFormRefusal(event.request, event.url.origin, event.url.pathname);
+	if (refusal) return refusal;
+
 	const db = getDb();
 	const auth = authFromRequest(db, event.request, event.cookies.get(SESSION_COOKIE));
 	event.locals.user = auth?.user ?? null;

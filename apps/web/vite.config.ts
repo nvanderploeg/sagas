@@ -12,6 +12,8 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 			adapter: adapter(),
+			// hooks.server.ts enforces this check itself (crossSiteFormRefusal); never turn it back on here.
+			csrf: { trustedOrigins: ['*'] },
 			// An inline script in app.html runs only with nonce="%sveltekit.nonce%".
 			csp: {
 				mode: 'auto',
