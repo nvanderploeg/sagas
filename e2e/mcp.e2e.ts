@@ -56,7 +56,23 @@ const TOOLS = [
 	'create_agent_user',
 	'list_api_tokens',
 	'create_api_token',
-	'revoke_api_token'
+	'revoke_api_token',
+	'get_attributes',
+	'define_attribute',
+	'delete_attribute',
+	'tune_realm',
+	'appraise',
+	'get_appraisal',
+	'list_unappraised',
+	'survey',
+	'pulse',
+	'get_sentiment',
+	'file_pulses',
+	'delete_pulse',
+	'report_outcomes',
+	'define_skill',
+	'list_skills',
+	'set_skills'
 ];
 
 const keysOf = (labours: { key: string }[]) => labours.map((t) => t.key);

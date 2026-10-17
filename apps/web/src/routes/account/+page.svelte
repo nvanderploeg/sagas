@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import AdvancedToggle from '#lib/components/AdvancedToggle.svelte';
+	import UserLayer from '#lib/components/agent/UserLayer.svelte';
 	import Avatar from '#lib/components/Avatar.svelte';
 	import ThemeToggle from '#lib/components/ThemeToggle.svelte';
 	import Tokens from '#lib/components/Tokens.svelte';
@@ -47,8 +49,15 @@
 		<a class="btn" href={resolve('/password')}>Change password</a>
 	</section>
 
+	<UserLayer />
+
 	<section class="panel flex flex-wrap items-center justify-between gap-3 p-5">
 		<h2 class="text-lg font-bold tracking-tight">Theme</h2>
 		<ThemeToggle />
+	</section>
+
+	<section class="panel flex flex-wrap items-center justify-between gap-3 p-5">
+		<h2 class="text-lg font-bold tracking-tight">Advanced view</h2>
+		<AdvancedToggle />
 	</section>
 </main>

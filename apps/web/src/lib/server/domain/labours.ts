@@ -1,6 +1,11 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { realmKeys, realms, states, labourKeys, labours } from '../db/schema.ts';
+import { attachValues, detachValues } from '../agent/attributes.ts';
+import { refreshMentions } from '../agent/mentions.ts';
+import { refreshLabourText } from '../agent/search.ts';
+import { embeddingTextChanged } from '../agent/vectors/hook.ts';
+import { refreshEmbeddingInput } from '../agent/vectors/input.ts';
 import type { EventSpec } from '../events/types.ts';
 import { falloutEvents, prepareLabourDelete } from './cascade.ts';
 import { DomainError } from './errors.ts';
@@ -125,7 +130,7 @@ function labourOutcome(
 }
 
 export function createLabour(db: Db, actor: Actor, input: LabourSpec): LabourView {
-	return write(db, actor, (tx) => {
+	const created = write(db, actor, (tx) => {
 		const realm = getRealm(tx, input.realmId);
 		const title = requireText(input.title, 'Labour title', TITLE_MAX);
 		const description = checkDescription(input.description ?? '');
@@ -170,8 +175,19 @@ export function createLabour(db: Db, actor: Actor, input: LabourSpec): LabourVie
 			.returning()
 			.get();
 		recordLabourKey(tx, labour.id, formatLabourKey(realm.key, number));
+		refreshLabourText(tx, labour.id);
+		refreshEmbeddingInput(tx, labour.id);
+		refreshMentions(tx, {
+			sourceLabourId: labour.id,
+			commentId: null,
+			text: description,
+			authorId: actor.id,
+			firstSeenAt: labour.createdAt
+		});
 		return labourOutcome(tx, 'labour.created', labour.id);
 	});
+	embeddingTextChanged(created.id);
+	return created;
 }
 
 export function updateLabour(
@@ -180,7 +196,8 @@ export function updateLabour(
 	labourId: number,
 	patch: LabourPatch
 ): LabourView {
-	return write(db, actor, (tx) => {
+	let retext = false;
+	const updated = write(db, actor, (tx) => {
 		const labour = getLabour(tx, labourId);
 		const changes: Partial<typeof labours.$inferInsert> = {};
 
@@ -247,8 +264,24 @@ export function updateLabour(
 		}
 		changes.updatedAt = new Date();
 		tx.update(labours).set(changes).where(eq(labours.id, labourId)).run();
+		if (changed.includes('title') || changed.includes('description')) {
+			refreshLabourText(tx, labourId);
+			refreshEmbeddingInput(tx, labourId);
+			retext = true;
+		}
+		if (changed.includes('description')) {
+			refreshMentions(tx, {
+				sourceLabourId: labourId,
+				commentId: null,
+				text: changes.description!,
+				authorId: actor.id,
+				firstSeenAt: changes.updatedAt
+			});
+		}
 		return labourOutcome(tx, 'labour.updated', labourId);
 	});
+	if (retext) embeddingTextChanged(labourId);
+	return updated;
 }
 
 export function setParent(
@@ -296,6 +329,8 @@ export function moveLabour(db: Db, actor: Actor, labourId: number, input: MoveTa
 
 		const number = allocateNumber(tx, target.id);
 		recordLabourKey(tx, labourId, formatLabourKey(target.key, number));
+		const detached = detachValues(tx, labourId);
+		const movedAt = new Date();
 		tx.update(labours)
 			.set({
 				realmId: target.id,
@@ -303,10 +338,12 @@ export function moveLabour(db: Db, actor: Actor, labourId: number, input: MoveTa
 				stateId: state.id,
 				substateId,
 				rank,
-				updatedAt: new Date()
+				updatedAt: movedAt
 			})
 			.where(eq(labours.id, labourId))
 			.run();
+		attachValues(tx, labourId, labour.realmId, target.id, detached, movedAt);
+		refreshLabourText(tx, labourId);
 		return labourOutcome(tx, 'labour.moved', labourId);
 	});
 }

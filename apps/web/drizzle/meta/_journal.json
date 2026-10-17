@@ -29,6 +29,69 @@
       "when": 1792096535393,
       "tag": "0003_password_change",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792176150408,
+      "tag": "0004_attributes",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792176874346,
+      "tag": "0005_appraisals",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792177490695,
+      "tag": "0006_mentions",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1792177491321,
+      "tag": "0007_labour_text",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792178436225,
+      "tag": "0008_surveys",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1792181995148,
+      "tag": "0009_pulses",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1792182432746,
+      "tag": "0010_skills",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1792183231032,
+      "tag": "0011_outcomes",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1792185913604,
+      "tag": "0012_vectors",
+      "breakpoints": true
     }
   ]
 }

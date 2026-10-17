@@ -38,7 +38,7 @@ The server prunes Events older than `EVENT_RETENTION_DAYS` (7 by default). The r
 
 ## Writes and Events
 
-- A write records one or more Events with consecutive seqs, in one transaction. They are published in seq order after the commit. A write that changes nothing records none.
+- A write records one or more Events with consecutive seqs, in one transaction. They are published in seq order after the commit. A write that changes nothing records none. Agent layer writes (`docs/agent-layer.md`) record none either.
 - The first Event is the write's own. Each one after it is a side effect another client can see.
 - Every Event of a write carries state as of the end of that write.
 - A view's `L` always falls between writes, never within one.

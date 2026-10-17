@@ -4,6 +4,7 @@
 	import { enhance } from '$app/forms';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import LabourLayer from '#lib/components/agent/LabourLayer.svelte';
 	import Avatar from '#lib/components/Avatar.svelte';
 	import Burst from '#lib/components/Burst.svelte';
 	import ConfirmButton from '#lib/components/ConfirmButton.svelte';
@@ -18,6 +19,7 @@
 	import { lookFor, usersOf } from '#lib/ui/directory.ts';
 	import { FALLBACK_STATE, stateOf } from '#lib/ui/lookup.ts';
 	import { directory, personColor, type Person } from '#lib/ui/people.ts';
+	import { stamp } from '#lib/ui/time.ts';
 
 	let {
 		seq,
@@ -255,8 +257,6 @@
 			comments: v.comments.filter((c) => c.id !== id)
 		}));
 	}
-
-	const stamp = (iso: string) => `${iso.slice(0, 16).replace('T', ' ')} UTC`;
 
 	async function postComment() {
 		if (!view || commenting || commentDraft.trim() === '') return;
@@ -791,6 +791,9 @@
 				</form>
 			</aside>
 		</div>
+		{#key labour.id}
+			<LabourLayer labourId={labour.id} {people} />
+		{/key}
 	</main>
 {/if}
 

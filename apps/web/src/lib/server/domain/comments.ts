@@ -1,6 +1,8 @@
 import { asc, eq } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { comments } from '../db/schema.ts';
+import { refreshMentions } from '../agent/mentions.ts';
+import { refreshLabourText } from '../agent/search.ts';
 import { DomainError } from './errors.ts';
 import { getLabour } from './lookup.ts';
 import { requireText } from './validate.ts';
@@ -32,6 +34,14 @@ export function addComment(db: Db, actor: Actor, labourId: number, body: string)
 			})
 			.returning()
 			.get();
+		refreshLabourText(tx, labourId);
+		refreshMentions(tx, {
+			sourceLabourId: labourId,
+			commentId: comment.id,
+			text: comment.body,
+			authorId: comment.authorId,
+			firstSeenAt: comment.createdAt
+		});
 		return { value: comment, events: [{ type: 'labour.commented', data: { comment } }] };
 	});
 }
@@ -57,6 +67,14 @@ export function editComment(db: Db, actor: Actor, id: number, body: string): Com
 			.where(eq(comments.id, id))
 			.returning()
 			.get();
+		refreshLabourText(tx, comment.labourId);
+		refreshMentions(tx, {
+			sourceLabourId: comment.labourId,
+			commentId: comment.id,
+			text: comment.body,
+			authorId: comment.authorId,
+			firstSeenAt: comment.updatedAt!
+		});
 		return { value: comment, events: [{ type: 'labour.comment_edited', data: { comment } }] };
 	});
 }
@@ -65,6 +83,7 @@ export function deleteComment(db: Db, actor: Actor, id: number): CommentView {
 	return write(db, actor, (tx) => {
 		const comment = ownComment(tx, actor, id);
 		tx.delete(comments).where(eq(comments.id, id)).run();
+		refreshLabourText(tx, comment.labourId);
 		return {
 			value: comment,
 			events: [{ type: 'labour.comment_deleted', data: { id, labourId: comment.labourId } }]

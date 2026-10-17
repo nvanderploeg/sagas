@@ -1,10 +1,12 @@
 import { sql } from 'drizzle-orm';
 import {
+	blob,
 	check,
 	foreignKey,
 	index,
 	integer,
 	primaryKey,
+	real,
 	sqliteTable,
 	text,
 	uniqueIndex,
@@ -219,6 +221,7 @@ export const labours = sqliteTable(
 	},
 	(t) => [
 		uniqueIndex('labours_realm_number_uq').on(t.realmId, t.number),
+		uniqueIndex('labours_realm_id_uq').on(t.realmId, t.id),
 		index('labours_parent_idx').on(t.parentId),
 		uniqueIndex('labours_state_rank_uq').on(t.stateId, t.rank),
 		foreignKey(() => ({
@@ -318,3 +321,356 @@ export const events = sqliteTable(
 	},
 	(t) => [index('events_created_idx').on(t.createdAt)]
 );
+
+// A Realm's settings for agents, per docs/agent-layer-data.md. No row reads as version 0.
+export const realmAgent = sqliteTable(
+	'realm_agent',
+	{
+		realmId: integer('realm_id')
+			.primaryKey()
+			.references(() => realms.id, { onDelete: 'cascade' }),
+		version: integer('version').notNull(),
+		notes: text('notes').notNull().default(''),
+		halfLifeDays: real('half_life_days').notNull().default(14),
+		loudness: real('loudness').notNull().default(5),
+		updatedAt: now('updated_at')
+	},
+	() => [
+		check('realm_agent_version', sql.raw(`"version" >= 1`)),
+		check('realm_agent_half_life', sql.raw(`"half_life_days" > 0 AND "half_life_days" <= 365`)),
+		check('realm_agent_loudness', sql.raw(`"loudness" > 0`))
+	]
+);
+
+export const attributes = sqliteTable(
+	'attributes',
+	{
+		id: id(),
+		realmId: integer('realm_id')
+			.notNull()
+			.references(() => realms.id, { onDelete: 'cascade' }),
+		key: text('key').notNull(),
+		kind: text('kind', { enum: ['scale', 'tags', 'text'] }).notNull(),
+		label: text('label').notNull(),
+		rubric: text('rubric').notNull(),
+		// By kind; the shapes are in docs/agent-layer-data.md.
+		spec: text('spec', { mode: 'json' }).notNull().$type<unknown>(),
+		// No >= 0 check: writePositions parks rows on negative positions.
+		position: integer('position').notNull(),
+		createdAt: now(),
+		revisedAt: now('revised_at'),
+		updatedAt: now('updated_at')
+	},
+	(t) => [
+		uniqueIndex('attributes_realm_key_uq').on(t.realmId, t.key),
+		uniqueIndex('attributes_realm_position_uq').on(t.realmId, t.position),
+		uniqueIndex('attributes_realm_id_uq').on(t.realmId, t.id),
+		check(
+			'attributes_key_format',
+			sql.raw(
+				`"key" GLOB '[a-z]*' AND "key" NOT GLOB '*[^a-z0-9-]*' AND length("key") BETWEEN 1 AND 32`
+			)
+		),
+		check('attributes_kind', sql.raw(`"kind" IN ('scale', 'tags', 'text')`)),
+		check('attributes_spec_json', sql.raw(`json_valid("spec")`))
+	]
+);
+
+export const labourAttributes = sqliteTable(
+	'labour_attributes',
+	{
+		realmId: integer('realm_id').notNull(),
+		labourId: integer('labour_id').notNull(),
+		attributeId: integer('attribute_id').notNull(),
+		// By the Attribute's kind; the shapes are in docs/agent-layer-data.md.
+		value: text('value', { mode: 'json' }).notNull().$type<unknown>(),
+		setBy: integer('set_by')
+			.notNull()
+			.references(() => users.id),
+		setAt: now('set_at')
+	},
+	(t) => [
+		primaryKey({ columns: [t.labourId, t.attributeId] }),
+		index('labour_attributes_attribute_idx').on(t.attributeId),
+		foreignKey(() => ({
+			columns: [t.realmId, t.labourId],
+			foreignColumns: [labours.realmId, labours.id]
+		})).onDelete('cascade'),
+		foreignKey(() => ({
+			columns: [t.realmId, t.attributeId],
+			foreignColumns: [attributes.realmId, attributes.id]
+		})).onDelete('cascade'),
+		check('labour_attributes_value_json', sql.raw(`json_valid("value")`))
+	]
+);
+
+// A Labour's Brief, References and stamp, per docs/agent-layer-data.md. No row reads as unappraised.
+export const appraisals = sqliteTable(
+	'appraisals',
+	{
+		labourId: integer('labour_id')
+			.primaryKey()
+			.references(() => labours.id, { onDelete: 'cascade' }),
+		brief: text('brief').notNull().default(''),
+		// Reference[]; the shape is in docs/agent-layer-data.md.
+		refs: text('refs', { mode: 'json' }).notNull().$type<unknown>().default([]),
+		// Null until a brief or refs write.
+		setBy: integer('set_by').references(() => users.id),
+		setAt: timestamp('set_at'),
+		contentHash: text('content_hash'),
+		appraisedBy: integer('appraised_by').references(() => users.id),
+		appraisedAt: timestamp('appraised_at')
+	},
+	() => [
+		check('appraisals_refs_json', sql.raw(`json_valid("refs")`)),
+		check(
+			'appraisals_stamp_set',
+			sql.raw(
+				`("content_hash" IS NULL) = ("appraised_by" IS NULL) AND ("appraised_by" IS NULL) = ("appraised_at" IS NULL)`
+			)
+		)
+	]
+);
+
+// A typed connection between two Labours, per docs/agent-layer-data.md.
+export const links = sqliteTable(
+	'links',
+	{
+		fromId: integer('from_id')
+			.notNull()
+			.references(() => labours.id, { onDelete: 'cascade' }),
+		toId: integer('to_id')
+			.notNull()
+			.references(() => labours.id, { onDelete: 'cascade' }),
+		type: text('type', { enum: ['evidence', 'blocks', 'relates', 'duplicates'] }).notNull(),
+		note: text('note').notNull().default(''),
+		setBy: integer('set_by')
+			.notNull()
+			.references(() => users.id),
+		setAt: now('set_at')
+	},
+	(t) => [
+		primaryKey({ columns: [t.fromId, t.toId, t.type] }),
+		index('links_to_type_idx').on(t.toId, t.type),
+		check('links_distinct', sql.raw(`"from_id" <> "to_id"`)),
+		check('links_relates_ordered', sql.raw(`"type" <> 'relates' OR "from_id" < "to_id"`)),
+		check('links_type', sql.raw(`"type" IN ('evidence', 'blocks', 'relates', 'duplicates')`))
+	]
+);
+
+// The version of the build rules each derived structure follows, per docs/agent-layer-data.md.
+export const derivedBuilds = sqliteTable('derived_builds', {
+	name: text('name', { enum: ['labour_text', 'mentions', 'embedding_inputs'] }).primaryKey(),
+	version: integer('version').notNull(),
+	builtAt: now('built_at')
+});
+
+// A Labour key or username found in a Labour's description or a Comment, per docs/agent-layer-data.md.
+export const mentions = sqliteTable(
+	'mentions',
+	{
+		id: id(),
+		sourceLabourId: integer('source_labour_id')
+			.notNull()
+			.references(() => labours.id, { onDelete: 'cascade' }),
+		// Null when the Mention is in the description.
+		commentId: integer('comment_id').references(() => comments.id, { onDelete: 'cascade' }),
+		labourId: integer('labour_id').references(() => labours.id, { onDelete: 'cascade' }),
+		userId: integer('user_id').references(() => users.id),
+		authorId: integer('author_id')
+			.notNull()
+			.references(() => users.id),
+		firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull()
+	},
+	(t) => [
+		uniqueIndex('mentions_source_target_uq').on(
+			t.sourceLabourId,
+			sql`(CASE WHEN ${t.commentId} IS NULL THEN 0 ELSE ${t.commentId} END)`,
+			sql`(CASE WHEN ${t.labourId} IS NULL THEN 0 ELSE ${t.labourId} END)`,
+			sql`(CASE WHEN ${t.userId} IS NULL THEN 0 ELSE ${t.userId} END)`
+		),
+		index('mentions_labour_idx').on(t.labourId, t.firstSeenAt),
+		index('mentions_user_idx').on(t.userId, t.firstSeenAt),
+		check('mentions_one_target', sql.raw(`("labour_id" IS NULL) <> ("user_id" IS NULL)`)),
+		check('mentions_not_self', sql.raw(`"labour_id" IS NULL OR "labour_id" <> "source_labour_id"`))
+	]
+);
+
+// One report into a Realm's Sentiment or a User's Affinity, per docs/agent-layer-data.md.
+export const pulses = sqliteTable(
+	'pulses',
+	{
+		id: id(),
+		realmId: integer('realm_id').references(() => realms.id, { onDelete: 'cascade' }),
+		userId: integer('user_id').references(() => users.id),
+		// Null while unfiled.
+		attributeId: integer('attribute_id').references(() => attributes.id, { onDelete: 'cascade' }),
+		// The member key of a tags Attribute; null otherwise.
+		member: text('member'),
+		rawKey: text('raw_key').notNull(),
+		amount: real('amount').notNull(),
+		mood: real('mood').notNull(),
+		// Null never fades.
+		halfLifeDays: real('half_life_days'),
+		note: text('note').notNull().default(''),
+		// Evidence[]; the shape is in docs/agent-layer-data.md.
+		evidence: text('evidence', { mode: 'json' }).notNull().$type<unknown>().default([]),
+		ref: text('ref'),
+		authorId: integer('author_id')
+			.notNull()
+			.references(() => users.id),
+		createdAt: now()
+	},
+	(t) => [
+		uniqueIndex('pulses_author_ref_key_uq')
+			.on(t.authorId, t.ref, t.rawKey)
+			.where(sql.raw(`"ref" IS NOT NULL`)),
+		index('pulses_realm_attribute_idx').on(t.realmId, t.attributeId, t.member),
+		index('pulses_user_attribute_idx').on(t.userId, t.attributeId, t.member),
+		index('pulses_unfiled_idx').on(t.realmId, t.rawKey).where(sql.raw(`"attribute_id" IS NULL`)),
+		index('pulses_created_idx').on(t.createdAt),
+		check('pulses_one_owner', sql.raw(`("realm_id" IS NULL) <> ("user_id" IS NULL)`)),
+		check(
+			'pulses_unfiled_is_sentiment',
+			sql.raw(`"attribute_id" IS NOT NULL OR ("member" IS NULL AND "realm_id" IS NOT NULL)`)
+		),
+		check('pulses_amount', sql.raw(`"amount" > 0 AND "amount" <= 10`)),
+		check('pulses_mood', sql.raw(`"mood" >= -1 AND "mood" <= 1`)),
+		check(
+			'pulses_half_life',
+			sql.raw(`"half_life_days" IS NULL OR ("half_life_days" > 0 AND "half_life_days" <= 365)`)
+		),
+		check('pulses_evidence_json', sql.raw(`json_valid("evidence")`))
+	]
+);
+
+// A scored request and what it returned, per docs/agent-layer-data.md.
+export const surveys = sqliteTable(
+	'surveys',
+	{
+		id: id(),
+		actorId: integer('actor_id')
+			.notNull()
+			.references(() => users.id),
+		forId: integer('for_id')
+			.notNull()
+			.references(() => users.id),
+		request: text('request', { mode: 'json' }).notNull().$type<unknown>(),
+		// Results; the shape is in docs/agent-layer-data.md.
+		results: text('results', { mode: 'json' }).notNull().$type<unknown>(),
+		createdAt: now()
+	},
+	(t) => [
+		index('surveys_created_idx').on(t.createdAt),
+		check('surveys_request_json', sql.raw(`json_valid("request")`)),
+		check('surveys_results_json', sql.raw(`json_valid("results")`))
+	]
+);
+
+// What became of a Labour a Survey returned, per docs/agent-layer-data.md.
+export const outcomes = sqliteTable(
+	'outcomes',
+	{
+		surveyId: integer('survey_id')
+			.notNull()
+			.references(() => surveys.id, { onDelete: 'cascade' }),
+		labourId: integer('labour_id')
+			.notNull()
+			.references(() => labours.id, { onDelete: 'cascade' }),
+		verdict: text('verdict', { enum: ['picked', 'skipped', 'done'] }).notNull(),
+		authorId: integer('author_id')
+			.notNull()
+			.references(() => users.id),
+		createdAt: now()
+	},
+	(t) => [
+		primaryKey({ columns: [t.surveyId, t.labourId, t.verdict] }),
+		index('outcomes_labour_idx').on(t.labourId),
+		check('outcomes_verdict', sql.raw(`"verdict" IN ('picked', 'skipped', 'done')`))
+	]
+);
+
+// An ability named once for the instance, per docs/agent-layer-data.md.
+export const skills = sqliteTable(
+	'skills',
+	{
+		id: id(),
+		key: text('key').notNull().unique(),
+		label: text('label').notNull(),
+		rubric: text('rubric').notNull().default(''),
+		createdAt: now(),
+		updatedAt: now('updated_at')
+	},
+	() => [
+		check(
+			'skills_key_format',
+			sql.raw(
+				`"key" GLOB '[a-z]*' AND "key" NOT GLOB '*[^a-z0-9-]*' AND length("key") BETWEEN 1 AND 32`
+			)
+		),
+		check('skills_label_length', sql.raw(`length("label") BETWEEN 1 AND 64`)),
+		check('skills_rubric_length', sql.raw(`length("rubric") <= 4000`))
+	]
+);
+
+export const userSkills = sqliteTable(
+	'user_skills',
+	{
+		userId: integer('user_id')
+			.notNull()
+			.references(() => users.id),
+		skillId: integer('skill_id')
+			.notNull()
+			.references(() => skills.id, { onDelete: 'cascade' }),
+		level: integer('level').notNull(),
+		setBy: integer('set_by')
+			.notNull()
+			.references(() => users.id),
+		setAt: now('set_at')
+	},
+	(t) => [
+		primaryKey({ columns: [t.userId, t.skillId] }),
+		check('user_skills_level', sql.raw(`"level" BETWEEN 1 AND 5`))
+	]
+);
+
+// A Labour needs at most 8, held by the domain.
+export const labourNeeds = sqliteTable(
+	'labour_needs',
+	{
+		labourId: integer('labour_id')
+			.notNull()
+			.references(() => labours.id, { onDelete: 'cascade' }),
+		skillId: integer('skill_id')
+			.notNull()
+			.references(() => skills.id, { onDelete: 'cascade' }),
+		level: integer('level').notNull(),
+		setBy: integer('set_by')
+			.notNull()
+			.references(() => users.id),
+		setAt: now('set_at')
+	},
+	(t) => [
+		primaryKey({ columns: [t.labourId, t.skillId] }),
+		check('labour_needs_level', sql.raw(`"level" BETWEEN 1 AND 5`))
+	]
+);
+
+// A Labour's embedding, per docs/agent-layer-data.md. Derived: a missing or stale row is rebuilt.
+export const labourVectors = sqliteTable('labour_vectors', {
+	labourId: integer('labour_id')
+		.primaryKey()
+		.references(() => labours.id, { onDelete: 'cascade' }),
+	model: text('model').notNull(),
+	vector: blob('vector', { mode: 'buffer' }).notNull(),
+	inputHash: text('input_hash').notNull(),
+	embeddedAt: now('embedded_at')
+});
+
+// The hash of a Labour's embedding input as its text stands, per docs/agent-layer-data.md.
+export const labourInputs = sqliteTable('labour_inputs', {
+	labourId: integer('labour_id')
+		.primaryKey()
+		.references(() => labours.id, { onDelete: 'cascade' }),
+	inputHash: text('input_hash').notNull()
+});

@@ -1,5 +1,6 @@
+import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
-import { databasePath, origin, port } from './e2e/support/env.ts';
+import { databasePath, origin, port, runDir } from './e2e/support/env.ts';
 
 export default defineConfig({
 	testDir: 'e2e',
@@ -33,6 +34,8 @@ export default defineConfig({
 			HOST: '127.0.0.1',
 			PORT: String(port),
 			DATABASE_PATH: databasePath,
+			// Keep this missing: the e2e suite runs without the embedding model.
+			EMBEDDING_MODEL_DIR: join(runDir, 'no-embedding-model'),
 			STREAM_HEARTBEAT_MS: '300',
 			ORIGIN: '',
 			PROTOCOL_HEADER: '',
