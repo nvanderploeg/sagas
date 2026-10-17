@@ -1,9 +1,10 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, gt, isNull, or } from 'drizzle-orm';
 import type { Db, Handle } from '#lib/server/db/client.ts';
 import { apiTokens, users } from '#lib/server/db/schema.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import { requireText } from '#lib/server/domain/validate.ts';
 import { announceRevoked } from './credentials.ts';
+import { revokeGrantRows } from './oauth.ts';
 import { API_TOKEN_PREFIX, generateSecret, hashSecret } from './secrets.ts';
 import { toAuthUser, type AuthUser } from './users.ts';
 
@@ -55,6 +56,8 @@ export type ApiTokenInfo = {
 	createdAt: Date;
 	lastUsedAt: Date | null;
 	revokedAt: Date | null;
+	expiresAt: Date | null;
+	oauth: boolean;
 };
 
 export function listApiTokens(db: Handle, actor: AuthUser, userId: number): ApiTokenInfo[] {
@@ -65,12 +68,15 @@ export function listApiTokens(db: Handle, actor: AuthUser, userId: number): ApiT
 			name: apiTokens.name,
 			createdAt: apiTokens.createdAt,
 			lastUsedAt: apiTokens.lastUsedAt,
-			revokedAt: apiTokens.revokedAt
+			revokedAt: apiTokens.revokedAt,
+			expiresAt: apiTokens.expiresAt,
+			grantId: apiTokens.grantId
 		})
 		.from(apiTokens)
 		.where(eq(apiTokens.userId, userId))
 		.orderBy(apiTokens.id)
-		.all();
+		.all()
+		.map(({ grantId, ...token }) => ({ ...token, oauth: grantId !== null }));
 }
 
 export function revokeApiToken(db: Db, actor: AuthUser, tokenId: number): void {
@@ -78,6 +84,7 @@ export function revokeApiToken(db: Db, actor: AuthUser, tokenId: number): void {
 		const token = tx.select().from(apiTokens).where(eq(apiTokens.id, tokenId)).get();
 		if (!token) throw new DomainError('not_found', 'API token not found');
 		assertCanManageTokens(actor, requireUserRow(tx, token.userId));
+		if (token.grantId !== null) return revokeGrantRows(tx, token.grantId, new Date());
 		if (token.revokedAt !== null) return null;
 		tx.update(apiTokens).set({ revokedAt: new Date() }).where(eq(apiTokens.id, tokenId)).run();
 		return token.tokenHash;
@@ -85,12 +92,18 @@ export function revokeApiToken(db: Db, actor: AuthUser, tokenId: number): void {
 	if (revoked !== null) announceRevoked({ kind: 'api_token', hash: revoked });
 }
 
-export function verifyApiToken(db: Db, token: string): AuthUser | null {
+export function verifyApiToken(db: Db, token: string, now = new Date()): AuthUser | null {
 	const row = db
 		.select({ token: apiTokens, user: users })
 		.from(apiTokens)
 		.innerJoin(users, eq(users.id, apiTokens.userId))
-		.where(and(eq(apiTokens.tokenHash, hashSecret(token)), isNull(apiTokens.revokedAt)))
+		.where(
+			and(
+				eq(apiTokens.tokenHash, hashSecret(token)),
+				isNull(apiTokens.revokedAt),
+				or(isNull(apiTokens.expiresAt), gt(apiTokens.expiresAt, now))
+			)
+		)
 		.get();
 	if (!row) return null;
 	db.update(apiTokens).set({ lastUsedAt: new Date() }).where(eq(apiTokens.id, row.token.id)).run();

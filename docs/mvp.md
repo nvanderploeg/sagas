@@ -25,7 +25,7 @@ Attachments (first after MVP), history and audit log, blocked flag, search beyon
 - **Deleting a Labour** leaves a gap in its Realm's numbering.
 - **Rank** is a fractional index within a State's column, so a move writes one row.
 - **Live updates**: an in-process event bus feeds server-sent events. Every event carries a monotonically increasing `seq`; a client reconnecting with its last `seq` receives everything after it, without gaps, as workstate's Stream does.
-- **MCP**: Streamable HTTP at `/mcp`, authenticated with `Authorization: Bearer <API token>`, acting as that token's User. Tools call the domain services directly; there is no REST API for clients, only the UI's own read endpoints (`/search`, `/api/events`, `/api/agent/*`). Tools: `resolve`, labour list/get/create/update/move/rank/delete, set parent, CRUD for Realms, States and Substates, Quest CRUD plus add/remove/reorder of its Labours, and Admin tools for Users, Agent users, Invites and tokens. Every Labour in a tool result carries its current Labour key.
+- **MCP**: Streamable HTTP at `/mcp`, authenticated with `Authorization: Bearer <API token>` (or an OAuth access token, which claude.ai gets by connecting), acting as that token's User. Tools call the domain services directly; there is no REST API for clients, only the UI's own read endpoints (`/search`, `/api/events`, `/api/agent/*`). Tools: `resolve`, labour list/get/create/update/move/rank/delete, set parent, CRUD for Realms, States and Substates, Quest CRUD plus add/remove/reorder of its Labours, and Admin tools for Users, Agent users, Invites and tokens. Every Labour in a tool result carries its current Labour key.
 
 ## Look and motion
 

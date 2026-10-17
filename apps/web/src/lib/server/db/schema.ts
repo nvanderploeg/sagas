@@ -87,9 +87,96 @@ export const apiTokens = sqliteTable(
 		tokenHash: text('token_hash').notNull().unique(),
 		createdAt: now(),
 		lastUsedAt: timestamp('last_used_at'),
-		revokedAt: timestamp('revoked_at')
+		revokedAt: timestamp('revoked_at'),
+		expiresAt: timestamp('expires_at'),
+		grantId: integer('grant_id')
+			.unique()
+			.references(() => oauthGrants.id, { onDelete: 'cascade' })
 	},
 	(t) => [index('api_tokens_user_idx').on(t.userId)]
+);
+
+export const oauthClients = sqliteTable(
+	'oauth_clients',
+	{
+		id: text('id').primaryKey(),
+		name: text('name').notNull(),
+		redirectUris: text('redirect_uris').notNull(),
+		authMethod: text('auth_method', {
+			enum: ['none', 'client_secret_post', 'client_secret_basic']
+		}).notNull(),
+		secretHash: text('secret_hash'),
+		createdAt: now(),
+		// When the client first exchanged a code; null for a client that never connected.
+		grantedAt: timestamp('granted_at')
+	},
+	() => [
+		check(
+			'oauth_clients_auth_method',
+			sql.raw(`"auth_method" IN ('none', 'client_secret_post', 'client_secret_basic')`)
+		),
+		check(
+			'oauth_clients_secret_iff_confidential',
+			sql.raw(`("auth_method" = 'none') = ("secret_hash" IS NULL)`)
+		),
+		check('oauth_clients_redirect_uris_json', sql.raw(`json_valid("redirect_uris")`))
+	]
+);
+
+export const oauthGrants = sqliteTable(
+	'oauth_grants',
+	{
+		id: id(),
+		clientId: text('client_id')
+			.notNull()
+			.references(() => oauthClients.id, { onDelete: 'cascade' }),
+		userId: integer('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		createdAt: now(),
+		revokedAt: timestamp('revoked_at')
+	},
+	(t) => [
+		index('oauth_grants_client_idx').on(t.clientId),
+		index('oauth_grants_user_idx').on(t.userId)
+	]
+);
+
+export const oauthCodes = sqliteTable(
+	'oauth_codes',
+	{
+		codeHash: text('code_hash').primaryKey(),
+		clientId: text('client_id')
+			.notNull()
+			.references(() => oauthClients.id, { onDelete: 'cascade' }),
+		userId: integer('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		redirectUri: text('redirect_uri').notNull(),
+		codeChallenge: text('code_challenge').notNull(),
+		createdAt: now(),
+		expiresAt: timestamp('expires_at').notNull(),
+		usedAt: timestamp('used_at'),
+		grantId: integer('grant_id').references(() => oauthGrants.id, { onDelete: 'set null' })
+	},
+	(t) => [
+		index('oauth_codes_client_idx').on(t.clientId),
+		index('oauth_codes_user_idx').on(t.userId)
+	]
+);
+
+export const oauthRefreshTokens = sqliteTable(
+	'oauth_refresh_tokens',
+	{
+		tokenHash: text('token_hash').primaryKey(),
+		grantId: integer('grant_id')
+			.notNull()
+			.references(() => oauthGrants.id, { onDelete: 'cascade' }),
+		createdAt: now(),
+		expiresAt: timestamp('expires_at').notNull(),
+		usedAt: timestamp('used_at')
+	},
+	(t) => [index('oauth_refresh_tokens_grant_idx').on(t.grantId)]
 );
 
 export const realms = sqliteTable(

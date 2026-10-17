@@ -87,6 +87,28 @@ Without `-e`, put the variables in front of the command: `-- env SAGAS_URL=… S
 - The cache is under `${XDG_CONFIG_HOME:-~/.config}/sagas/cache/<host>/`, one directory per server,
   and holds nothing the server doesn't. Delete it to start clean.
 
+## Connect claude.ai
+
+claude.ai connects to `/mcp` as a custom connector, signing in through the browser instead of an
+API token. It needs sagas reachable over public HTTPS, with the reverse proxy sending
+`X-Forwarded-Proto` and `X-Forwarded-Host` (see "Run in Docker"): the addresses sagas hands to
+claude.ai come from them.
+
+1. On a Team or Enterprise plan, an owner first adds the connector under Organization settings →
+   Connectors.
+2. In claude.ai, open Settings → Connectors → Add custom connector and enter
+   `https://<host>/mcp`. Leave client ID and secret empty; claude.ai registers itself.
+3. A popup opens sagas. Sign in if needed, check the client name and the host the connection
+   returns to, and choose Allow.
+
+The connector acts as you, with full access to everything you can do. Its access token lasts an
+hour and renews for 30 days of use; after 30 days unused, connect again.
+
+To disconnect, revoke the connector's token on your Account page, or call `revoke_api_token`. That
+ends the connection, and claude.ai must reconnect. Only claude.ai and claude.com callback URLs
+(`https://claude.ai/api/mcp/auth_callback`, `https://claude.com/api/mcp/auth_callback`) can
+register; nothing else can connect this way. The endpoints are in `docs/mcp.md`.
+
 ## Scripts
 
 - `pnpm build`: build every workspace.

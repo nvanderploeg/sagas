@@ -1,8 +1,12 @@
 import { redirect } from '@sveltejs/kit';
 import type { Handle, ServerInit } from '@sveltejs/kit/hooks';
-import { building } from '$app/env';
-import { gate, unauthorizedResponse } from '#lib/server/auth/access.ts';
+import { building, dev } from '$app/env';
+import { crossSiteFormRefusal } from '#lib/server/auth/csrf.ts';
+import { gate, isMcpPath, unauthorizedResponse } from '#lib/server/auth/access.ts';
+import { resourceMetadataUrl } from '#lib/server/auth/oauth-metadata.ts';
+import { scheduleOAuthPruning } from '#lib/server/auth/oauth.ts';
 import { authFromRequest, SESSION_COOKIE } from '#lib/server/auth/request.ts';
+import { gateRedirect } from '#lib/ui/return-path.ts';
 import { hasUsers, seedAdmin } from '#lib/server/auth/users.ts';
 import {
 	embeddingModelDir,
@@ -33,6 +37,7 @@ export const init: ServerInit = async () => {
 	}
 	schedulePruning(db, eventRetentionMs);
 	scheduleAgentPruning(db, surveyRetentionMs);
+	scheduleOAuthPruning(db);
 	void startEmbeddings(db);
 };
 
@@ -52,6 +57,12 @@ async function startEmbeddings(db: Db): Promise<void> {
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
+	// Match Kit's built-in rule, which never runs in dev.
+	const refusal = dev
+		? null
+		: crossSiteFormRefusal(event.request, event.url.origin, event.url.pathname);
+	if (refusal) return refusal;
+
 	const db = getDb();
 	const auth = authFromRequest(db, event.request, event.cookies.get(SESSION_COOKIE));
 	event.locals.user = auth?.user ?? null;
@@ -62,10 +73,14 @@ export const handle: Handle = async ({ event, resolve }) => {
 		signedIn: auth !== null,
 		mustChangePassword: auth?.user.mustChangePassword ?? false
 	});
-	if (decision === 'setup') redirect(303, '/setup');
-	if (decision === 'login') redirect(303, '/login');
-	if (decision === 'password') redirect(303, '/password');
-	if (decision === 'unauthorized') return unauthorizedResponse();
+	if (decision === 'setup' || decision === 'login' || decision === 'password') {
+		redirect(303, gateRedirect(decision, event.url));
+	}
+	if (decision === 'unauthorized') {
+		return unauthorizedResponse(
+			isMcpPath(event.url.pathname) ? resourceMetadataUrl(event.url.origin) : undefined
+		);
+	}
 	const response = await resolve(event);
 	response.headers.set('x-content-type-options', 'nosniff');
 	response.headers.set('referrer-policy', 'same-origin');

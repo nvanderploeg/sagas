@@ -19,6 +19,12 @@ A single-use link an Admin creates so a person can set their own password and jo
 **API token**:
 A secret a User creates to call sagas without a browser session, as the MCP server does. The server keeps only its hash. It acts as that User.
 
+**OAuth client**:
+An app that registered itself to connect on a User's behalf, such as claude.ai; known by its client id.
+
+**Connection**:
+One User's consent to one OAuth client: an access token that is an API token, plus a refresh token. Revoking either revokes the Connection.
+
 **Realm**:
 A group of Labours with its own Realm key and State set.
 

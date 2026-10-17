@@ -1,5 +1,6 @@
 import type { APIRequestContext } from '@playwright/test';
 import { expect, test } from './fixtures/index.ts';
+import { origin } from './support/env.ts';
 import { cookieHeader, getNoFollow } from './support/http.ts';
 import { openStream } from './support/stream.ts';
 
@@ -19,7 +20,10 @@ async function expectUnauthorized(
 			: await request.post(path, { headers, maxRedirects: 0, data: {} });
 	const label = `${method} ${path}`;
 	expect(response.status(), label).toBe(401);
-	expect(response.headers()['www-authenticate'], label).toBe('Bearer');
+	const mcp = path === '/mcp' || path.startsWith('/mcp/');
+	expect(response.headers()['www-authenticate'], label).toBe(
+		mcp ? `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"` : 'Bearer'
+	);
 	expect(response.headers()['content-type'], label).toContain('application/json');
 	expect(response.headers().location, label).toBeUndefined();
 	expect(await response.json(), label).toEqual({ error: 'unauthorized' });
@@ -31,6 +35,27 @@ test.describe('machine endpoints', () => {
 			await expectUnauthorized(request, path);
 		});
 	}
+
+	test('the OAuth discovery documents are public JSON', async ({ request }) => {
+		for (const path of [
+			'/.well-known/oauth-protected-resource',
+			'/.well-known/oauth-protected-resource/mcp',
+			'/.well-known/oauth-authorization-server'
+		]) {
+			const response = await getNoFollow(request, path);
+			expect(response.status(), path).toBe(200);
+			expect(response.headers()['content-type'], path).toContain('application/json');
+			expect(response.headers()['cache-control'], path).toBe('public, max-age=300');
+		}
+		const resource = await (
+			await getNoFollow(request, '/.well-known/oauth-protected-resource')
+		).json();
+		expect(resource.resource).toBe(`${origin}/mcp`);
+		const server = await (
+			await getNoFollow(request, '/.well-known/oauth-authorization-server')
+		).json();
+		expect(server.issuer).toBe(origin);
+	});
 
 	test('POST /mcp without a token is 401 JSON', async ({ request }) => {
 		await expectUnauthorized(request, '/mcp', {}, 'POST');

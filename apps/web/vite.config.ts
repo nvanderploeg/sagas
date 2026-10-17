@@ -12,6 +12,8 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 			adapter: adapter(),
+			// hooks.server.ts enforces this check itself (crossSiteFormRefusal); never turn it back on here.
+			csrf: { trustedOrigins: ['*'] },
 			// An inline script in app.html runs only with nonce="%sveltekit.nonce%".
 			csp: {
 				mode: 'auto',
@@ -24,7 +26,7 @@ export default defineConfig({
 					'connect-src': ['self'],
 					'object-src': ['none'],
 					'base-uri': ['self'],
-					'form-action': ['self'],
+					'form-action': ['self', 'https://claude.ai', 'https://claude.com'],
 					'frame-ancestors': ['none']
 				}
 			}

@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { adminFile } from './support/env.ts';
+import { adminFile, origin } from './support/env.ts';
 import { getNoFollow, postForm } from './support/http.ts';
 import { openStream } from './support/stream.ts';
 
@@ -27,10 +27,15 @@ test('an empty database sends every page to /setup', async ({ page, request }) =
 test('machine endpoints answer 401 JSON, not a redirect, on an empty database', async ({
 	request
 }) => {
-	for (const path of ['/mcp', '/api/events', '/api/anything']) {
+	const challenges = {
+		'/mcp': `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+		'/api/events': 'Bearer',
+		'/api/anything': 'Bearer'
+	};
+	for (const [path, challenge] of Object.entries(challenges)) {
 		const response = await getNoFollow(request, path);
 		expect(response.status(), path).toBe(401);
-		expect(response.headers()['www-authenticate'], path).toBe('Bearer');
+		expect(response.headers()['www-authenticate'], path).toBe(challenge);
 		expect(await response.json(), path).toEqual({ error: 'unauthorized' });
 	}
 });

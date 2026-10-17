@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, eq, gt, isNull, or } from 'drizzle-orm';
 import type { Handle } from '#lib/server/db/client.ts';
 import { apiTokens, sessions } from '#lib/server/db/schema.ts';
 import { hashSecret } from './secrets.ts';
@@ -22,7 +22,13 @@ export function credentialValid(db: Handle, credential: Credential, now = new Da
 			db
 				.select({ id: apiTokens.id })
 				.from(apiTokens)
-				.where(and(eq(apiTokens.tokenHash, credential.hash), isNull(apiTokens.revokedAt)))
+				.where(
+					and(
+						eq(apiTokens.tokenHash, credential.hash),
+						isNull(apiTokens.revokedAt),
+						or(isNull(apiTokens.expiresAt), gt(apiTokens.expiresAt, now))
+					)
+				)
 				.get() !== undefined
 		);
 	}
@@ -48,7 +54,13 @@ export function onRevoked(listener: Listener): () => void {
 
 // Announce after the commit that ends the credential.
 export function announceRevoked(credential: Credential): void {
-	for (const listener of [...listeners]) listener(credential);
+	for (const listener of [...listeners]) {
+		try {
+			listener(credential);
+		} catch (error) {
+			console.error('sagas revocation listener failed', error);
+		}
+	}
 }
 
 export function credentialGuard(db: Handle, credential: Credential) {
