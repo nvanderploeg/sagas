@@ -135,6 +135,9 @@ test.describe('session', () => {
 			await page.getByLabel('Password').fill(person.password);
 			await page.getByRole('button', { name: 'Sign in' }).click();
 			await expect(page).toHaveURL(/^http:\/\/localhost:\d+\/$/);
+			// Leave before signing out: an open Stream that loses its session navigates to sign in,
+			// aborting the next goto.
+			await page.goto('about:blank');
 			await context.clearCookies();
 		}
 	});
