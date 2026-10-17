@@ -5,7 +5,8 @@ The MCP server at `/mcp`, for agents. Vocabulary is in `CONTEXT.md`; the decisio
 ## Connecting
 
 - Streamable HTTP, stateless: `POST /mcp` with one JSON-RPC message, answered with `application/json`. No session id. The server declares `tools` only, without `listChanged`.
-- Authenticate every request with `Authorization: Bearer <API token>`. A session cookie is not enough. Otherwise 401.
+- Authenticate every request with `Authorization: Bearer <API token>`. A session cookie is not enough. Otherwise 401, with `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource"`.
+- An OAuth access token (see "OAuth") works exactly like an API token, with full access as its User; it also expires.
 - Every tool acts as the token's User, and every Event its writes record names that User as `actor`.
 
 | Request                                                    | Answer                                                                                                                      |
@@ -16,6 +17,30 @@ The MCP server at `/mcp`, for agents. Vocabulary is in `CONTEXT.md`; the decisio
 | Not JSON                                                   | 400, JSON-RPC error `-32700`.                                                                                               |
 | `GET`                                                      | 405, `Allow: POST`. 401 first without a token.                                                                              |
 | `DELETE`                                                   | 405, `Allow: POST`. 403 first, from SvelteKit's CSRF check, unless it carries a matching `Origin` or a JSON `Content-Type`. |
+
+## OAuth
+
+An OAuth client such as claude.ai connects to `/mcp` by authorization code with PKCE (S256). One scope, `sagas`, gives full access as the signed-in User. `<origin>` is the origin the request reached.
+
+| Endpoint                                                                | Request                                                                                                                                                                                                                                                                                                                              | Answer                                                                                                                                                                                                                                    |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /.well-known/oauth-protected-resource` (also with a `/mcp` suffix) |                                                                                                                                                                                                                                                                                                                                      | RFC 9728 JSON: `resource` (`<origin>/mcp`), `authorization_servers`, `scopes_supported`, `bearer_methods_supported`, `resource_name`. `cache-control: public, max-age=300`.                                                               |
+| `GET /.well-known/oauth-authorization-server`                           |                                                                                                                                                                                                                                                                                                                                      | RFC 8414 JSON: `issuer`, the three endpoints below, `response_types_supported: ["code"]`, both grant types, `code_challenge_methods_supported: ["S256"]`, the three client auth methods. Same cache header.                               |
+| `POST /oauth/register`                                                  | RFC 7591 JSON: `redirect_uris` (required), `client_name?` (1-100 characters; `OAuth client` when absent), `token_endpoint_auth_method?` (`none`, the default, `client_secret_post` or `client_secret_basic`). Other fields are ignored.                                                                                              | 201 with `client_id`, `client_name`, `redirect_uris`, `token_endpoint_auth_method`, `grant_types`, `response_types`, `client_id_issued_at`, and for a confidential client `client_secret` (shown once) and `client_secret_expires_at: 0`. |
+| `GET /oauth/authorize`                                                  | Query: `response_type=code`, `client_id`, `redirect_uri`, `code_challenge`, `code_challenge_method=S256`, `state?`, `resource?` (must be `<origin>/mcp`). `scope` is ignored.                                                                                                                                                        | The consent page. Signed out: 303 to `/login`, and back here after login and any forced password change.                                                                                                                                  |
+| `POST /oauth/authorize`                                                 | The consent form: Allow or Deny.                                                                                                                                                                                                                                                                                                     | 303 to `redirect_uri` with `code` and `state` (Allow) or `error=access_denied` and `state` (Deny).                                                                                                                                        |
+| `POST /oauth/token`                                                     | `application/x-www-form-urlencoded`. Client auth by `client_secret_basic`, by `client_id` and `client_secret` in the body, or `client_id` alone (`none`). Then `grant_type=authorization_code` with `code`, `redirect_uri`, `code_verifier`; or `grant_type=refresh_token` with `refresh_token`. `resource?` must be `<origin>/mcp`. | 200 `{ access_token, token_type: "Bearer", expires_in, refresh_token, scope }`, `cache-control: no-store`.                                                                                                                                |
+
+- Registration accepts only these `redirect_uris`, every one of them: `https://claude.ai/api/mcp/auth_callback`, `https://claude.com/api/mcp/auth_callback`. Anything else is `invalid_redirect_uri`. It is throttled per client address: 8 registrations in 15 minutes, then 429 `invalid_request`.
+- Registration and token errors are 400 `{ error, error_description }`: `invalid_client_metadata` (not a JSON object, a bad name or auth method), `invalid_redirect_uri`, `invalid_request`, `invalid_client`, `invalid_grant`, `unsupported_grant_type`, `invalid_target` (a `resource` that is not `<origin>/mcp`). `invalid_client` is 401, with `WWW-Authenticate: Basic` when the client used Basic.
+- `/oauth/authorize` with an unknown client or a `redirect_uri` not registered for it shows an error page and never redirects. Any other bad parameter redirects to `redirect_uri` with `error`, `error_description` and `state`.
+- The consent page names the client, whose name the client chose itself, and the host `redirect_uri` returns to, and says the connection acts as the signed-in User with full access.
+- A `code_verifier` is 43-128 characters of `A-Za-z0-9._~-`. A `code_challenge` is 43 characters of `A-Za-z0-9_-`.
+- Lifetimes: a code 10 minutes, an access token 1 hour (`expires_in: 3600`), a refresh token 30 days. A refresh returns a new refresh token and a new access token for the same connection; the old refresh token and access token stop working.
+- A code works once. Presenting it again, or presenting a refresh token already rotated, is `invalid_grant` and revokes the connection it belongs to.
+- Revoking a connection's access token (`revoke_api_token`, or the Account page) revokes its refresh token too, and the reverse. The next request with the access token is 401; a refresh is `invalid_grant`, and the client must run the authorization again.
+- `list_api_tokens` shows a connection's access token with `oauth: true`; its name is `<client name> (OAuth)`.
+- CSRF: a `POST`, `PUT`, `PATCH` or `DELETE` with a form content type, or none, needs an `Origin` equal to this server's origin, on every path except `/oauth/token` and `/oauth/register`. Otherwise 403 `Cross-site <METHOD> form submissions are forbidden`.
 
 ## Arguments
 
@@ -212,15 +237,15 @@ Pulses are agent layer writes: they record no Events, never change a Realm's `ve
 
 ### Users, Invites and API tokens
 
-| Tool                | Input                   | Output                                                         | Who                                     |
-| ------------------- | ----------------------- | -------------------------------------------------------------- | --------------------------------------- |
-| `whoami`            |                         | `{ user: User }`                                               | anyone                                  |
-| `list_users`        |                         | `{ users: User[] }`                                            | anyone                                  |
-| `create_invite`     |                         | `{ id, path }`; join `path` to the origin you connect to       | Admin                                   |
-| `list_invites`      |                         | `{ invites: [{ id, createdBy, createdAt, usedBy, usedAt }] }`  | Admin                                   |
-| `create_agent_user` | `username, displayName` | `{ user: User }`                                               | Admin                                   |
-| `list_api_tokens`   | `user? (you)`           | `{ tokens: [{ id, name, createdAt, lastUsedAt, revokedAt }] }` | the User, or an Admin for an Agent user |
-| `create_api_token`  | `user? (you), name`     | `{ id, token }`; the secret is shown only here                 | the User, or an Admin for an Agent user |
-| `revoke_api_token`  | `token` (id)            | `{ revoked }`                                                  | the User, or an Admin for an Agent user |
+| Tool                | Input                   | Output                                                                           | Who                                     |
+| ------------------- | ----------------------- | -------------------------------------------------------------------------------- | --------------------------------------- |
+| `whoami`            |                         | `{ user: User }`                                                                 | anyone                                  |
+| `list_users`        |                         | `{ users: User[] }`                                                              | anyone                                  |
+| `create_invite`     |                         | `{ id, path }`; join `path` to the origin you connect to                         | Admin                                   |
+| `list_invites`      |                         | `{ invites: [{ id, createdBy, createdAt, usedBy, usedAt }] }`                    | Admin                                   |
+| `create_agent_user` | `username, displayName` | `{ user: User }`                                                                 | Admin                                   |
+| `list_api_tokens`   | `user? (you)`           | `{ tokens: [{ id, name, createdAt, lastUsedAt, revokedAt, expiresAt, oauth }] }` | the User, or an Admin for an Agent user |
+| `create_api_token`  | `user? (you), name`     | `{ id, token }`; the secret is shown only here                                   | the User, or an Admin for an Agent user |
+| `revoke_api_token`  | `token` (id)            | `{ revoked }`                                                                    | the User, or an Admin for an Agent user |
 
-Revoking a token closes its event streams at once. A call revoking its own token finishes; the next request with it gets 401.
+`expiresAt` is null for a token that never expires; `oauth` is true for a connection's access token (see "OAuth"). Revoking a token closes its event streams at once. A call revoking its own token finishes; the next request with it gets 401.
