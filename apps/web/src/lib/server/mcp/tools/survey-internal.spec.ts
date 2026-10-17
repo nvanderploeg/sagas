@@ -16,7 +16,7 @@ let user: AuthUser;
 beforeEach(() => {
 	db = testDb();
 	user = seedHuman(db, 'ada');
-	registry = toolRegistry(db, user);
+	registry = toolRegistry(db, user, 'http://sagas.test');
 	registerSurveyTools(registry.tools);
 });
 
@@ -65,6 +65,7 @@ describe('survey tool', () => {
 			{
 				key: 'AM-1',
 				path: '/l/AM-1',
+				url: 'http://sagas.test/l/AM-1',
 				title: first.title,
 				realm: 'AM',
 				state: 'todo',

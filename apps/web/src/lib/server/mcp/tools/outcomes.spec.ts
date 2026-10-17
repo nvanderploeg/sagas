@@ -37,7 +37,7 @@ afterEach(async () => {
 
 async function connect(user: AuthUser = admin): Promise<Client> {
 	const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-	await createMcpServer(db, user).connect(serverSide);
+	await createMcpServer(db, user, 'http://sagas.test').connect(serverSide);
 	const client = new Client({ name: 'spec', version: '0' });
 	await client.connect(clientSide);
 	clients.push(client);

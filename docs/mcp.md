@@ -39,16 +39,16 @@ The MCP server at `/mcp`, for agents. Vocabulary is in `CONTEXT.md`; the decisio
 
 A result has `structuredContent` and one text item: a one-line summary, a newline, then `structuredContent` as JSON. A Labour's summary shows its State and Substate keys and labels: `AM-1 [doing: Doing › review: Review] Title`.
 
-- **Labour**: `{ id, key, path, title, realm, state: { key, label }, substate: { key, label } | null, closed, owner, assignee, parent, labels }`. `realm` is its Realm key, `owner` and `assignee` usernames, `parent` the Parent's key.
-- **`path`**: the page of a Labour, Realm or Quest (`/l/AM-123`, `/r/AM`, `/quests/7`). Join it to the origin you connect to to get a link.
+- **Labour**: `{ id, key, path, url, title, brief, realm, state: { key, label }, substate: { key, label } | null, closed, owner, assignee, parent, labels }`. `realm` is its Realm key, `owner` and `assignee` usernames, `parent` the Parent's key, `brief` its Appraisal's Brief (`""` when none).
+- **`path`** and **`url`**: the page of a Labour, Realm or Quest (`/l/AM-123`, `/r/AM`, `/quests/7`); `url` is `path` on the origin the request reached (`https://sagas.example.org/l/AM-123`).
 - **LabourDetail**: Labour plus `{ description, aliases, createdAt, updatedAt, parentLabour: Labour | null, children: Labour[], quests: [{ id, name, progress }] }`.
 - **Comment**: `{ id, labour, author, body, createdAt, updatedAt | null }`. `labour` is the Labour's key, `author` a username, `body` Markdown.
-- **Realm**: `{ id, key, path, name, aliases, initialState, states: [{ id, key, label, color, icon, closed, defaultSubstate, substates: [{ id, key, label, color, icon }] }] }`, States and Substates in order. `initialState` and `defaultSubstate` are keys.
-- **Quest**: `{ id, path, name, description, owner, progress: { closed, total }, labours: Labour[] }`, members in Quest order.
+- **Realm**: `{ id, key, path, url, name, aliases, notes, initialState, states: [{ id, key, label, color, icon, closed, defaultSubstate, substates: [{ id, key, label, color, icon }] }] }`, States and Substates in order. `initialState` and `defaultSubstate` are keys; `notes` are the Realm's agent notes (`""` when none).
+- **Quest**: `{ id, path, url, name, description, owner, progress: { closed, total }, labours: Labour[] }`, members in Quest order.
 - **Attribute**: `{ key, kind, label, rubric, spec, position, revisedAt, held, stale, counts }`, in `position` order. `spec` is `{ min, max }` for `scale`, `{ members: [{ key, label, rubric }], max | null }` for `tags` and `{ max }` for `text`. `held` is how many Labours hold a value, `stale` how many of those were set before `revisedAt` (an ISO time), and `counts` the Labours per value: per integer for `scale`, per member (every member, 0 included) for `tags`, empty for `text`.
 - **Appraisal**: `{ labour, brief, refs: [{ href, label | null }], setBy | null, setAt | null, contentHash, stamp: { contentHash, appraisedBy, appraisedAt } | null, unappraised, stale, values: [{ key, kind, value, setBy, setAt, stale }], links: Link[], needs: [{ skill, level, setBy, setAt }], mentions: [{ in, comment | null, by, firstSeenAt }] }`. `labour` is the Labour's key; `setBy` and `appraisedBy` are usernames, and `setBy` and `setAt` are null until a Brief or References are first written; `contentHash` is the hash of the Labour's title, description, Labels and Comments now, and `stamp.contentHash` the one the last stamped Appraisal read. `unappraised` means no stamp, `stale` a stamp whose hash is not `contentHash`. `values` are the Labour's Attribute values. `needs` are the Skills the Labour needs and at what level, by `skill` key; `setBy` is a username and `setAt` an ISO time. `mentions` are the 10 newest Mentions of this Labour in other Labours' descriptions and Comments, newest first: `in` is the key of the Labour holding the text, `comment` the Comment's id (null for a description), `by` the author's username and `firstSeenAt` an ISO time.
 - **Link**: `{ type, from, to, note, setBy, setAt }`, `from` and `to` Labour keys, ordered by type (`evidence`, `blocks`, `relates`, `duplicates`), then `from`, then `to`. `evidence`: `from` supports `to`. `blocks`: `to` can't go ahead until `from` is Closed. `duplicates`: `from` repeats `to`. `relates` has no direction and is stored with the lower id as `from`.
-- **Survey result**: `{ survey, results: [{ key, path, title, realm, state, assignee, brief, score, contributions, values? }], sentiment, coverage: { candidates, unappraised, stale, unembedded, missing }, ignored }`. `survey` is the stored Survey's id. `results` run in the order asked for, at most `limit`; `key` is the Labour key, `realm` and `state` keys, `assignee` a username or null, `brief` the Appraisal's Brief (`""` when none). `score` is the Labour's Score, and `contributions` the weight times feature behind its five largest terms, largest first, zeros left out. `values` is `{ key: value }` of the `show` Attributes the Labour holds, present only when `show` was given. `sentiment` lists the keys behind the `sentiment`, `pain` and `delight` weights as `[{ realm, key, volume, mood, pulses: Pulse[] }]` (`realm` a Realm key, `key` `attr` or `attr:member`), for the keys some returned Labour holds that have volume, loudest first and then by Realm and key, at most 10, each with its two heaviest Pulses; it is `[]` when none of the three is weighted. `coverage` counts the candidates before `limit`: `unappraised` never stamped, `stale` stamped but changed since, `unembedded` without a current vector (one for the Labour's present title, Brief and description), and `missing`, per applied weight key, the candidates that took 0.5 for lack of data (keys with none are left out). `ignored` lists the weight and `show` keys that matched nothing, in order.
+- **Survey result**: `{ survey, results: [{ key, path, url, title, realm, state, assignee, brief, score, contributions, values? }], sentiment, coverage: { candidates, unappraised, stale, unembedded, missing }, ignored }`. `survey` is the stored Survey's id. `results` run in the order asked for, at most `limit`; `key` is the Labour key, `realm` and `state` keys, `assignee` a username or null, `brief` the Appraisal's Brief (`""` when none). `score` is the Labour's Score, and `contributions` the weight times feature behind its five largest terms, largest first, zeros left out. `values` is `{ key: value }` of the `show` Attributes the Labour holds, present only when `show` was given. `sentiment` lists the keys behind the `sentiment`, `pain` and `delight` weights as `[{ realm, key, volume, mood, pulses: Pulse[] }]` (`realm` a Realm key, `key` `attr` or `attr:member`), for the keys some returned Labour holds that have volume, loudest first and then by Realm and key, at most 10, each with its two heaviest Pulses; it is `[]` when none of the three is weighted. `coverage` counts the candidates before `limit`: `unappraised` never stamped, `stale` stamped but changed since, `unembedded` without a current vector (one for the Labour's present title, Brief and description), and `missing`, per applied weight key, the candidates that took 0.5 for lack of data (keys with none are left out). `ignored` lists the weight and `show` keys that matched nothing, in order.
 - **Skill**: `{ key, label, rubric }`, with `holders` (how many Users hold it) when listed by `list_skills`.
 - **Outcome**: `{ labour, verdict, recorded }`, `labour` the Labour's current key.
 - **Pulse**: `{ id, note, evidence, author, createdAt }`, with `weight` when it is listed by `get_sentiment`. `evidence` items are `{ href, label | null }` or `{ labour }`, a Labour's current key; one naming a deleted Labour is left out. `author` is a username and `createdAt` an ISO time.
@@ -82,37 +82,37 @@ An error is a result with `isError: true`, its message as text, and `structuredC
 
 The Realm's `state` and `substate` arguments resolve within `realm`. Every write returns `{ realm: Realm }`.
 
-| Tool                   | Input                                                                   | Output                                     |
-| ---------------------- | ----------------------------------------------------------------------- | ------------------------------------------ |
-| `list_realms`          |                                                                         | `{ realms: [{ id, key, name, aliases }] }` |
-| `get_realm`            | `realm`                                                                 | `{ realm: Realm }`                         |
-| `create_realm`         | `name, key, initialState? { key, label, color, icon }` (default `todo`) | `{ realm }`                                |
-| `update_realm`         | `realm, name`                                                           | `{ realm }`                                |
-| `rename_realm_key`     | `realm, key`                                                            | `{ realm }`                                |
-| `delete_realm`         | `realm`                                                                 | `{ deleted: { id, key } }`                 |
-| `set_initial_state`    | `realm, state`                                                          | `{ realm }`                                |
-| `create_state`         | `realm, key, label, color, icon, index?` (among open States; last)      | `{ realm }`                                |
-| `update_state`         | `realm, state, label?, color?, icon?`                                   | `{ realm }`                                |
-| `reorder_state`        | `realm, state, index`                                                   | `{ realm }`                                |
-| `delete_state`         | `realm, state`                                                          | `{ realm }`                                |
-| `create_substate`      | `realm, state, key, label, color, icon, index?` (last)                  | `{ realm }`                                |
-| `update_substate`      | `realm, state, substate, label?, color?, icon?`                         | `{ realm }`                                |
-| `reorder_substate`     | `realm, state, substate, index`                                         | `{ realm }`                                |
-| `delete_substate`      | `realm, state, substate`                                                | `{ realm }`                                |
-| `set_default_substate` | `realm, state, substate`                                                | `{ realm }`                                |
+| Tool                   | Input                                                                   | Output                                          |
+| ---------------------- | ----------------------------------------------------------------------- | ----------------------------------------------- |
+| `list_realms`          |                                                                         | `{ realms: [{ id, key, url, name, aliases }] }` |
+| `get_realm`            | `realm`                                                                 | `{ realm: Realm }`                              |
+| `create_realm`         | `name, key, initialState? { key, label, color, icon }` (default `todo`) | `{ realm }`                                     |
+| `update_realm`         | `realm, name`                                                           | `{ realm }`                                     |
+| `rename_realm_key`     | `realm, key`                                                            | `{ realm }`                                     |
+| `delete_realm`         | `realm`                                                                 | `{ deleted: { id, key } }`                      |
+| `set_initial_state`    | `realm, state`                                                          | `{ realm }`                                     |
+| `create_state`         | `realm, key, label, color, icon, index?` (among open States; last)      | `{ realm }`                                     |
+| `update_state`         | `realm, state, label?, color?, icon?`                                   | `{ realm }`                                     |
+| `reorder_state`        | `realm, state, index`                                                   | `{ realm }`                                     |
+| `delete_state`         | `realm, state`                                                          | `{ realm }`                                     |
+| `create_substate`      | `realm, state, key, label, color, icon, index?` (last)                  | `{ realm }`                                     |
+| `update_substate`      | `realm, state, substate, label?, color?, icon?`                         | `{ realm }`                                     |
+| `reorder_substate`     | `realm, state, substate, index`                                         | `{ realm }`                                     |
+| `delete_substate`      | `realm, state, substate`                                                | `{ realm }`                                     |
+| `set_default_substate` | `realm, state, substate`                                                | `{ realm }`                                     |
 
 ### Quests
 
-| Tool                   | Input                                         | Output                                                           |
-| ---------------------- | --------------------------------------------- | ---------------------------------------------------------------- |
-| `list_quests`          |                                               | `{ quests: [{ id, path, name, description, owner, progress }] }` |
-| `get_quest`            | `quest`                                       | `{ quest: Quest }`                                               |
-| `create_quest`         | `name, description?, owner? (you)`            | `{ quest: Quest }`                                               |
-| `update_quest`         | `quest, name?, description?, owner?`          | `{ quest: Quest }`                                               |
-| `delete_quest`         | `quest`                                       | `{ deleted: { id, name } }`                                      |
-| `add_quest_labours`    | `quest, labours: Labour[] (1–100), placement` | `{ quest: Quest, added, skipped }`                               |
-| `remove_quest_labours` | `quest, labours: Labour[] (1–100)`            | `{ quest: Quest, removed, skipped }`                             |
-| `rank_quest_labour`    | `quest, labour, placement` (required)         | `{ quest: Quest }`                                               |
+| Tool                   | Input                                         | Output                                                                |
+| ---------------------- | --------------------------------------------- | --------------------------------------------------------------------- |
+| `list_quests`          |                                               | `{ quests: [{ id, path, url, name, description, owner, progress }] }` |
+| `get_quest`            | `quest`                                       | `{ quest: Quest }`                                                    |
+| `create_quest`         | `name, description?, owner? (you)`            | `{ quest: Quest }`                                                    |
+| `update_quest`         | `quest, name?, description?, owner?`          | `{ quest: Quest }`                                                    |
+| `delete_quest`         | `quest`                                       | `{ deleted: { id, name } }`                                           |
+| `add_quest_labours`    | `quest, labours: Labour[] (1–100), placement` | `{ quest: Quest, added, skipped }`                                    |
+| `remove_quest_labours` | `quest, labours: Labour[] (1–100)`            | `{ quest: Quest, removed, skipped }`                                  |
+| `rank_quest_labour`    | `quest, labour, placement` (required)         | `{ quest: Quest }`                                                    |
 
 `add_quest_labours` and `remove_quest_labours` are one write each, recording one `quest.labours_added` or `quest.labours_removed` that names only the Labours that changed. `added`, `removed` and `skipped` are Labour keys. A Labour already as asked is skipped, never an error, so a repeated call is safe; a Labour listed twice counts once; an unknown Labour fails the whole call. Labours are added in the order given, and never with their Children.
 

@@ -492,7 +492,7 @@ describe('the survey tool', () => {
 	let registry: Registry;
 
 	beforeEach(() => {
-		registry = toolRegistry(db, seedHuman(db, 'ada'));
+		registry = toolRegistry(db, seedHuman(db, 'ada'), 'http://sagas.test');
 		registerSurveyTools(registry.tools);
 	});
 
@@ -772,7 +772,7 @@ describe('the survey tool, guarding the Survey', () => {
 	let registry: Registry;
 
 	beforeEach(() => {
-		registry = toolRegistry(db, seedHuman(db, 'ada'));
+		registry = toolRegistry(db, seedHuman(db, 'ada'), 'http://sagas.test');
 		registerSurveyTools(registry.tools);
 	});
 

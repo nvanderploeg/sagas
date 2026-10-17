@@ -11,5 +11,5 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
 	if (!locals.user || locals.credential?.kind !== 'api_token') return unauthorizedResponse();
 	const body = await readMessage(request);
 	if (body instanceof Response) return body;
-	return handleMcpRequest(getDb(), locals.user, request, body.message);
+	return handleMcpRequest(getDb(), locals.user, url.origin, request, body.message);
 };

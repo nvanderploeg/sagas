@@ -1,6 +1,6 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, inArray } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
-import { realmKeys, labourKeys, users } from '../db/schema.ts';
+import { appraisals, realmAgent, realmKeys, labourKeys, users } from '../db/schema.ts';
 import { getRealm, getState, getSubstate } from '../domain/lookup.ts';
 import { readRealm } from '../domain/realm-view.ts';
 import { questProgress, type QuestProgress, type QuestView } from '../domain/quest-view.ts';
@@ -16,7 +16,10 @@ export type LabourSummary = {
 	id: number;
 	key: string;
 	path: string;
+	url: string;
 	title: string;
+	// An agent's one- or two-sentence summary; '' when none has been written.
+	brief: string;
 	realm: string;
 	state: Label;
 	substate: Label | null;
@@ -40,10 +43,17 @@ export type LabourDetail = LabourSummary & {
 // Use one Presenter per tool call: its memo goes stale after a write.
 export class Presenter {
 	readonly db: Handle;
+	readonly origin: string;
 	private readonly memo = new Map<string, unknown>();
+	private readonly briefs = new Map<number, string>();
 
-	constructor(db: Handle) {
+	constructor(db: Handle, origin: string) {
 		this.db = db;
+		this.origin = origin;
+	}
+
+	url(path: string): string {
+		return this.origin + path;
 	}
 
 	private once<T>(key: string, read: () => T): T {
@@ -84,12 +94,32 @@ export class Presenter {
 		return this.once(`labour:${id}`, () => readLabour(this.db, id).key);
 	}
 
+	private brief(labourId: number): string {
+		if (!this.briefs.has(labourId)) this.loadBriefs([labourId]);
+		return this.briefs.get(labourId)!;
+	}
+
+	private loadBriefs(labourIds: number[]): void {
+		const wanted = labourIds.filter((id) => !this.briefs.has(id));
+		if (wanted.length === 0) return;
+		for (const id of wanted) this.briefs.set(id, '');
+		const rows = this.db
+			.select({ labourId: appraisals.labourId, brief: appraisals.brief })
+			.from(appraisals)
+			.where(inArray(appraisals.labourId, wanted))
+			.all();
+		for (const row of rows) this.briefs.set(row.labourId, row.brief);
+	}
+
 	labour(view: LabourView): LabourSummary {
+		const path = `/l/${view.key}`;
 		return {
 			id: view.id,
 			key: view.key,
-			path: `/l/${view.key}`,
+			path,
+			url: this.url(path),
 			title: view.title,
+			brief: this.brief(view.id),
 			realm: this.realmKey(view.realmId),
 			state: this.state(view.stateId),
 			substate: view.substateId === null ? null : this.substate(view.substateId),
@@ -101,6 +131,12 @@ export class Presenter {
 		};
 	}
 
+	// Map every list of Labours through here: it reads their Briefs in one statement.
+	labours(views: LabourView[]): LabourSummary[] {
+		this.loadBriefs(views.map((view) => view.id));
+		return views.map((view) => this.labour(view));
+	}
+
 	detail(view: LabourView): LabourDetail {
 		return {
 			...this.labour(view),
@@ -109,7 +145,7 @@ export class Presenter {
 			createdAt: view.createdAt.toISOString(),
 			updatedAt: view.updatedAt.toISOString(),
 			parentLabour: view.parentId === null ? null : this.labour(readLabour(this.db, view.parentId)),
-			children: listChildren(this.db, view.id).map((child) => this.labour(child)),
+			children: this.labours(listChildren(this.db, view.id)),
 			quests: listLabourQuests(this.db, view.id).map((quest) => ({
 				id: quest.id,
 				name: quest.name,
@@ -152,12 +188,21 @@ export class Presenter {
 			.filter((key) => key !== view.key);
 		const keyOf = (id: number | null, rows: { id: number; key: string }[]) =>
 			rows.find((row) => row.id === id)?.key ?? null;
+		const notes =
+			this.db
+				.select({ notes: realmAgent.notes })
+				.from(realmAgent)
+				.where(eq(realmAgent.realmId, realmId))
+				.get()?.notes ?? '';
+		const path = `/r/${view.key}`;
 		return {
 			id: view.id,
 			key: view.key,
-			path: `/r/${view.key}`,
+			path,
+			url: this.url(path),
 			name: view.name,
 			aliases: formerKeys,
+			notes,
 			initialState: keyOf(view.initialStateId, view.states),
 			states: view.states.map((state) => ({
 				id: state.id,
@@ -179,9 +224,11 @@ export class Presenter {
 	}
 
 	questSummary(view: QuestView) {
+		const path = `/quests/${view.id}`;
 		return {
 			id: view.id,
-			path: `/quests/${view.id}`,
+			path,
+			url: this.url(path),
 			name: view.name,
 			description: view.description,
 			owner: this.username(view.ownerId),
@@ -190,7 +237,7 @@ export class Presenter {
 	}
 
 	quest(view: QuestView) {
-		return { ...this.questSummary(view), labours: view.labours.map((t) => this.labour(t)) };
+		return { ...this.questSummary(view), labours: this.labours(view.labours) };
 	}
 }
 

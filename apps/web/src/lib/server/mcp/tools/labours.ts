@@ -113,7 +113,7 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 				},
 				{ offset: args.offset, limit: args.limit }
 			);
-			const labours = page.labours.map((t) => present.labour(t));
+			const labours = present.labours(page.labours);
 			const end = args.offset + labours.length;
 			const nextOffset = end < page.total ? end : null;
 			return reply(
@@ -273,7 +273,7 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'write',
 			description:
-				"Set a Labour's Rank: its position within its State's board column. Top is next. There is no priority field; Rank is the order of work. Give exactly one of position, before or after; before and after name a Labour in the same column.",
+				"Set a Labour's Rank: its position within its State's board column, top first, as people order the board. Give exactly one of position, before or after; before and after name a Labour in the same column.",
 			input: { labour: labourRef, ...placementShape }
 		},
 		(args, present) => {
