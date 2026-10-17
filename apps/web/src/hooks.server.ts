@@ -6,6 +6,7 @@ import { gate, isMcpPath, unauthorizedResponse } from '#lib/server/auth/access.t
 import { resourceMetadataUrl } from '#lib/server/auth/oauth-metadata.ts';
 import { scheduleOAuthPruning } from '#lib/server/auth/oauth.ts';
 import { authFromRequest, SESSION_COOKIE } from '#lib/server/auth/request.ts';
+import { gateRedirect } from '#lib/ui/return-path.ts';
 import { hasUsers, seedAdmin } from '#lib/server/auth/users.ts';
 import {
 	embeddingModelDir,
@@ -72,9 +73,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 		signedIn: auth !== null,
 		mustChangePassword: auth?.user.mustChangePassword ?? false
 	});
-	if (decision === 'setup') redirect(303, '/setup');
-	if (decision === 'login') redirect(303, '/login');
-	if (decision === 'password') redirect(303, '/password');
+	if (decision === 'setup' || decision === 'login' || decision === 'password') {
+		redirect(303, gateRedirect(decision, event.url));
+	}
 	if (decision === 'unauthorized') {
 		return unauthorizedResponse(
 			isMcpPath(event.url.pathname) ? resourceMetadataUrl(event.url.origin) : undefined

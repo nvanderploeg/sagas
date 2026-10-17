@@ -26,7 +26,7 @@ export default defineConfig({
 					'connect-src': ['self'],
 					'object-src': ['none'],
 					'base-uri': ['self'],
-					'form-action': ['self'],
+					'form-action': ['self', 'https://claude.ai', 'https://claude.com'],
 					'frame-ancestors': ['none']
 				}
 			}

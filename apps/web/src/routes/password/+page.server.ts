@@ -3,6 +3,7 @@ import { field } from '#lib/server/auth/form.ts';
 import { changePassword } from '#lib/server/auth/users.ts';
 import { getDb } from '#lib/server/db/index.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
+import { returnPath } from '#lib/ui/return-path.ts';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals }) => {
@@ -11,7 +12,7 @@ export const load: PageServerLoad = ({ locals }) => {
 };
 
 export const actions: Actions = {
-	default: async ({ request, locals }) => {
+	default: async ({ request, locals, url }) => {
 		const { user, credential } = locals;
 		if (!user || credential?.kind !== 'session') redirect(303, '/login');
 		const form = await request.formData();
@@ -29,6 +30,6 @@ export const actions: Actions = {
 			if (error instanceof DomainError) return fail(400, { error: error.message });
 			throw error;
 		}
-		redirect(303, '/');
+		redirect(303, returnPath(url.searchParams.get('next')));
 	}
 };
