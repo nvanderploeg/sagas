@@ -168,6 +168,7 @@ A feature without data for a Labour takes 0.5 and counts in `coverage.missing`. 
 	results: {
 		key: string;
 		path: string;
+		url: string;
 		title: string;
 		realm: string;
 		state: string; // key

@@ -68,8 +68,8 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 		},
 		(_args, present) => {
 			const realms = listRealms(db).map((p) => {
-				const { id, key, name, aliases } = present.realm(p.id);
-				return { id, key, name, aliases };
+				const { id, key, url, name, aliases } = present.realm(p.id);
+				return { id, key, url, name, aliases };
 			});
 			const keys = realms.map((p) => p.key).join(', ');
 			const summary =
@@ -83,7 +83,7 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'read',
 			description:
-				"Get a Realm with its States in board order, each with its Substates in order and default Substate, and its Initial State. A Realm's States are its board columns; Closed is built in, always last, and cannot be renamed, reordered or removed.",
+				"Get a Realm with its States in board order, each with its Substates in order and default Substate, its Initial State, and its agent `notes`: how agents should work in this Realm. A Realm's States are its board columns; Closed is built in, always last, and cannot be renamed, reordered or removed.",
 			input: { realm: realmRef }
 		},
 		(args, present) => realmReply(present, refs.realmId(db, args.realm))

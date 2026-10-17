@@ -41,7 +41,7 @@ const DAY = 86_400_000;
 
 async function connect(user: AuthUser = admin): Promise<Client> {
 	const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-	await createMcpServer(db, user).connect(serverSide);
+	await createMcpServer(db, user, 'http://sagas.test').connect(serverSide);
 	const client = new Client({ name: 'spec', version: '0' });
 	await client.connect(clientSide);
 	clients.push(client);
@@ -123,6 +123,7 @@ describe('the survey tool', () => {
 				{
 					key: 'AM-2',
 					path: '/l/AM-2',
+					url: 'http://sagas.test/l/AM-2',
 					title: 'High',
 					realm: 'AM',
 					state: 'todo',
@@ -134,6 +135,7 @@ describe('the survey tool', () => {
 				{
 					key: 'AM-1',
 					path: '/l/AM-1',
+					url: 'http://sagas.test/l/AM-1',
 					title: 'Low',
 					realm: 'AM',
 					state: 'todo',

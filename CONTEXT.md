@@ -65,7 +65,7 @@ The State a new Labour lands in. Each Realm picks its own; it can't be Closed.
 An optional subdivision of one State (`In Progress › Code review`), configured per Realm, Closed included. When a State has Substates, a Labour in that State is always in one of them, and the State names a default Substate to land in.
 
 **Rank**:
-A Labour's position within its State's board column, set by dragging. Top is next. There is no priority field.
+A Labour's position within its State's board column, set by dragging: the order people give the column. Which Labour to work on next is a Survey's question.
 
 **Quest**:
 A named, ordered set of Labours that may span Realms, with a description and an Owner. A Labour can be in any number of Quests. Membership is explicit: adding a Labour never adds its Children. A Quest has no State; its progress is its Closed Labours over all its Labours.
@@ -107,7 +107,7 @@ One report into a Sentiment or an Affinity: an amount and a mood about one key, 
 A User's own Sentiment: what they tend to pick or skip, built from the Pulses sagas posts for their Outcomes.
 
 **Survey**:
-A request that scores Labours with weights over Attribute keys, `tags` members and built-in features, for one User and an optional query. It returns Labours by Score, shuffled by a temperature, and is kept with its results for 30 days by default.
+How an agent answers what to work on next: a request that scores Labours with weights over Attribute keys, `tags` members and built-in features, for one User and an optional query. It returns Labours by Score, shuffled by a temperature, and is kept with its results for 30 days by default.
 
 **Score**:
 A Labour's weighted sum in one Survey. Scores from different Surveys don't compare.

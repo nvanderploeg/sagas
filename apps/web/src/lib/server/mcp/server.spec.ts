@@ -29,9 +29,9 @@ afterEach(async () => {
 	db.$client.close();
 });
 
-async function connect(actor: AuthUser): Promise<Client> {
+async function connect(actor: AuthUser, origin = 'http://sagas.test'): Promise<Client> {
 	const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-	await createMcpServer(db, actor).connect(serverSide);
+	await createMcpServer(db, actor, origin).connect(serverSide);
 	const client = new Client({ name: 'spec', version: '0' });
 	await client.connect(clientSide);
 	clients.push(client);
@@ -309,6 +309,103 @@ describe('the MCP server', () => {
 		expect((await ok(client, 'get_labour', { labour: 'AM-1' })).labour.path).toBe('/l/AM-1');
 		expect((await ok(client, 'get_realm', { realm: 'AM' })).realm.path).toBe('/r/AM');
 		expect(quest.path).toBe(`/quests/${quest.id}`);
+	});
+
+	it('gives each Labour, Realm and Quest a url on the origin it was served from', async () => {
+		const client = await connect(admin, 'https://sagas.example.org');
+		await seedRealm(client, 2);
+		await ok(client, 'set_parent', { labour: 'AM-2', parent: 'AM-1' });
+		const { quest } = await ok(client, 'create_quest', { name: 'Launch' });
+		await ok(client, 'add_quest_labours', { quest: quest.id, labours: ['AM-1'] });
+
+		const { labour } = await ok(client, 'get_labour', { labour: 'AM-1' });
+		expect(labour.url).toBe('https://sagas.example.org/l/AM-1');
+		expect(labour.children[0].url).toBe('https://sagas.example.org/l/AM-2');
+		const { labours } = await ok(client, 'list_labours', { realm: 'AM' });
+		expect(labours.map((l: { url: string }) => l.url)).toEqual([
+			'https://sagas.example.org/l/AM-1',
+			'https://sagas.example.org/l/AM-2'
+		]);
+		expect((await ok(client, 'get_realm', { realm: 'AM' })).realm.url).toBe(
+			'https://sagas.example.org/r/AM'
+		);
+		expect((await ok(client, 'list_realms')).realms[0].url).toBe('https://sagas.example.org/r/AM');
+		const read = await ok(client, 'get_quest', { quest: quest.id });
+		expect(read.quest.url).toBe(`https://sagas.example.org/quests/${quest.id}`);
+		expect(read.quest.labours[0].url).toBe('https://sagas.example.org/l/AM-1');
+	});
+
+	it("carries each Labour's Brief wherever a Labour is given, '' when it has none", async () => {
+		const client = await connect(admin);
+		await seedRealm(client, 3);
+		await ok(client, 'set_parent', { labour: 'AM-2', parent: 'AM-1' });
+		const { quest } = await ok(client, 'create_quest', { name: 'Launch' });
+		await ok(client, 'add_quest_labours', { quest: quest.id, labours: ['AM-2', 'AM-3'] });
+		await ok(client, 'appraise', {
+			labours: [
+				{ labour: 'AM-1', brief: 'Parent work.' },
+				{ labour: 'AM-2', brief: 'Child work.' }
+			]
+		});
+
+		const { labour } = await ok(client, 'get_labour', { labour: 'AM-1' });
+		expect(labour.brief).toBe('Parent work.');
+		expect(labour.children.map((c: { brief: string }) => c.brief)).toEqual(['Child work.']);
+		expect((await ok(client, 'get_labour', { labour: 'AM-2' })).labour.parentLabour.brief).toBe(
+			'Parent work.'
+		);
+		const { labours } = await ok(client, 'list_labours', { realm: 'AM' });
+		expect(labours.map((l: { brief: string }) => l.brief)).toEqual([
+			'Parent work.',
+			'Child work.',
+			''
+		]);
+		const read = await ok(client, 'get_quest', { quest: quest.id });
+		expect(read.quest.labours.map((l: { brief: string }) => l.brief)).toEqual(['Child work.', '']);
+		expect((await ok(client, 'resolve', { labour: 'am-3' })).labour.brief).toBe('');
+	});
+
+	it('lists Labours with their Briefs in as many statements however many Labours', async () => {
+		const client = await connect(admin);
+		await seedRealm(client, 12);
+		await ok(client, 'appraise', {
+			labours: Array.from({ length: 12 }, (_, i) => ({ labour: `AM-${i + 1}`, brief: `B${i}` }))
+		});
+		const statements = async (limit: number) => {
+			const prepare = vi.spyOn(db.$client, 'prepare');
+			await ok(client, 'list_labours', { realm: 'AM', limit });
+			const n = prepare.mock.calls.length;
+			prepare.mockRestore();
+			return n;
+		};
+
+		expect(await statements(12)).toBe(await statements(2));
+	});
+
+	it("gives a Realm's agent notes with the Realm, '' before any are written", async () => {
+		const client = await connect(admin);
+		await seedRealm(client);
+
+		expect((await ok(client, 'get_realm', { realm: 'AM' })).realm.notes).toBe('');
+		await ok(client, 'tune_realm', { realm: 'AM', notes: 'Weight impact first.' });
+		expect((await ok(client, 'get_realm', { realm: 'AM' })).realm.notes).toBe(
+			'Weight impact first.'
+		);
+	});
+
+	it('steers what-comes-next questions to a Survey, and answers to a person to url and Brief', async () => {
+		const client = await connect(admin);
+		const instructions = client.getInstructions() ?? '';
+		const { tools } = await client.listTools();
+		const describe = (name: string) => tools.find((t) => t.name === name)!.description!;
+
+		expect(instructions).not.toMatch(/top is next|no priority field/i);
+		expect(describe('rank_labour')).not.toMatch(/top is next|no priority field|order of work/i);
+		expect(instructions).toMatch(/Survey: how to answer "what's next"/);
+		expect(describe('survey')).toMatch(/^Answer "what's next"/);
+		expect(instructions).toMatch(/linked to its url/);
+		expect(instructions).toMatch(/sum it up with its brief/);
+		expect(describe('get_realm')).toMatch(/notes/);
 	});
 
 	it('adds and removes 100 Labours of a Quest with one Event each', async () => {

@@ -17,7 +17,7 @@ let user: AuthUser;
 beforeEach(() => {
 	db = testDb();
 	user = seedHuman(db, 'ada');
-	registry = toolRegistry(db, user);
+	registry = toolRegistry(db, user, 'http://sagas.test');
 	registerSentimentTools(registry.tools);
 	registerSurveyTools(registry.tools);
 });

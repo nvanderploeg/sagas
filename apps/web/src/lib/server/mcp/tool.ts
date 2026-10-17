@@ -87,7 +87,7 @@ export type Registry = {
 	call(name: string, args: unknown): Promise<CallToolResult>;
 };
 
-export function toolRegistry(db: Db, actor: AuthUser): Registry {
+export function toolRegistry(db: Db, actor: AuthUser, origin: string): Registry {
 	const registered = new Map<string, Registered>();
 	return {
 		tools: {
@@ -119,7 +119,7 @@ export function toolRegistry(db: Db, actor: AuthUser): Registry {
 			if (!parsed.success) {
 				return toErrorResult(invalidArguments(name, tool.schema, given, parsed.error));
 			}
-			return run(name, () => tool.body(parsed.data as never, new Presenter(db)));
+			return run(name, () => tool.body(parsed.data as never, new Presenter(db, origin)));
 		}
 	};
 }
