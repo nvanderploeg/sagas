@@ -23,6 +23,7 @@
 	import { cardFlight } from '../../ui/flight.ts';
 	import { motion } from '../../ui/motion.svelte.ts';
 	import { notices } from '../../ui/notices.svelte.ts';
+	import { pan } from '../../ui/pan.ts';
 	import { directory, type Person } from '../../ui/people.ts';
 	import StatePill from '../StatePill.svelte';
 	import LabourCard from './LabourCard.svelte';
@@ -168,8 +169,12 @@
 		cancel() {
 			drag = null;
 		},
-		scroller: () => scroller
+		scroller: () => scroller,
+		list: (stateId) => listOf(root?.querySelector(`[data-column="${stateId}"]`) ?? null)
 	});
+
+	const listOf = (el: Element | null) =>
+		el?.closest('[data-column]')?.querySelector<HTMLElement>('[data-list]') ?? null;
 
 	// The card a pointer is carrying leaves and rejoins lists at once: the slot stands in for it.
 	// A draft card gives way to its created Labour at once, so the two never show together.
@@ -442,7 +447,7 @@
 			</p>
 		</div>
 
-		<div class="scroller" bind:this={scroller}>
+		<div class="scroller" bind:this={scroller} {@attach pan(listOf)}>
 			<div class="columns" bind:this={root}>
 				{#each columns as column (column.state.id)}
 					{@const composingHere = composing === column.state.id}
@@ -471,7 +476,7 @@
 								}}>+</button
 							>
 						</header>
-						<ol class="cards" aria-label="{column.state.label} Labours">
+						<ol class="cards" data-list aria-label="{column.state.label} Labours">
 							{#each column.items as item (item.key)}
 								{@const t = item.labour}
 								<li
@@ -622,10 +627,12 @@
 	}
 
 	.scroller {
+		--lane-max: max(20rem, calc(100dvh - 15rem));
 		margin-inline: -1rem;
 		padding: 0.25rem 1rem 1rem;
 		overflow-x: auto;
 		overscroll-behavior-x: contain;
+		cursor: grab;
 	}
 
 	.columns {
@@ -637,10 +644,12 @@
 	}
 
 	.lane {
-		display: grid;
+		display: flex;
 		flex: 0 0 18rem;
+		flex-direction: column;
 		gap: 0.6rem;
 		min-height: 12rem;
+		max-height: var(--lane-max);
 		padding: 0.6rem;
 		border: 1px solid color-mix(in srgb, var(--sc) 18%, var(--color-line));
 		border-radius: 1.1rem;
@@ -694,10 +703,15 @@
 
 	.cards {
 		display: grid;
+		flex: 1 1 auto;
+		align-content: start;
 		gap: 0.5rem;
 		min-height: 2.5rem;
-		margin: 0;
-		padding: 0;
+		/* Room inside the scroll box for focus rings and glows. */
+		margin: -0.3rem;
+		padding: 0.3rem;
+		overflow-y: auto;
+		overscroll-behavior-y: contain;
 		list-style: none;
 	}
 
@@ -719,6 +733,11 @@
 		z-index: 50;
 		pointer-events: none;
 		transform-origin: 30% 20%;
+	}
+
+	:global(html.panning) {
+		cursor: grabbing;
+		user-select: none;
 	}
 
 	:global(html.dragging) {

@@ -138,6 +138,49 @@ test.describe('board', () => {
 		await expect(todo.locator('[data-card]')).toHaveCount(2);
 	});
 
+	test('a long column stays within the viewport and scrolls on its own', async ({ page, ui }) => {
+		const p = ui.realm();
+		for (let i = 0; i < 40; i++) ui.labour(p.id, { title: `Pile ${i}` });
+		ui.labour(p.id, { title: 'Alone', stateId: p.doing });
+		await page.goto(`/r/${p.key}`);
+		await live(page);
+
+		const todo = column(page, 'To do');
+		const lane = (await todo.boundingBox())!;
+		expect(lane.y + lane.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+		const list = todo.locator('[data-list]');
+		await list.evaluate((el) => (el.scrollTop = 400));
+		expect(await list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+		expect(await page.evaluate(() => window.scrollY)).toBe(0);
+		await expect(column(page, 'In progress').locator('[data-card]')).toBeInViewport();
+	});
+
+	test('dragging empty board space pans it sideways and scrolls the column under it', async ({
+		page,
+		ui
+	}) => {
+		const p = ui.realm();
+		for (let i = 0; i < 40; i++) ui.labour(p.id, { title: `Pile ${i}` });
+		await page.setViewportSize({ width: 600, height: 700 });
+		await page.goto(`/r/${p.key}`);
+		await live(page);
+
+		const todo = column(page, 'To do');
+		const head = (await todo.locator('header').boundingBox())!;
+		const x = head.x + head.width / 2;
+		const y = head.y + head.height / 2;
+		await page.mouse.move(x, y);
+		await page.mouse.down();
+		await page.mouse.move(x - 150, y - 200, { steps: 8 });
+		await expect(page.locator('html')).toHaveClass(/panning/);
+		await page.mouse.up();
+
+		await expect(page.locator('html')).not.toHaveClass(/panning/);
+		expect(await page.locator('.scroller').evaluate((el) => el.scrollLeft)).toBeGreaterThan(100);
+		expect(await todo.locator('[data-list]').evaluate((el) => el.scrollTop)).toBeGreaterThan(100);
+		await expect(page.getByTestId('floating-card')).toHaveCount(0);
+	});
+
 	test('leaving the board mid-drag drops the drag and never moves the card', async ({
 		page,
 		ui

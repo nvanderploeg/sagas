@@ -139,3 +139,21 @@ test.describe('session', () => {
 		}
 	});
 });
+
+test.describe('dashboard', () => {
+	test('a long list of open Labours shows about 20 and scrolls the rest', async ({ page, ui }) => {
+		const p = ui.realm();
+		for (let i = 0; i < 30; i++) ui.labour(p.id, { title: `Mine ${i}` });
+		await page.goto('/');
+
+		const list = page.getByTestId('mine');
+		const { client, scroll, row } = await list.evaluate((el) => ({
+			client: el.clientHeight,
+			scroll: el.scrollHeight,
+			row: el.querySelector('li')!.getBoundingClientRect().height
+		}));
+		expect(scroll).toBeGreaterThan(client);
+		expect(client / row).toBeGreaterThan(18);
+		expect(client / row).toBeLessThan(22);
+	});
+});

@@ -16,6 +16,8 @@ export type DragHooks = {
 	drop(from: DOMRect): void;
 	cancel(): void;
 	scroller?: () => HTMLElement | null;
+	// The element that scrolls a group's cards up and down, when the group scrolls on its own.
+	list?: (group: number) => HTMLElement | null;
 };
 
 const THRESHOLD = 6;
@@ -100,8 +102,8 @@ export class PointerDrag {
 
 	#tick = (): void => {
 		if (!this.lifted) return;
-		this.#autoscroll();
 		const target = this.#hooks.locate(this.#pointer.x, this.#pointer.y);
+		this.#autoscroll(target);
 		if (target && (target.group !== this.#target?.group || target.index !== this.#target?.index)) {
 			this.#target = target;
 			this.#hooks.move(target);
@@ -109,13 +111,19 @@ export class PointerDrag {
 		this.#frame = requestAnimationFrame(this.#tick);
 	};
 
-	#autoscroll(): void {
+	#autoscroll(target: Target | null): void {
 		const { x, y } = this.#pointer;
 		const scroller = this.#hooks.scroller?.();
 		if (scroller) {
 			const r = scroller.getBoundingClientRect();
 			if (x < r.left + EDGE) scroller.scrollLeft -= Math.ceil((r.left + EDGE - x) / 4);
 			else if (x > r.right - EDGE) scroller.scrollLeft += Math.ceil((x - (r.right - EDGE)) / 4);
+		}
+		const list = target && this.#hooks.list?.(target.group);
+		if (list) {
+			const r = list.getBoundingClientRect();
+			if (y < r.top + EDGE) list.scrollTop -= Math.ceil((r.top + EDGE - y) / 4);
+			else if (y > r.bottom - EDGE) list.scrollTop += Math.ceil((y - (r.bottom - EDGE)) / 4);
 		}
 		if (y < EDGE) window.scrollBy(0, -Math.ceil((EDGE - y) / 4));
 		else if (y > window.innerHeight - EDGE) {

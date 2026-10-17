@@ -125,7 +125,7 @@
 					Nothing open is yours. Labours you own or are assigned show up here.
 				</p>
 			{:else}
-				<ul class="panel divide-y divide-line overflow-hidden">
+				<ul class="panel max-h-[52rem] divide-y divide-line overflow-y-auto" data-testid="mine">
 					{#each mine as labour (labour.id)}
 						<li><LabourRow {labour} realms={home.realms} {people} /></li>
 					{/each}
