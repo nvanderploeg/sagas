@@ -12,7 +12,10 @@ export function pan(vertical?: (target: Element) => HTMLElement | null): Attachm
 			const target = event.target;
 			if (!(target instanceof HTMLElement) || target.closest(SKIP)) return;
 			// A press on a scrollbar belongs to the scrollbar.
-			if (event.offsetX >= target.clientWidth || event.offsetY >= target.clientHeight) return;
+			const scrolls =
+				target.scrollWidth > target.clientWidth || target.scrollHeight > target.clientHeight;
+			if (scrolls && (event.offsetX >= target.clientWidth || event.offsetY >= target.clientHeight))
+				return;
 			event.preventDefault();
 
 			const column = vertical?.(target) ?? null;

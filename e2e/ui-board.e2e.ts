@@ -181,6 +181,30 @@ test.describe('board', () => {
 		await expect(page.getByTestId('floating-card')).toHaveCount(0);
 	});
 
+	test('dragging from inline text on the board pans it', async ({ page, ui }) => {
+		const p = ui.realm();
+		await page.setViewportSize({ width: 600, height: 700 });
+		await page.goto(`/r/${p.key}`);
+		await live(page);
+
+		const head = column(page, 'To do').locator('header');
+		await head.evaluate((el) => {
+			const text = document.createElement('span');
+			text.dataset.testid = 'inline-text';
+			text.textContent = 'inline';
+			const block = document.createElement('div');
+			block.append(text);
+			el.append(block);
+		});
+		const box = (await page.getByTestId('inline-text').boundingBox())!;
+		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(box.x - 150, box.y, { steps: 8 });
+		await expect(page.locator('html')).toHaveClass(/panning/);
+		await page.mouse.up();
+		expect(await page.locator('.scroller').evaluate((el) => el.scrollLeft)).toBeGreaterThan(100);
+	});
+
 	test('leaving the board mid-drag drops the drag and never moves the card', async ({
 		page,
 		ui
