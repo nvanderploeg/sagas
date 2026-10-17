@@ -6,6 +6,7 @@ import { DomainError } from '#lib/server/domain/errors.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { createAgentUser, createFirstAdmin, findUser, type AuthUser } from './users.ts';
 import { createApiToken, listApiTokens, revokeApiToken, verifyApiToken } from './tokens.ts';
+import { apiTokenCredential, credentialValid } from './credentials.ts';
 import { hashSecret } from './secrets.ts';
 import { seedHuman } from './fixtures.ts';
 
@@ -150,5 +151,49 @@ describe('listing API tokens', () => {
 		const bot = createAgentUser(db, admin, { username: 'bot', displayName: 'Bot' });
 		createApiToken(db, admin, bot.id, 'mcp');
 		expect(listApiTokens(db, admin, bot.id).map((t) => t.name)).toEqual(['mcp']);
+	});
+});
+
+describe('API token expiry', () => {
+	const T0 = new Date('2026-01-01T00:00:00Z');
+	const expireAt = (id: number, at: Date | null) =>
+		db.update(apiTokens).set({ expiresAt: at }).where(eq(apiTokens.id, id)).run();
+
+	it('refuses a token from the moment it expires, and credentialValid agrees', () => {
+		const { id, token } = createApiToken(db, admin, admin.id, 'short');
+		expireAt(id, T0);
+
+		expect(verifyApiToken(db, token, new Date(T0.getTime() - 1))?.id).toBe(admin.id);
+		expect(verifyApiToken(db, token, T0)).toBeNull();
+		expect(credentialValid(db, apiTokenCredential(token), new Date(T0.getTime() - 1))).toBe(true);
+		expect(credentialValid(db, apiTokenCredential(token), T0)).toBe(false);
+	});
+
+	it('keeps a token without an expiry working indefinitely', () => {
+		const { id, token } = createApiToken(db, admin, admin.id, 'forever');
+		const farFuture = new Date('2100-01-01T00:00:00Z');
+
+		expect(db.select().from(apiTokens).where(eq(apiTokens.id, id)).get()!.expiresAt).toBeNull();
+		expect(verifyApiToken(db, token, farFuture)?.id).toBe(admin.id);
+		expect(credentialValid(db, apiTokenCredential(token), farFuture)).toBe(true);
+	});
+
+	it('does not stamp last use for a refused token', () => {
+		const { id, token } = createApiToken(db, admin, admin.id, 'short');
+		expireAt(id, T0);
+
+		verifyApiToken(db, token, T0);
+
+		expect(db.select().from(apiTokens).where(eq(apiTokens.id, id)).get()!.lastUsedAt).toBeNull();
+	});
+
+	it('lists the expiry and whether a token belongs to an OAuth connection', () => {
+		const { id } = createApiToken(db, admin, admin.id, 'short');
+		expireAt(id, T0);
+
+		const [info] = listApiTokens(db, admin, admin.id);
+
+		expect(info.expiresAt).toEqual(T0);
+		expect(info.oauth).toBe(false);
 	});
 });

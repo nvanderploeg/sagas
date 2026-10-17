@@ -3,6 +3,7 @@ import type { Handle, ServerInit } from '@sveltejs/kit/hooks';
 import { building } from '$app/env';
 import { gate, isMcpPath, unauthorizedResponse } from '#lib/server/auth/access.ts';
 import { resourceMetadataUrl } from '#lib/server/auth/oauth-metadata.ts';
+import { scheduleOAuthPruning } from '#lib/server/auth/oauth.ts';
 import { authFromRequest, SESSION_COOKIE } from '#lib/server/auth/request.ts';
 import { hasUsers, seedAdmin } from '#lib/server/auth/users.ts';
 import {
@@ -34,6 +35,7 @@ export const init: ServerInit = async () => {
 	}
 	schedulePruning(db, eventRetentionMs);
 	scheduleAgentPruning(db, surveyRetentionMs);
+	scheduleOAuthPruning(db);
 	void startEmbeddings(db);
 };
 

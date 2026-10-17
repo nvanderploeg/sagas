@@ -112,15 +112,21 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 		},
 		(args) => {
 			const userId = args.user === undefined ? actor.id : refs.userId(db, args.user, actor);
-			const tokens = listApiTokens(db, actor, userId).map((t) => ({
+			const listed = listApiTokens(db, actor, userId);
+			const now = new Date();
+			const live = listed.filter(
+				(t) => t.revokedAt === null && (t.expiresAt === null || t.expiresAt > now)
+			).length;
+			const tokens = listed.map((t) => ({
 				id: t.id,
 				name: t.name,
 				createdAt: t.createdAt.toISOString(),
 				lastUsedAt: iso(t.lastUsedAt),
-				revokedAt: iso(t.revokedAt)
+				revokedAt: iso(t.revokedAt),
+				expiresAt: iso(t.expiresAt),
+				oauth: t.oauth
 			}));
-			const live = tokens.filter((t) => t.revokedAt === null).length;
-			return reply({ tokens }, `${count(tokens.length, 'API token')}, ${live} not revoked`);
+			return reply({ tokens }, `${count(tokens.length, 'API token')}, ${live} live`);
 		}
 	);
 
