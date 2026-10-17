@@ -8,7 +8,8 @@
 		type = 'button',
 		name,
 		value,
-		disabled = false
+		disabled = false,
+		quiet = false
 	}: {
 		label: string;
 		confirm: string;
@@ -17,6 +18,7 @@
 		name?: string;
 		value?: string;
 		disabled?: boolean;
+		quiet?: boolean;
 	} = $props();
 
 	let armed = $state(false);
@@ -51,7 +53,7 @@
 	</span>
 {:else}
 	<button
-		class="btn btn-danger"
+		class={['btn', quiet ? 'btn-quiet text-danger hover:text-danger' : 'btn-danger']}
 		type="button"
 		{disabled}
 		bind:this={armButton}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { on } from 'svelte/events';
 	import { ICON_NAMES, glyph } from '../ui/icons.ts';
 	import StatePill from './StatePill.svelte';
 
@@ -11,7 +12,10 @@
 		icon = 'circle',
 		lockLabel = false,
 		submit,
-		name
+		name,
+		focus = false,
+		onsaved,
+		oncancel
 	}: {
 		action: string;
 		hidden?: Record<string, string | number>;
@@ -21,6 +25,9 @@
 		lockLabel?: boolean;
 		submit: string;
 		name: string;
+		focus?: boolean;
+		onsaved?: () => void;
+		oncancel?: () => void;
 	} = $props();
 
 	const id = $props.id();
@@ -34,10 +41,13 @@
 	method="POST"
 	{action}
 	class="flex flex-wrap items-end gap-2"
+	{@attach (form) => on(form, 'keydown', (e) => e.key === 'Escape' && oncancel?.())}
 	use:enhance={() =>
 		async ({ result, update }) => {
 			await update({ reset: false });
-			if (result.type === 'success' && fresh) draftLabel = '';
+			if (result.type !== 'success') return;
+			if (fresh) draftLabel = '';
+			onsaved?.();
 		}}
 >
 	{#each Object.entries(hidden) as [key, value] (key)}
@@ -65,6 +75,9 @@
 				maxlength="64"
 				aria-label="{name} label"
 				bind:value={draftLabel}
+				{@attach (el) => {
+					if (focus) el.focus();
+				}}
 			/>
 		{/if}
 	</label>
@@ -87,7 +100,12 @@
 			{/each}
 		</select>
 	</label>
-	<button type="submit" class="btn">{submit}</button>
+	<span class="flex gap-1.5">
+		<button type="submit" class="btn btn-primary">{submit}</button>
+		{#if oncancel}
+			<button type="button" class="btn btn-quiet" onclick={oncancel}>Cancel</button>
+		{/if}
+	</span>
 	{#if lockLabel}
 		<p id="{id}-locked" class="w-full text-xs text-muted">
 			Closed is built in: it keeps its name and stays last.

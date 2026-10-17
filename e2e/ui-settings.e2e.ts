@@ -16,13 +16,12 @@ test.describe('realm settings', () => {
 		expect(await states(page)).toEqual(['To do', 'In progress', 'Closed']);
 
 		const closed = page.locator('[data-testid="state-settings"][data-state="Closed"]');
-		await expect(closed.getByText('Built in · always last')).toBeVisible();
-		await expect(closed.getByRole('textbox').first()).toHaveAttribute('readonly', '');
+		await expect(closed.getByText('Built in, always last')).toBeVisible();
 		await expect(closed.getByRole('button', { name: 'Delete' })).toHaveCount(0);
 		await expect(closed.getByRole('button', { name: /^Move Closed/ })).toHaveCount(0);
-		await expect(
-			page.getByLabel('New Labours land in').locator('option', { hasText: 'Closed' })
-		).toHaveCount(0);
+		await expect(closed.getByRole('button', { name: /^Land new Labours/ })).toHaveCount(0);
+		await closed.getByRole('button', { name: 'Edit Closed' }).click();
+		await expect(closed.getByRole('textbox').first()).toHaveAttribute('readonly', '');
 
 		const renamed = await postForm(page.request, `/r/${p.key}/settings?/updateState`, {
 			stateId: String(p.closed),
@@ -55,6 +54,33 @@ test.describe('realm settings', () => {
 		await expect.poll(() => states(page)).toEqual(['To do', 'In progress', 'Closed']);
 	});
 
+	test('moves the Initial State, which frees the old one to be deleted', async ({ page, ui }) => {
+		const p = ui.realm();
+		await page.goto(`/r/${p.key}/settings`);
+		const todo = page.locator('[data-testid="state-settings"][data-state="To do"]');
+		const doing = page.locator('[data-testid="state-settings"][data-state="In progress"]');
+		await expect(todo).toContainText('New Labours land here');
+		await expect(todo.getByRole('button', { name: 'Delete' })).toBeDisabled();
+
+		await doing.getByRole('button', { name: 'Land new Labours in In progress' }).click();
+		await expect(doing).toContainText('New Labours land here');
+		await expect(todo).not.toContainText('New Labours land here');
+		await expect(todo.getByRole('button', { name: 'Delete' })).toBeEnabled();
+	});
+
+	test('edits a State in place and closes the form once saved', async ({ page, ui }) => {
+		const p = ui.realm();
+		await page.goto(`/r/${p.key}/settings`);
+		const doing = page.locator('[data-testid="state-settings"][data-state="In progress"]');
+		await doing.getByRole('button', { name: 'Edit In progress' }).click();
+		await expect(page.getByLabel('In progress label')).toBeFocused();
+		await page.getByLabel('In progress label').fill('Doing');
+		await page.getByRole('button', { name: 'Save State' }).click();
+		await expect.poll(() => states(page)).toEqual(['To do', 'Doing', 'Closed']);
+		await expect(page.getByRole('button', { name: 'Edit Doing' })).toBeFocused();
+		await expect(page.getByRole('button', { name: 'Save State' })).toHaveCount(0);
+	});
+
 	test('refuses to delete a State that holds Labours, inline', async ({ page, ui }) => {
 		const p = ui.realm();
 		ui.labour(p.id, { stateId: p.doing });
@@ -69,6 +95,7 @@ test.describe('realm settings', () => {
 		const p = ui.realm();
 		await page.goto(`/r/${p.key}/settings`);
 		const closed = page.locator('[data-testid="state-settings"][data-state="Closed"]');
+		await closed.getByRole('button', { name: '+ New Substate' }).click();
 		await closed.getByLabel('New Substate of Closed label').fill('Done');
 		await closed.getByRole('button', { name: 'Add Substate' }).click();
 		const subs = closed.getByTestId('substate-settings');
