@@ -128,7 +128,8 @@
 				<h2 id="states-heading" class="text-lg font-bold tracking-tight">States</h2>
 				<p class="text-sm text-muted">
 					The board's columns, top to bottom here, left to right there. Labours in open States are
-					the ones ready to move forward; Surveys offer only those.
+					the ones ready to move forward; Surveys offer only those. "Moves on to" marks the usual
+					next States: hints for agents and buttons on a Labour, never limits.
 				</p>
 			</div>
 			<ol class="panel track px-4 py-3 sm:px-5">
@@ -217,6 +218,31 @@
 							{/snippet}
 						</StyleRow>
 						{@render error(`state:${state.id}`)}
+
+						{#if !state.isClosed}
+							<form
+								method="POST"
+								action="?/setNext"
+								use:enhance
+								class="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs"
+								data-testid="state-next"
+							>
+								<input type="hidden" name="stateId" value={state.id} />
+								<span class="font-semibold">Moves on to</span>
+								{#each realm.states.filter((s) => s.id !== state.id) as target (target.id)}
+									<label class="flex items-center gap-1">
+										<input
+											type="checkbox"
+											name="next"
+											value={target.id}
+											checked={state.next.includes(target.id)}
+											onchange={(e) => e.currentTarget.form?.requestSubmit()}
+										/>
+										{target.label}
+									</label>
+								{/each}
+							</form>
+						{/if}
 
 						<div class="subs">
 							{#if state.substates.length > 0}

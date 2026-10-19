@@ -65,6 +65,9 @@ A Realm-defined stage of a Labour: key, label, color, icon, position and whether
 A State the Realm marks as ready to move forward: its Labours are the ones a Survey offers. A State that still needs grooming, such as a backlog, is not open. New States start open; Closed is never open.
 _Avoid_: using "open" for "not Closed"; say unfinished.
 
+**Next States**:
+The States a Realm lists as the usual moves from a State (To do → In Progress; In Progress → To do or Review). Hints only: an agent reads them to pick a move, and the Labour page shows them as buttons under the State field. Any Labour can still be moved to any State.
+
 **Unfinished**:
 Not in Closed. A blocker blocks until it is finished, whether or not its State is open.
 

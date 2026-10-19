@@ -258,6 +258,23 @@ export const states = sqliteTable(
 	]
 );
 
+// A hint that a Labour in `fromStateId` usually moves next to `toStateId`; moves are never restricted.
+export const stateFlows = sqliteTable(
+	'state_flows',
+	{
+		fromStateId: integer('from_state_id')
+			.notNull()
+			.references((): AnySQLiteColumn => states.id, { onDelete: 'cascade' }),
+		toStateId: integer('to_state_id')
+			.notNull()
+			.references((): AnySQLiteColumn => states.id, { onDelete: 'cascade' })
+	},
+	(t) => [
+		primaryKey({ columns: [t.fromStateId, t.toStateId] }),
+		check('state_flows_distinct', sql.raw(`"from_state_id" <> "to_state_id"`))
+	]
+);
+
 export const substates = sqliteTable(
 	'substates',
 	{

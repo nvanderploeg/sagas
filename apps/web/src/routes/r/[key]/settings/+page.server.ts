@@ -16,6 +16,7 @@ import {
 	moveState,
 	moveSubstate,
 	setDefaultSubstate,
+	setNextStates,
 	updateState,
 	updateSubstate,
 	type StyleUpdate
@@ -133,6 +134,19 @@ export const actions: Actions = {
 		const form = await request.formData();
 		return perform(`state:${text(form, 'stateId')}`, () => {
 			updateState(getDb(), actor, int(form, 'stateId'), { open: text(form, 'open') === 'true' });
+		});
+	},
+
+	setNext: async ({ request, locals }) => {
+		const actor = signedIn(locals);
+		const form = await request.formData();
+		return perform(`state:${text(form, 'stateId')}`, () => {
+			const next = form.getAll('next').map((v) => {
+				const id = Number(v);
+				if (!Number.isInteger(id)) throw new DomainError('invalid', 'next must be State ids');
+				return id;
+			});
+			setNextStates(getDb(), actor, int(form, 'stateId'), next);
 		});
 	},
 

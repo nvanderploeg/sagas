@@ -537,6 +537,18 @@
 							<option value={option.id}>{option.label}</option>
 						{/each}
 					</select>
+					{#if state && state.next.length > 0}
+						<div class="flex flex-wrap gap-1.5" data-testid="next-states">
+							{#each state.next as id (id)}
+								{@const target = realm?.states.find((s) => s.id === id)}
+								{#if target}
+									<button class="btn btn-quiet text-xs" type="button" onclick={() => setState(id)}
+										>→ {target.label}</button
+									>
+								{/if}
+							{/each}
+						</div>
+					{/if}
 					{#if state && state.substates.length > 0}
 						<label class="label mt-1" for="substate">Substate</label>
 						<select

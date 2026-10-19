@@ -15,6 +15,7 @@ import {
 	deleteSubstate,
 	moveState,
 	moveSubstate,
+	setNextStates,
 	setDefaultSubstate,
 	updateState,
 	updateSubstate
@@ -38,6 +39,12 @@ const openField = z
 	.boolean()
 	.describe(
 		'Whether Labours in this State count as open: ready to be worked or surveyed. States that still need grooming, like a backlog, are not.'
+	);
+
+const nextField = z
+	.array(stateRef)
+	.describe(
+		'State keys a Labour in this State usually moves to next. A hint for choosing the next move; any Labour can still be moved to any State.'
 	);
 
 const styleUpdate = {
@@ -206,11 +213,19 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'write',
 			description:
-				"Restyle a State (label, color, icon) and/or mark it open or not. Its key never changes. Closed's label is fixed and it is never open.",
-			input: { realm: realmRef, state: stateRef, ...styleUpdate, open: openField.optional() }
+				"Restyle a State (label, color, icon) and/or mark it open or not, and/or replace its next States (`next`, the usual moves from it). Its key never changes. Closed's label is fixed and it is never open.",
+			input: {
+				realm: realmRef,
+				state: stateRef,
+				...styleUpdate,
+				open: openField.optional(),
+				next: nextField.optional()
+			}
 		},
 		(args, present) => {
 			const { realmId, stateId } = inState(args);
+			const next = args.next?.map((ref) => refs.stateId(db, realmId, ref));
+			if (next) setNextStates(db, actor, stateId, next);
 			updateState(db, actor, stateId, {
 				label: args.label,
 				color: args.color,

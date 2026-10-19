@@ -14,11 +14,13 @@ import {
 	moveState,
 	moveSubstate,
 	setDefaultSubstate,
+	setNextStates,
 	updateState,
 	updateSubstate
 } from './states.ts';
 import { getState } from './lookup.ts';
 import { createLabour, updateLabour } from './labours.ts';
+import { readRealm } from './realm-view.ts';
 
 let db: Db;
 let actor: Actor;
@@ -71,6 +73,78 @@ describe('open States', () => {
 
 		expect(closed.isOpen).toBe(false);
 		expectDomainError(() => updateState(db, actor, closed.id, { open: true }), 'forbidden');
+	});
+});
+
+describe('next States', () => {
+	const nextOf = (realmId: number, key: string) =>
+		readRealm(db, realmId).states.find((s) => s.key === key)!.next;
+
+	it("lists a State's next States in the Realm view, in board order", () => {
+		const realm = seedRealm(db, 'AM');
+		const a = createState(db, actor, realm.id, spec('a'));
+		const b = createState(db, actor, realm.id, spec('b'));
+		const c = createState(db, actor, realm.id, spec('c'));
+
+		setNextStates(db, actor, a.id, [c.id, b.id]);
+
+		expect(nextOf(realm.id, 'a')).toEqual([b.id, c.id]);
+		expect(nextOf(realm.id, 'b')).toEqual([]);
+	});
+
+	it('replaces the previous set and can clear it', () => {
+		const realm = seedRealm(db, 'AM');
+		const a = createState(db, actor, realm.id, spec('a'));
+		const b = createState(db, actor, realm.id, spec('b'));
+		const c = createState(db, actor, realm.id, spec('c'));
+
+		setNextStates(db, actor, a.id, [b.id]);
+		setNextStates(db, actor, a.id, [c.id]);
+		expect(nextOf(realm.id, 'a')).toEqual([c.id]);
+
+		setNextStates(db, actor, a.id, []);
+		expect(nextOf(realm.id, 'a')).toEqual([]);
+	});
+
+	it('rejects itself and States of another Realm', () => {
+		const realm = seedRealm(db, 'AM');
+		const other = seedRealm(db, 'BN');
+		const a = createState(db, actor, realm.id, spec('a'));
+		const foreign = createState(db, actor, other.id, spec('x'));
+
+		expectDomainError(() => setNextStates(db, actor, a.id, [a.id]), 'invalid');
+		expectDomainError(() => setNextStates(db, actor, a.id, [foreign.id]), 'invalid');
+	});
+
+	it('gives Closed no next States', () => {
+		const realm = seedRealm(db, 'AM');
+		const a = createState(db, actor, realm.id, spec('a'));
+		const closed = listStates(db, realm.id).find((s) => s.isClosed)!;
+
+		expectDomainError(() => setNextStates(db, actor, closed.id, [a.id]), 'forbidden');
+	});
+
+	it('drops a flow when its target State is deleted', () => {
+		const realm = seedRealm(db, 'AM');
+		const a = createState(db, actor, realm.id, spec('a'));
+		const b = createState(db, actor, realm.id, spec('b'));
+		setNextStates(db, actor, a.id, [b.id]);
+
+		deleteState(db, actor, b.id);
+
+		expect(nextOf(realm.id, 'a')).toEqual([]);
+	});
+
+	it('does not restrict moves', () => {
+		const realm = seedRealm(db, 'AM');
+		const a = createState(db, actor, realm.id, spec('a'));
+		const b = createState(db, actor, realm.id, spec('b'));
+		const c = createState(db, actor, realm.id, spec('c'));
+		setNextStates(db, actor, a.id, [b.id]);
+		const labour = seedLabour(db, { realmId: realm.id });
+		updateLabour(db, actor, labour.id, { stateId: a.id });
+
+		expect(updateLabour(db, actor, labour.id, { stateId: c.id }).stateId).toBe(c.id);
 	});
 });
 

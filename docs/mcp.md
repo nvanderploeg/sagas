@@ -117,7 +117,7 @@ The Realm's `state` and `substate` arguments resolve within `realm`. Every write
 | `delete_realm`         | `realm`                                                                        | `{ deleted: { id, key } }`                      |
 | `set_initial_state`    | `realm, state`                                                                 | `{ realm }`                                     |
 | `create_state`         | `realm, key, label, color, icon, index?` (before Closed; last), `open?` (true) | `{ realm }`                                     |
-| `update_state`         | `realm, state, label?, color?, icon?, open?`                                   | `{ realm }`                                     |
+| `update_state`         | `realm, state, label?, color?, icon?, open?, next?`                            | `{ realm }`                                     |
 | `reorder_state`        | `realm, state, index`                                                          | `{ realm }`                                     |
 | `delete_state`         | `realm, state`                                                                 | `{ realm }`                                     |
 | `create_substate`      | `realm, state, key, label, color, icon, index?` (last)                         | `{ realm }`                                     |

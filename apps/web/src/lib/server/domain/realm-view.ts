@@ -1,6 +1,6 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, inArray } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
-import { labours } from '../db/schema.ts';
+import { labours, stateFlows } from '../db/schema.ts';
 import type { EventSpec } from '../events/types.ts';
 import { getRealm, getState } from './lookup.ts';
 import { listStates, listSubstates } from './states.ts';
@@ -13,9 +13,25 @@ export type BoardView = { realm: RealmView; labours: LabourView[] };
 // Never include labourCounter: every Labour created moves it, and no Realm Event announces that.
 export function readRealm(db: Handle, realmId: number) {
 	const { id, name, key, initialStateId } = getRealm(db, realmId);
-	const states = listStates(db, realmId).map((state) => ({
+	const rows = listStates(db, realmId);
+	const flows = db
+		.select()
+		.from(stateFlows)
+		.where(
+			inArray(
+				stateFlows.fromStateId,
+				rows.map((s) => s.id)
+			)
+		)
+		.all();
+	const targets = new Map<number, Set<number>>();
+	for (const f of flows) {
+		targets.set(f.fromStateId, (targets.get(f.fromStateId) ?? new Set()).add(f.toStateId));
+	}
+	const states = rows.map((state) => ({
 		...state,
-		substates: listSubstates(db, state.id)
+		substates: listSubstates(db, state.id),
+		next: rows.filter((to) => targets.get(state.id)?.has(to.id)).map((to) => to.id)
 	}));
 	return { id, name, key, initialStateId, states };
 }

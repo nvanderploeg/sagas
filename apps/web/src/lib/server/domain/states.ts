@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
-import { states, substates, labours } from '../db/schema.ts';
+import { states, stateFlows, substates, labours } from '../db/schema.ts';
 import { DomainError } from './errors.ts';
 import { getRealm, getState, getSubstate } from './lookup.ts';
 import type { EventSpec } from '../events/types.ts';
@@ -144,6 +144,38 @@ export function updateState(db: Db, actor: Actor, stateId: number, patch: StateU
 		if (!changes(state, update)) return { value: state, events: [] };
 		const value = tx.update(states).set(update).where(eq(states.id, stateId)).returning().get();
 		return { value, events: [stateEvent(tx, 'state.updated', state.realmId, stateId)] };
+	});
+}
+
+// Replaces the States a Labour in this State usually moves to next. Moves stay unrestricted.
+export function setNextStates(db: Db, actor: Actor, stateId: number, next: number[]): State {
+	return write(db, actor, (tx) => {
+		const state = getState(tx, stateId);
+		if (state.isClosed) throw new DomainError('forbidden', 'The Closed State has no next States');
+		const ids = [...new Set(next)];
+		const realmStates = listStates(tx, state.realmId);
+		for (const id of ids) {
+			if (id === stateId) throw new DomainError('invalid', 'A State cannot flow into itself');
+			if (!realmStates.some((s) => s.id === id)) {
+				throw new DomainError('invalid', 'A next State must belong to the same Realm');
+			}
+		}
+		const current = tx
+			.select({ id: stateFlows.toStateId })
+			.from(stateFlows)
+			.where(eq(stateFlows.fromStateId, stateId))
+			.all()
+			.map((r) => r.id);
+		if (current.length === ids.length && ids.every((id) => current.includes(id))) {
+			return { value: state, events: [] };
+		}
+		tx.delete(stateFlows).where(eq(stateFlows.fromStateId, stateId)).run();
+		if (ids.length > 0) {
+			tx.insert(stateFlows)
+				.values(ids.map((toStateId) => ({ fromStateId: stateId, toStateId })))
+				.run();
+		}
+		return { value: state, events: [stateEvent(tx, 'state.updated', state.realmId, stateId)] };
 	});
 }
 
