@@ -127,3 +127,12 @@ An Agent user that posts Pulses from what it watches, such as a Discord server o
 
 **Librarian**:
 The Agent user that keeps the agent layer current: it appraises Labours, turns reports into Pulses, files unfiled Pulses and tends each Realm's Attributes. It is the feeder for a Realm's own tickets. Its role is `docs/librarian.md`.
+
+**Webhook**:
+A URL a User registers so sagas POSTs it the Events it subscribes to, by Event type and Realm. Its Owner or an Admin manages it. The contract is `docs/webhooks.md`.
+
+**Delivery**:
+One signed POST to a Webhook, carrying the next Events it has not received, in seq order. Retried until it succeeds, so a receiver may get the same Events twice.
+
+**Webhook secret**:
+The key sagas signs a Webhook's Deliveries with. Shown once; stored encrypted, not hashed, as sagas must read it back to sign.

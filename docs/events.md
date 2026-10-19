@@ -36,6 +36,8 @@ A connection opens with exactly one of these, then live Events and heartbeats:
 
 The server prunes Events older than `EVENT_RETENTION_DAYS` (7 by default). The retained Events are always one contiguous seq range.
 
+Webhooks deliver the same Events to outside services by POST: `docs/webhooks.md`.
+
 ## Writes and Events
 
 - A write records one or more Events with consecutive seqs, in one transaction. They are published in seq order after the commit. A write that changes nothing records none. Agent layer writes (`docs/agent-layer.md`) record none either.
