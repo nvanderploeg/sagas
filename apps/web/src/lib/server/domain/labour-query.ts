@@ -12,6 +12,8 @@ export type LabourFilter = {
 	assigneeId?: number | null;
 	parentId?: number | null;
 	closed?: boolean;
+	// true: only Labours in an open State; false: only those in a State that is not open.
+	open?: boolean;
 	questId?: number;
 	// Labels the Labour must all carry.
 	labels?: string[];
@@ -38,6 +40,7 @@ function conditions(filter: LabourFilter): SQL | undefined {
 		);
 	}
 	if (filter.closed !== undefined) where.push(eq(states.isClosed, filter.closed));
+	if (filter.open !== undefined) where.push(eq(states.isOpen, filter.open));
 	if (filter.questId !== undefined) where.push(eq(questLabours.questId, filter.questId));
 	for (const label of filter.labels ?? []) {
 		where.push(

@@ -237,6 +237,7 @@ export const states = sqliteTable(
 		icon: text('icon').notNull(),
 		position: integer('position').notNull(),
 		isClosed: integer('is_closed', { mode: 'boolean' }).notNull().default(false),
+		isOpen: integer('is_open', { mode: 'boolean' }).notNull().default(true),
 		defaultSubstateId: integer('default_substate_id').references(
 			(): AnySQLiteColumn => substates.id,
 			{

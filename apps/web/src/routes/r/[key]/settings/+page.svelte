@@ -127,7 +127,8 @@
 			<div>
 				<h2 id="states-heading" class="text-lg font-bold tracking-tight">States</h2>
 				<p class="text-sm text-muted">
-					The board's columns, top to bottom here, left to right there.
+					The board's columns, top to bottom here, left to right there. Labours in open States are
+					the ones ready to move forward; Surveys offer only those.
 				</p>
 			</div>
 			<ol class="panel track px-4 py-3 sm:px-5">
@@ -163,6 +164,17 @@
 							{/snippet}
 							{#snippet actions()}
 								{#if !state.isClosed}
+									<form method="POST" action="?/setOpen" use:enhance>
+										<input type="hidden" name="stateId" value={state.id} />
+										<input type="hidden" name="open" value={String(!state.isOpen)} />
+										<button
+											class="btn btn-quiet"
+											type="submit"
+											aria-pressed={state.isOpen}
+											aria-label="{state.isOpen ? 'Stop counting' : 'Count'} {state.label} as open"
+											>{state.isOpen ? 'Open' : 'Not open'}</button
+										>
+									</form>
 									{#if !isInitial}
 										<form method="POST" action="?/initial" use:enhance>
 											<input type="hidden" name="stateId" value={state.id} />

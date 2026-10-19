@@ -127,8 +127,8 @@ Features of a Labour, over each key `k` it holds a value for, with `x_k` that va
 | `limit?`       | How many results to return                                                                                                                                         |
 | `show?`        | Attribute keys whose values each result carries                                                                                                                    |
 
-- Candidates are open Labours. `include_closed: true` adds every Closed one; `include_closed: { within_days }` adds those whose `updatedAt` falls within that many days.
-- `unblocked` drops every Labour an open Labour `blocks`.
+- Candidates are Labours in open States. `include_closed: true` adds every Closed one; `include_closed: { within_days }` adds those whose `updatedAt` falls within that many days.
+- `unblocked` drops every Labour an unfinished Labour `blocks`.
 - `similarity` and `keywords` weights without a `query` come back in `ignored`.
 - `keywords` turns `query` into an FTS5 match: it splits the query into runs of letters and digits, double-quotes each, and joins them with `OR`. A query with no such run scores no Labour.
 
@@ -146,7 +146,7 @@ A weight key is a `scale` Attribute's key, a `tags` member as `attr:member`, or 
 | `mentions`                     | `1 − 2^(−s)`, where `s` sums `2^(−days old / 7)` over Mentions of the Labour in other Labours' text                                                              |
 | `pulled_in`                    | As `mentions`, over Mentions of the Survey's User in the Labour's description and Comments                                                                       |
 | `evidence`                     | `n / (n + 2)`, `n` being the Labours with an `evidence` Link to it                                                                                               |
-| `unblocks`                     | `n / (n + 2)`, `n` being the open Labours it `blocks`                                                                                                            |
+| `unblocks`                     | `n / (n + 2)`, `n` being the unfinished Labours it `blocks`                                                                                                      |
 | `quest_finish`                 | The highest `(closed + 1) / total` among its Quests; 0 in none, or when Closed                                                                                   |
 | `column`                       | 1 at the top of its State's column, 0 at the bottom                                                                                                              |
 | `age`                          | `d / (d + 30)`, `d` being days since it was created                                                                                                              |

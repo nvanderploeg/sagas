@@ -15,6 +15,7 @@ export type Substate = typeof substates.$inferSelect;
 
 export type StyleSpec = { key: string; label: string; color: string; icon: string };
 export type StyleUpdate = Partial<Pick<StyleSpec, 'label' | 'color' | 'icon'>>;
+export type StateUpdate = StyleUpdate & { open?: boolean };
 
 export const CLOSED_STATE: StyleSpec = {
 	key: 'closed',
@@ -66,12 +67,12 @@ export function listSubstates(db: Handle, stateId: number) {
 		.all();
 }
 
-// Closed keeps the last slot: a new open State is placed among the open States only.
+// Closed keeps the last slot: a new State is placed among the States before it.
 export function insertState(
 	db: Handle,
 	realmId: number,
 	input: StyleSpec,
-	options: { index?: number; closed?: boolean } = {}
+	options: { index?: number; closed?: boolean; open?: boolean } = {}
 ) {
 	const spec = normalizeStyle(input, 'State');
 	const closed = options.closed ?? false;
@@ -85,7 +86,13 @@ export function insertState(
 
 	const row = db
 		.insert(states)
-		.values({ realmId, ...spec, position: existing.length, isClosed: closed })
+		.values({
+			realmId,
+			...spec,
+			position: existing.length,
+			isClosed: closed,
+			isOpen: !closed && (options.open ?? true)
+		})
 		.returning()
 		.get();
 
@@ -105,11 +112,12 @@ export function createState(
 	actor: Actor,
 	realmId: number,
 	input: StyleSpec,
-	index?: number
+	index?: number,
+	open?: boolean
 ): State {
 	return write(db, actor, (tx) => {
 		getRealm(tx, realmId);
-		const value = insertState(tx, realmId, input, { index });
+		const value = insertState(tx, realmId, input, { index, open });
 		return {
 			value,
 			events: [stateEvent(tx, 'state.created', realmId, value.id)]
@@ -117,12 +125,21 @@ export function createState(
 	});
 }
 
-export function updateState(db: Db, actor: Actor, stateId: number, patch: StyleUpdate): State {
+export function updateState(db: Db, actor: Actor, stateId: number, patch: StateUpdate): State {
 	return write(db, actor, (tx) => {
 		const state = getState(tx, stateId);
-		const update = normalizeUpdate(patch, 'State');
+		const update: Partial<Pick<State, 'label' | 'color' | 'icon' | 'isOpen'>> = normalizeUpdate(
+			patch,
+			'State'
+		);
 		if (state.isClosed && update.label !== undefined && update.label !== state.label) {
 			throw new DomainError('forbidden', 'The Closed State cannot be renamed');
+		}
+		if (patch.open !== undefined) {
+			if (state.isClosed && patch.open) {
+				throw new DomainError('forbidden', 'The Closed State cannot be open');
+			}
+			update.isOpen = patch.open;
 		}
 		if (!changes(state, update)) return { value: state, events: [] };
 		const value = tx.update(states).set(update).where(eq(states.id, stateId)).returning().get();
@@ -314,6 +331,6 @@ export function setDefaultSubstate(
 	});
 }
 
-function changes(row: StyleUpdate, update: StyleUpdate): boolean {
-	return (Object.keys(update) as (keyof StyleUpdate)[]).some((key) => update[key] !== row[key]);
+function changes<T extends object>(row: T, update: Partial<T>): boolean {
+	return (Object.keys(update) as (keyof T)[]).some((key) => update[key] !== row[key]);
 }

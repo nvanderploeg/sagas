@@ -34,6 +34,12 @@ import {
 
 const DEFAULT_INITIAL_STATE = { key: 'todo', label: 'To do', color: '#94a3b8', icon: 'circle' };
 
+const openField = z
+	.boolean()
+	.describe(
+		'Whether Labours in this State count as open: ready to be worked or surveyed. States that still need grooming, like a backlog, are not.'
+	);
+
 const styleUpdate = {
 	label: styleShape.label.optional(),
 	color: styleShape.color.optional(),
@@ -178,18 +184,19 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'write',
 			description:
-				'Add a State (board column) to a Realm. It goes among the open States, before Closed: at `index` (0 is first) or last.',
+				'Add a State (board column) to a Realm, before Closed: at `index` (0 is first) or last. It is open unless `open` is false; Surveys offer Labours in open States.',
 			input: {
 				realm: realmRef,
 				key: keyField,
 				...styleShape,
-				index: indexField.optional().describe('0-based index among the open States')
+				index: indexField.optional().describe('0-based index among the States before Closed'),
+				open: openField.optional().describe('Default true')
 			}
 		},
 		(args, present) => {
 			const realmId = refs.realmId(db, args.realm);
 			const { key, label, color, icon } = args;
-			createState(db, actor, realmId, { key, label, color, icon }, args.index);
+			createState(db, actor, realmId, { key, label, color, icon }, args.index, args.open);
 			return realmReply(present, realmId);
 		}
 	);
@@ -199,12 +206,17 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'write',
 			description:
-				"Restyle a State: label, color or icon. Its key never changes. Closed's label is fixed.",
-			input: { realm: realmRef, state: stateRef, ...styleUpdate }
+				"Restyle a State (label, color, icon) and/or mark it open or not. Its key never changes. Closed's label is fixed and it is never open.",
+			input: { realm: realmRef, state: stateRef, ...styleUpdate, open: openField.optional() }
 		},
 		(args, present) => {
 			const { realmId, stateId } = inState(args);
-			updateState(db, actor, stateId, { label: args.label, color: args.color, icon: args.icon });
+			updateState(db, actor, stateId, {
+				label: args.label,
+				color: args.color,
+				icon: args.icon,
+				open: args.open
+			});
 			return realmReply(present, realmId);
 		}
 	);
@@ -214,11 +226,11 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'write',
 			description:
-				'Move a State to another column among the open States. Closed always stays last.',
+				'Move a State to another column among the States before Closed. Closed always stays last.',
 			input: {
 				realm: realmRef,
 				state: stateRef,
-				index: indexField.describe('0-based index among the open States')
+				index: indexField.describe('0-based index among the States before Closed')
 			}
 		},
 		(args, present) => {

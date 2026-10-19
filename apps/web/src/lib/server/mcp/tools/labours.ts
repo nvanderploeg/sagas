@@ -75,7 +75,14 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 				substate: substateRef.optional().describe('Substate key (needs `state`) or id'),
 				owner: userRef.optional(),
 				assignee: userRef.nullable().optional().describe('As owner; null for unassigned'),
-				closed: z.boolean().optional().describe('true: only Closed Labours; false: only open'),
+				closed: z
+					.boolean()
+					.optional()
+					.describe('true: only Closed Labours; false: every Labour not Closed'),
+				open: z
+					.boolean()
+					.optional()
+					.describe("true: only Labours in an open State; false: only those in a State that isn't"),
 				quest: questRef.optional().describe('Only members of this Quest, by Quest id'),
 				parent: labourRef
 					.nullable()
@@ -108,6 +115,7 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 							? (args.parent as null | undefined)
 							: refs.labourId(db, args.parent),
 					closed: args.closed,
+					open: args.open,
 					labels: args.labels === undefined ? undefined : normalizeLabels(args.labels),
 					questId: args.quest === undefined ? undefined : refs.questId(db, args.quest)
 				},

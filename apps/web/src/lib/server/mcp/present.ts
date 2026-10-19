@@ -211,6 +211,7 @@ export class Presenter {
 				color: state.color,
 				icon: state.icon,
 				closed: state.isClosed,
+				open: state.isOpen,
 				defaultSubstate: keyOf(state.defaultSubstateId, state.substates),
 				substates: state.substates.map(({ id, key, label, color, icon }) => ({
 					id,

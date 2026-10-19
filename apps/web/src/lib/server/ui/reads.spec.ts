@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../db/client.ts';
+import { updateLabour } from '../domain/labours.ts';
 import { addQuestLabour, createQuest } from '../domain/quests.ts';
+import { createState } from '../domain/states.ts';
 import type { Actor } from '../domain/write.ts';
 import { testDb } from '../test/db.ts';
 import { seedActor, seedRealm, seedLabour, seedUser } from '../test/fixtures.ts';
@@ -57,5 +59,22 @@ describe('page reads', () => {
 		questsWithMembers(other, 12, realm.id);
 		expect(statements(() => readHome(db, actor.id))).toBe(few);
 		expect(readHome(db, actor.id).quests.map((q) => q.ownerId)).toEqual([actor.id, actor.id]);
+	});
+
+	it("lists only the User's Labours in open States", () => {
+		const realm = seedRealm(db);
+		const backlog = createState(
+			db,
+			actor,
+			realm.id,
+			{ key: 'backlog', label: 'Backlog', color: '#000000', icon: 'dot' },
+			undefined,
+			false
+		);
+		const ready = seedLabour(db, { realmId: realm.id, ownerId: actor.id });
+		const groom = seedLabour(db, { realmId: realm.id, ownerId: actor.id });
+		updateLabour(db, actor, groom.id, { stateId: backlog.id });
+
+		expect(readHome(db, actor.id).mine.map((t) => t.id)).toEqual([ready.id]);
 	});
 });

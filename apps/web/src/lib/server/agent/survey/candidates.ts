@@ -41,10 +41,12 @@ function conditions(filter: CandidateFilter, now: number): SQL[] {
 	const where: SQL[] = [sql`l.realm_id IN ${anyOf(filter.realmIds)}`];
 
 	if (filter.includeClosed === undefined) {
-		where.push(sql`s.is_closed = 0`);
+		where.push(sql`s.is_open = 1`);
 	} else if (filter.includeClosed !== true) {
 		const since = now - filter.includeClosed.withinDays * DAY_MS;
-		where.push(sql`(s.is_closed = 0 OR l.updated_at >= ${since})`);
+		where.push(sql`(s.is_open = 1 OR (s.is_closed = 1 AND l.updated_at >= ${since}))`);
+	} else {
+		where.push(sql`(s.is_open = 1 OR s.is_closed = 1)`);
 	}
 
 	if (filter.assigneeIds !== undefined) {

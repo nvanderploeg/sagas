@@ -22,7 +22,7 @@ const filterShape = z.strictObject({
 		.union([z.literal(true), z.strictObject({ within_days: z.number() })])
 		.optional()
 		.describe(
-			'Candidates are open Labours. true adds every Closed one; { within_days } adds those updated within that many days (above 0, at most 3650)'
+			'Candidates are Labours in open States. true adds every Closed one; { within_days } adds those updated within that many days (above 0, at most 3650)'
 		),
 	assignee: z
 		.array(userRef.nullable())
@@ -44,7 +44,10 @@ const filterShape = z.strictObject({
 		.optional()
 		.describe(`Labels the Labour must carry, all of them (at most ${LABELS_MAX})`),
 	quest: questRef.optional().describe('Keep Labours in this Quest'),
-	unblocked: z.boolean().optional().describe('true drops every Labour that an open Labour blocks')
+	unblocked: z
+		.boolean()
+		.optional()
+		.describe('true drops every Labour that an unfinished Labour blocks')
 });
 
 const EMBED_TIMEOUT_MS = 10_000;

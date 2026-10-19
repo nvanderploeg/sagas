@@ -238,6 +238,19 @@ describe('candidates', () => {
 		expect(result.coverage.candidates).toBe(2);
 	});
 
+	it('leaves out Labours in States that are not open, and Closed adds them back only on request', () => {
+		const realm = seedRealm(db, 'AM');
+		const backlog = createState(db, actor, realm.id, style('backlog'), 0, false);
+		const ready = seedLabour(db, { realmId: realm.id });
+		const groom = seedLabour(db, { realmId: realm.id, stateId: backlog.id });
+		const shut = seedLabour(db, { realmId: realm.id });
+		close(shut);
+
+		expect(ids(run())).toEqual([ready.id]);
+		expect(ids(run({ filter: { includeClosed: true } }))).toEqual([ready.id, shut.id]);
+		expect(ids(run({ filter: { includeClosed: { withinDays: 30 } } }))).not.toContain(groom.id);
+	});
+
 	it('limits to the named Realms', () => {
 		const am = seedRealm(db, 'AM');
 		const bl = seedRealm(db, 'BL');

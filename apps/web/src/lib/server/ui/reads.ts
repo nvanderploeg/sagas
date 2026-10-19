@@ -39,7 +39,7 @@ export function readHome(db: Handle, userId: number) {
 		.where(
 			and(
 				or(eq(labours.ownerId, userId), eq(labours.assigneeId, userId)),
-				eq(states.isClosed, false)
+				eq(states.isOpen, true)
 			)
 		)
 		.orderBy(asc(labours.id))

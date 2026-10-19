@@ -3,7 +3,7 @@ import type { Db } from '#lib/server/db/client.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { seedActor, seedRealm, seedLabour, seedUser } from '#lib/server/test/fixtures.ts';
 import { addQuestLabour, createQuest } from './quests.ts';
-import { createState, listStates, moveState } from './states.ts';
+import { createState, listStates, moveState, updateState } from './states.ts';
 import { queryLabours, type LabourFilter } from './labour-query.ts';
 import { rankLabour, setParent, updateLabour } from './labours.ts';
 
@@ -67,6 +67,27 @@ describe('queryLabours', () => {
 		expect(keys({ closed: true })).toEqual(['AM-1']);
 		expect(keys({ closed: false, realmId: am.id })).toEqual(['AM-2']);
 		expect(keys({ stateId: closed.id })).toEqual(['AM-1']);
+	});
+
+	it('filters by whether the State is open', () => {
+		const am = seedRealm(db, 'AM');
+		const actor = seedActor(db);
+		const [, closed] = listStates(db, am.id);
+		const backlog = createState(db, actor, am.id, {
+			key: 'backlog',
+			label: 'Backlog',
+			color: '#000000',
+			icon: 'dot'
+		});
+		updateState(db, actor, backlog.id, { open: false });
+		const ready = seedLabour(db, { realmId: am.id });
+		const groom = seedLabour(db, { realmId: am.id });
+		const done = seedLabour(db, { realmId: am.id });
+		updateLabour(db, actor, groom.id, { stateId: backlog.id });
+		updateLabour(db, actor, done.id, { stateId: closed.id });
+
+		expect(keys({ open: true })).toEqual([ready.key]);
+		expect(keys({ open: false })).toEqual([groom.key, done.key]);
 	});
 
 	it('lists a Quest in Quest order', () => {

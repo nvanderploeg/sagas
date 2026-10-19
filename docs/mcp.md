@@ -68,7 +68,7 @@ A result has `structuredContent` and one text item: a one-line summary, a newlin
 - **`path`** and **`url`**: the page of a Labour, Realm or Quest (`/l/AM-123`, `/r/AM`, `/quests/7`); `url` is `path` on the origin the request reached (`https://sagas.example.org/l/AM-123`).
 - **LabourDetail**: Labour plus `{ description, aliases, createdAt, updatedAt, parentLabour: Labour | null, children: Labour[], quests: [{ id, name, progress }] }`.
 - **Comment**: `{ id, labour, author, body, createdAt, updatedAt | null }`. `labour` is the Labour's key, `author` a username, `body` Markdown.
-- **Realm**: `{ id, key, path, url, name, aliases, notes, initialState, states: [{ id, key, label, color, icon, closed, defaultSubstate, substates: [{ id, key, label, color, icon }] }] }`, States and Substates in order. `initialState` and `defaultSubstate` are keys; `notes` are the Realm's agent notes (`""` when none).
+- **Realm**: `{ id, key, path, url, name, aliases, notes, initialState, states: [{ id, key, label, color, icon, closed, open, defaultSubstate, substates: [{ id, key, label, color, icon }] }] }`, States and Substates in order. `initialState` and `defaultSubstate` are keys; `notes` are the Realm's agent notes (`""` when none).
 - **Quest**: `{ id, path, url, name, description, owner, progress: { closed, total }, labours: Labour[] }`, members in Quest order.
 - **Attribute**: `{ key, kind, label, rubric, spec, position, revisedAt, held, stale, counts }`, in `position` order. `spec` is `{ min, max }` for `scale`, `{ members: [{ key, label, rubric }], max | null }` for `tags` and `{ max }` for `text`. `held` is how many Labours hold a value, `stale` how many of those were set before `revisedAt` (an ISO time), and `counts` the Labours per value: per integer for `scale`, per member (every member, 0 included) for `tags`, empty for `text`.
 - **Appraisal**: `{ labour, brief, refs: [{ href, label | null }], setBy | null, setAt | null, contentHash, stamp: { contentHash, appraisedBy, appraisedAt } | null, unappraised, stale, values: [{ key, kind, value, setBy, setAt, stale }], links: Link[], needs: [{ skill, level, setBy, setAt }], mentions: [{ in, comment | null, by, firstSeenAt }] }`. `labour` is the Labour's key; `setBy` and `appraisedBy` are usernames, and `setBy` and `setAt` are null until a Brief or References are first written; `contentHash` is the hash of the Labour's title, description, Labels and Comments now, and `stamp.contentHash` the one the last stamped Appraisal read. `unappraised` means no stamp, `stale` a stamp whose hash is not `contentHash`. `values` are the Labour's Attribute values. `needs` are the Skills the Labour needs and at what level, by `skill` key; `setBy` is a username and `setAt` an ISO time. `mentions` are the 10 newest Mentions of this Labour in other Labours' descriptions and Comments, newest first: `in` is the key of the Labour holding the text, `comment` the Comment's id (null for a description), `by` the author's username and `firstSeenAt` an ISO time.
@@ -85,46 +85,46 @@ An error is a result with `isError: true`, its message as text, and `structuredC
 
 ### Labours
 
-| Tool             | Input                                                                                                                                 | Output                                                     |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `resolve`        | `labour`                                                                                                                              | `{ labour: Labour, alias }`                                |
-| `list_labours`   | `realm?, state?, substate?, owner?, assignee? \| null, closed?, quest?, parent? \| null, labels?, limit? (50, max 200), offset? (0)`  | `{ labours: Labour[], total, offset, nextOffset \| null }` |
-| `get_labour`     | `labour`                                                                                                                              | `{ labour: LabourDetail }`                                 |
-| `create_labour`  | `realm, title, description?, owner? (you), assignee?, state?, substate?, parent?, labels?, placement`                                 | `{ labour: LabourDetail }`                                 |
-| `update_labour`  | `labour, title?, description?, owner?, assignee? \| null, state?, substate? \| null, labels?, add_labels?, remove_labels?, placement` | `{ labour: LabourDetail }`                                 |
-| `move_labour`    | `labour, realm, state?, substate?, placement`                                                                                         | `{ labour: LabourDetail }`                                 |
-| `rank_labour`    | `labour, placement` (required)                                                                                                        | `{ labour: LabourDetail }`                                 |
-| `set_parent`     | `labour, parent \| null`                                                                                                              | `{ labour: LabourDetail }`                                 |
-| `delete_labour`  | `labour`                                                                                                                              | `{ deleted: { id, key } }`                                 |
-| `add_comment`    | `labour, body`                                                                                                                        | `{ comment: Comment }`                                     |
-| `update_comment` | `comment, body`                                                                                                                       | `{ comment: Comment }`                                     |
-| `delete_comment` | `comment`                                                                                                                             | `{ deleted: { id, labour } }`                              |
-| `list_comments`  | `labour`                                                                                                                              | `{ comments: Comment[] }`                                  |
+| Tool             | Input                                                                                                                                       | Output                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `resolve`        | `labour`                                                                                                                                    | `{ labour: Labour, alias }`                                |
+| `list_labours`   | `realm?, state?, substate?, owner?, assignee? \| null, closed?, open?, quest?, parent? \| null, labels?, limit? (50, max 200), offset? (0)` | `{ labours: Labour[], total, offset, nextOffset \| null }` |
+| `get_labour`     | `labour`                                                                                                                                    | `{ labour: LabourDetail }`                                 |
+| `create_labour`  | `realm, title, description?, owner? (you), assignee?, state?, substate?, parent?, labels?, placement`                                       | `{ labour: LabourDetail }`                                 |
+| `update_labour`  | `labour, title?, description?, owner?, assignee? \| null, state?, substate? \| null, labels?, add_labels?, remove_labels?, placement`       | `{ labour: LabourDetail }`                                 |
+| `move_labour`    | `labour, realm, state?, substate?, placement`                                                                                               | `{ labour: LabourDetail }`                                 |
+| `rank_labour`    | `labour, placement` (required)                                                                                                              | `{ labour: LabourDetail }`                                 |
+| `set_parent`     | `labour, parent \| null`                                                                                                                    | `{ labour: LabourDetail }`                                 |
+| `delete_labour`  | `labour`                                                                                                                                    | `{ deleted: { id, key } }`                                 |
+| `add_comment`    | `labour, body`                                                                                                                              | `{ comment: Comment }`                                     |
+| `update_comment` | `comment, body`                                                                                                                             | `{ comment: Comment }`                                     |
+| `delete_comment` | `comment`                                                                                                                                   | `{ deleted: { id, labour } }`                              |
+| `list_comments`  | `labour`                                                                                                                                    | `{ comments: Comment[] }`                                  |
 
-`list_labours` orders by Realm, then State order, then Rank; with `quest`, by Quest order. A State key needs `realm`; a Substate key needs `state`; `labels` keeps Labours carrying every one given. On `update_labour`, `labels` replaces the set, then `add_labels` and `remove_labels` adjust it. Comments list oldest first; only a Comment's author can change or delete it (`forbidden` otherwise); `comment` is its id.
+`closed: false` keeps every Labour not Closed; `open: true` keeps those in a State the Realm marks open. `list_labours` orders by Realm, then State order, then Rank; with `quest`, by Quest order. A State key needs `realm`; a Substate key needs `state`; `labels` keeps Labours carrying every one given. On `update_labour`, `labels` replaces the set, then `add_labels` and `remove_labels` adjust it. Comments list oldest first; only a Comment's author can change or delete it (`forbidden` otherwise); `comment` is its id.
 
 ### Realms, States and Substates
 
 The Realm's `state` and `substate` arguments resolve within `realm`. Every write returns `{ realm: Realm }`.
 
-| Tool                   | Input                                                                   | Output                                          |
-| ---------------------- | ----------------------------------------------------------------------- | ----------------------------------------------- |
-| `list_realms`          |                                                                         | `{ realms: [{ id, key, url, name, aliases }] }` |
-| `get_realm`            | `realm`                                                                 | `{ realm: Realm }`                              |
-| `create_realm`         | `name, key, initialState? { key, label, color, icon }` (default `todo`) | `{ realm }`                                     |
-| `update_realm`         | `realm, name`                                                           | `{ realm }`                                     |
-| `rename_realm_key`     | `realm, key`                                                            | `{ realm }`                                     |
-| `delete_realm`         | `realm`                                                                 | `{ deleted: { id, key } }`                      |
-| `set_initial_state`    | `realm, state`                                                          | `{ realm }`                                     |
-| `create_state`         | `realm, key, label, color, icon, index?` (among open States; last)      | `{ realm }`                                     |
-| `update_state`         | `realm, state, label?, color?, icon?`                                   | `{ realm }`                                     |
-| `reorder_state`        | `realm, state, index`                                                   | `{ realm }`                                     |
-| `delete_state`         | `realm, state`                                                          | `{ realm }`                                     |
-| `create_substate`      | `realm, state, key, label, color, icon, index?` (last)                  | `{ realm }`                                     |
-| `update_substate`      | `realm, state, substate, label?, color?, icon?`                         | `{ realm }`                                     |
-| `reorder_substate`     | `realm, state, substate, index`                                         | `{ realm }`                                     |
-| `delete_substate`      | `realm, state, substate`                                                | `{ realm }`                                     |
-| `set_default_substate` | `realm, state, substate`                                                | `{ realm }`                                     |
+| Tool                   | Input                                                                          | Output                                          |
+| ---------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------- |
+| `list_realms`          |                                                                                | `{ realms: [{ id, key, url, name, aliases }] }` |
+| `get_realm`            | `realm`                                                                        | `{ realm: Realm }`                              |
+| `create_realm`         | `name, key, initialState? { key, label, color, icon }` (default `todo`)        | `{ realm }`                                     |
+| `update_realm`         | `realm, name`                                                                  | `{ realm }`                                     |
+| `rename_realm_key`     | `realm, key`                                                                   | `{ realm }`                                     |
+| `delete_realm`         | `realm`                                                                        | `{ deleted: { id, key } }`                      |
+| `set_initial_state`    | `realm, state`                                                                 | `{ realm }`                                     |
+| `create_state`         | `realm, key, label, color, icon, index?` (before Closed; last), `open?` (true) | `{ realm }`                                     |
+| `update_state`         | `realm, state, label?, color?, icon?, open?`                                   | `{ realm }`                                     |
+| `reorder_state`        | `realm, state, index`                                                          | `{ realm }`                                     |
+| `delete_state`         | `realm, state`                                                                 | `{ realm }`                                     |
+| `create_substate`      | `realm, state, key, label, color, icon, index?` (last)                         | `{ realm }`                                     |
+| `update_substate`      | `realm, state, substate, label?, color?, icon?`                                | `{ realm }`                                     |
+| `reorder_substate`     | `realm, state, substate, index`                                                | `{ realm }`                                     |
+| `delete_substate`      | `realm, state, substate`                                                       | `{ realm }`                                     |
+| `set_default_substate` | `realm, state, substate`                                                       | `{ realm }`                                     |
 
 ### Quests
 
@@ -188,7 +188,7 @@ A Survey stores its request and results, kept for `SURVEY_RETENTION_DAYS` (30 by
 - `skill_fit` is the mean over the Labour's needed Skills of `min(1, held / needed)`, with `held` the level of the Survey's User (`for`) in that Skill, 0 when they lack it. A Labour that needs no Skills, or a User who holds none, takes 0.5 and is counted in `coverage.missing`.
 - `sentiment`, `pain` and `delight` read the Sentiment of the Labour's own Realm, as of the Survey's time, over the `scale` Attributes and `tags` members the Labour holds. For each such key `k`, with `x_k` the value scaled to 0..1 (1 for a member) and `v_k` the key's volume against the Realm's loudness, `sentiment = 1 − Π(1 − v_k·x_k)`; `pain` and `delight` weigh each term by the key's mood, `pain` by `max(0, −mood)` and `delight` by `max(0, mood)`. A Labour holding no such value takes 0, never 0.5, and is not counted in `coverage.missing`.
 - `affinity` reads the Affinity of the Survey's User (`for`) as of the Survey's time, over the same keys as `sentiment`, with loudness 5: `affinity = delight − pain`, both taken as above from the Affinity's `v_k` and `mood_k`, so it runs from −1 (what they skip) to 1 (what they pick). A Labour holding no such value, or a User with no Affinity, takes 0, never 0.5, and is not counted in `coverage.missing`.
-- `filter` takes, all optional: `include_closed` (`true`, or `{ within_days }` above 0 and at most 3650; candidates are open Labours otherwise), `assignee` (up to 64 usernames, `"me"` and `null` for unassigned), `has` (up to 32 `attr:member` keys the Labour must all hold), `labels` (up to 20, all carried), `quest` (a Quest id) and `unblocked` (`true` drops every Labour an open Labour blocks).
+- `filter` takes, all optional: `include_closed` (`true`, or `{ within_days }` above 0 and at most 3650; candidates are Labours in open States otherwise), `assignee` (up to 64 usernames, `"me"` and `null` for unassigned), `has` (up to 32 `attr:member` keys the Labour must all hold), `labels` (up to 20, all carried), `quest` (a Quest id) and `unblocked` (`true` drops every Labour an unfinished Labour blocks).
 - `temperature` runs from 0 to 2. At 0 results run by Score, equal Scores in board order (Realm, State, Rank). Above 0 each candidate's Score is shaken by noise scaled to how far the Scores spread, and results run by that; `score` stays the Score.
 - `limit` is 1 to 50. `show` is up to 16 Attribute keys whose values each result carries.
 - A Score only means something inside its own Survey.

@@ -128,6 +128,14 @@ export const actions: Actions = {
 		});
 	},
 
+	setOpen: async ({ request, locals }) => {
+		const actor = signedIn(locals);
+		const form = await request.formData();
+		return perform(`state:${text(form, 'stateId')}`, () => {
+			updateState(getDb(), actor, int(form, 'stateId'), { open: text(form, 'open') === 'true' });
+		});
+	},
+
 	moveState: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();

@@ -59,7 +59,14 @@ The one Labour another Labour sits under. A Labour has at most one Parent; the p
 A Labour whose Parent is the given Labour.
 
 **State**:
-A Realm-defined stage of a Labour: key, label, color, icon and position. A Realm's States are its board columns. States carry no meaning beyond their label, except Closed.
+A Realm-defined stage of a Labour: key, label, color, icon, position and whether it is open. A Realm's States are its board columns. States carry no meaning beyond their label, except Closed and open.
+
+**Open**:
+A State the Realm marks as ready to move forward: its Labours are the ones a Survey offers. A State that still needs grooming, such as a backlog, is not open. New States start open; Closed is never open.
+_Avoid_: using "open" for "not Closed"; say unfinished.
+
+**Unfinished**:
+Not in Closed. A blocker blocks until it is finished, whether or not its State is open.
 
 **Closed**:
 The built-in State every Realm has, always last, which cannot be renamed or removed. A Labour is finished exactly when it is in Closed.

@@ -47,6 +47,33 @@ const spec = (key: string) => ({ key, label: key, color: '#abcdef', icon: 'dot' 
 
 const order = (realmId: number) => listStates(db, realmId).map((s) => s.key);
 
+describe('open States', () => {
+	it('is open by default, and createState can start one not open', () => {
+		const realm = seedRealm(db, 'AM');
+
+		const doing = createState(db, actor, realm.id, spec('doing'));
+		const backlog = createState(db, actor, realm.id, spec('backlog'), undefined, false);
+
+		expect([doing.isOpen, backlog.isOpen]).toEqual([true, false]);
+	});
+
+	it('toggles with updateState and emits a state.updated Event', () => {
+		const realm = seedRealm(db, 'AM');
+		const doing = createState(db, actor, realm.id, spec('doing'));
+
+		expect(updateState(db, actor, doing.id, { open: false }).isOpen).toBe(false);
+		expect(updateState(db, actor, doing.id, { open: true }).isOpen).toBe(true);
+	});
+
+	it('keeps Closed never open', () => {
+		const realm = seedRealm(db, 'AM');
+		const closed = listStates(db, realm.id).find((s) => s.isClosed)!;
+
+		expect(closed.isOpen).toBe(false);
+		expectDomainError(() => updateState(db, actor, closed.id, { open: true }), 'forbidden');
+	});
+});
+
 describe('State order', () => {
 	it('places a new State before Closed, and Closed stays last', () => {
 		const realm = seedRealm(db, 'AM');

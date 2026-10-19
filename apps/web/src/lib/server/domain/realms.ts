@@ -27,7 +27,7 @@ export function createRealm(
 	return createRealmWithStates(db, actor, { ...input, states: [] });
 }
 
-// `states` are open States after the Initial State, in order. One write and one Event.
+// `states` are States before Closed, after the Initial State, in order. One write and one Event.
 export function createRealmWithStates(
 	db: Db,
 	actor: Actor,

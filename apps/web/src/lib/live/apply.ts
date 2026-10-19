@@ -189,11 +189,15 @@ export function applyToQuests(
 }
 
 export function applyToHome(userId: number): (home: HomeView, e: LiveEvent) => HomeView {
-	const mine = (t: Labour) => !t.closed && (t.ownerId === userId || t.assigneeId === userId);
+	const inOpenState = (realms: HomeView['realms'], t: Labour) =>
+		realms.find((r) => r.id === t.realmId)?.states.find((s) => s.id === t.stateId)?.isOpen ??
+		!t.closed;
 	return (home, event) => {
 		const realms = applyToRealms(home.realms, event);
+		const mine = (t: Labour) =>
+			inOpenState(realms, t) && (t.ownerId === userId || t.assigneeId === userId);
 		const quests = applyToQuests(home.quests, event, (q) => q.ownerId === userId);
-		let labours = home.mine;
+		let labours = realms === home.realms ? home.mine : home.mine.filter(mine);
 		const labour = changedLabour(event);
 		if (labour) {
 			labours = mine(labour) ? upsert(labours, labour) : without(labours, [labour.id]);
