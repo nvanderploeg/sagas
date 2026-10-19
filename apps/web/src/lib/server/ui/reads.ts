@@ -37,10 +37,7 @@ export function readAllRealms(db: Handle): RealmView[] {
 export function readHome(db: Handle, userId: number) {
 	const mine = selectLabourViews(db)
 		.where(
-			and(
-				or(eq(labours.ownerId, userId), eq(labours.assigneeId, userId)),
-				eq(states.isOpen, true)
-			)
+			and(or(eq(labours.ownerId, userId), eq(labours.assigneeId, userId)), eq(states.isOpen, true))
 		)
 		.orderBy(asc(labours.id))
 		.all()
