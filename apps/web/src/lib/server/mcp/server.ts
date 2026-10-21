@@ -25,7 +25,7 @@ const INSTRUCTIONS = `sagas is a labour tracker. Vocabulary:
 - Agent layer: data for agents, shown to people only in an Advanced view. Any User may change it; its writes record no Events.
 - Attribute: a field a Realm defines for agents to set on its Labours (a scale, tags or text), with a rubric saying what each value means.
 - Appraisal: an agent's Brief (one or two sentences summing up a Labour, returned with every Labour) and References for a Labour, stamped with the hash of the content it read; stale once that content changes.
-- Link: evidence, blocks, relates or duplicates between two Labours; separate from Parent.
+- Link: evidence, blocks, relates or duplicates between two Labours; separate from Parent. Change with link_labours, read with get_labour.
 - Survey: how to answer "what's next", "what matters most" or "what should I pick up". It scores Labours with weights over Attribute keys, tags members and built-in features, for one User and an optional query. It returns Labours by Score, shuffled by a temperature, and is kept with its results. Choose weights from the Realm's notes (get_realm) and Attributes (get_attributes).
 - Score: a Labour's weighted sum in one Survey. Scores from different Surveys don't compare.
 - Skill: an ability named once for the whole instance (vfx, combat-design). Users hold Skills at levels 1 to 5; Labours need them at levels.

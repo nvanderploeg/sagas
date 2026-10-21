@@ -1010,3 +1010,39 @@ describe('list_unappraised', () => {
 		});
 	});
 });
+
+describe('link_labours and get_labour links', () => {
+	it('adds a blocks Link that get_labour reads back from both ends, then removes it', async () => {
+		const client = await connect(admin);
+		await seed(client, 2);
+
+		await ok(client, 'link_labours', {
+			links: [{ type: 'blocks', from: 'AM-1', to: 'AM-2', note: 'needs the API' }]
+		});
+
+		const expected = [{ type: 'blocks', from: 'AM-1', to: 'AM-2', note: 'needs the API' }];
+		expect((await ok(client, 'get_labour', { labour: 'AM-1' })).links).toEqual(expected);
+		expect((await ok(client, 'get_labour', { labour: 'AM-2' })).links).toEqual(expected);
+
+		await ok(client, 'link_labours', {
+			links: [{ type: 'blocks', from: 'AM-1', to: 'AM-2', remove: true }]
+		});
+		expect((await ok(client, 'get_labour', { labour: 'AM-2' })).links).toEqual([]);
+	});
+
+	it('refuses a blocks cycle and a self-link', async () => {
+		const client = await connect(admin);
+		await seed(client, 2);
+		await ok(client, 'link_labours', { links: [{ type: 'blocks', from: 'AM-1', to: 'AM-2' }] });
+
+		const cycle = await call(client, 'link_labours', {
+			links: [{ type: 'blocks', from: 'AM-2', to: 'AM-1' }]
+		});
+		const self = await call(client, 'link_labours', {
+			links: [{ type: 'relates', from: 'AM-1', to: 'AM-1' }]
+		});
+
+		expect(cycle.structuredContent).toMatchObject({ error: { code: 'conflict' } });
+		expect(self.structuredContent).toMatchObject({ error: { code: 'invalid' } });
+	});
+});

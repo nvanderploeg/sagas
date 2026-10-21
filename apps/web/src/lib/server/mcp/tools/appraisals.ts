@@ -6,7 +6,7 @@ import {
 	readAppraisal,
 	type AppraiseItem
 } from '../../agent/appraisals.ts';
-import { LINK_TYPES } from '../../agent/links.ts';
+import { changeLinks, LINK_BATCH_MAX, LINK_TYPES } from '../../agent/links.ts';
 import { readLabour } from '../../domain/labours.ts';
 import { count } from '../present.ts';
 import * as refs from '../refs.ts';
@@ -64,6 +64,18 @@ const itemShape = z.strictObject({
 		.describe('The contentHash get_appraisal gave before you read the Labour')
 });
 
+const linkChangeShape = z.strictObject({
+	type: z.enum(LINK_TYPES).describe(linkTypeHelp()),
+	from: labourRef.describe('The Labour the Link starts at; for blocks, the blocker'),
+	to: labourRef.describe('The Labour the Link points to; for blocks, the blocked Labour'),
+	note: linkShape.shape.note,
+	remove: linkShape.shape.remove
+});
+
+function linkTypeHelp(): string {
+	return 'evidence: from supports to. blocks: to waits for from to be Closed. relates: either way round. duplicates: from repeats to';
+}
+
 export function registerAppraisalTools({ db, actor, define }: Tools): void {
 	define(
 		'appraise',
@@ -100,6 +112,35 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 				{ appraised },
 				`Appraised ${count(appraised.length, 'Labour')}, ${stamped} stamped`
 			);
+		}
+	);
+
+	define(
+		'link_labours',
+		{
+			kind: 'write',
+			description: `Add, re-note or remove Links between Labours in one all-or-nothing call of up to ${LINK_BATCH_MAX}: evidence, blocks (dependencies), relates and duplicates. "SPIRE-40 blocks SPIRE-41" is { type: "blocks", from: "SPIRE-40", to: "SPIRE-41" }; a blocks Link that would close a cycle is refused. Read a Labour's Links back with get_labour.`,
+			input: {
+				links: z
+					.array(linkChangeShape)
+					.min(1)
+					.max(LINK_BATCH_MAX)
+					.describe(`1 to ${LINK_BATCH_MAX} changes; others stay`)
+			}
+		},
+		(args) => {
+			changeLinks(
+				db,
+				actor,
+				args.links.map((link) => ({
+					type: link.type,
+					from: refs.labourId(db, link.from),
+					to: refs.labourId(db, link.to),
+					note: link.note,
+					remove: link.remove === true
+				}))
+			);
+			return reply({ changed: args.links.length }, `Changed ${count(args.links.length, 'Link')}`);
 		}
 	);
 

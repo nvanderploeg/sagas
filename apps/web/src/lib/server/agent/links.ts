@@ -1,8 +1,10 @@
 import { and, asc, eq, or, sql } from 'drizzle-orm';
-import type { Handle } from '../db/client.ts';
+import type { Db, Handle } from '../db/client.ts';
 import { links } from '../db/schema.ts';
 import { DomainError } from '../domain/errors.ts';
 import { labourName } from '../domain/labour-view.ts';
+import { getLabour } from '../domain/lookup.ts';
+import type { Actor } from '../domain/write.ts';
 
 export const LINK_TYPES = ['evidence', 'blocks', 'relates', 'duplicates'] as const;
 export type LinkType = (typeof LINK_TYPES)[number];
@@ -93,4 +95,32 @@ export function writeLink(tx: Handle, userId: number, change: LinkChange, now: D
 			set: { note, setBy: userId, setAt: now }
 		})
 		.run();
+}
+
+export const LINK_BATCH_MAX = 50;
+
+// All or nothing: one bad change refuses the batch.
+export function changeLinks(
+	db: Db,
+	actor: Actor,
+	changes: LinkChange[],
+	now: Date = new Date()
+): void {
+	if (!Array.isArray(changes) || changes.length < 1 || changes.length > LINK_BATCH_MAX) {
+		throw new DomainError('invalid', `Links take 1 to ${LINK_BATCH_MAX} changes`);
+	}
+	db.transaction((tx) => {
+		for (const change of changes) {
+			if (change.from === change.to) {
+				throw new DomainError('invalid', 'A Labour cannot be linked to itself');
+			}
+			const note = change.note?.trim();
+			if (note !== undefined && note.length > LINK_NOTE_MAX) {
+				throw new DomainError('invalid', `A Link note must be at most ${LINK_NOTE_MAX} characters`);
+			}
+			getLabour(tx, change.from);
+			getLabour(tx, change.to);
+			writeLink(tx, actor.id, { ...change, note }, now);
+		}
+	});
 }

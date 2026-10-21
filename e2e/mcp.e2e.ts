@@ -62,6 +62,7 @@ const TOOLS = [
 	'delete_attribute',
 	'tune_realm',
 	'appraise',
+	'link_labours',
 	'get_appraisal',
 	'list_unappraised',
 	'survey',

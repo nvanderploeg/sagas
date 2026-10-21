@@ -14,6 +14,7 @@ import {
 	setParent,
 	updateLabour
 } from '../../domain/labours.ts';
+import { readLinks } from '../../agent/links.ts';
 import { count, labourLine, type Presenter } from '../present.ts';
 import * as refs from '../refs.ts';
 import { reply } from '../result.ts';
@@ -136,10 +137,20 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'read',
 			description:
-				'Get one Labour with its description, Labels, former keys (aliases), Parent, Children and the Quests it is in.',
+				'Get one Labour with its description, Labels, former keys (aliases), Parent, Children, the Quests it is in and its Links (blocks, evidence, relates, duplicates; change them with link_labours).',
 			input: { labour: labourRef }
 		},
-		({ labour }, present) => labourReply(present, refs.labourId(db, labour))
+		({ labour }, present) => {
+			const labourId = refs.labourId(db, labour);
+			const detail = present.detail(readLabour(db, labourId));
+			const links = readLinks(db, labourId).map((link) => ({
+				type: link.type,
+				from: refs.labourKey(db, link.from),
+				to: refs.labourKey(db, link.to),
+				note: link.note
+			}));
+			return reply({ labour: detail, links }, labourLine(detail));
+		}
 	);
 
 	define(
