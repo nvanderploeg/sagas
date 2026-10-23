@@ -35,7 +35,7 @@
 				class="underline-offset-4 hover:text-ink hover:underline"
 				href="{repo}/commit/{hash}"
 				target="_blank"
-				rel="noopener noreferrer"><code>{hash}</code></a
+				rel="noopener noreferrer"><span class="font-mono">{hash}</span></a
 			>{/if}</span
 	>
 </footer>
