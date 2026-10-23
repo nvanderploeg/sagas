@@ -407,16 +407,25 @@ export const comments = sqliteTable(
 	(t) => [index('comments_labour_idx').on(t.labourId, t.id)]
 );
 
-export const quests = sqliteTable('quests', {
-	id: id(),
-	name: text('name').notNull(),
-	description: text('description').notNull().default(''),
-	ownerId: integer('owner_id')
-		.notNull()
-		.references(() => users.id),
-	createdAt: now(),
-	updatedAt: now('updated_at')
-});
+// A Quest belongs to one Realm, which decides who may see and edit it. Its Labours may be in any
+// Realm.
+export const quests = sqliteTable(
+	'quests',
+	{
+		id: id(),
+		realmId: integer('realm_id')
+			.notNull()
+			.references(() => realms.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		description: text('description').notNull().default(''),
+		ownerId: integer('owner_id')
+			.notNull()
+			.references(() => users.id),
+		createdAt: now(),
+		updatedAt: now('updated_at')
+	},
+	(t) => [index('quests_realm_idx').on(t.realmId)]
+);
 
 export const questLabours = sqliteTable(
 	'quest_labours',

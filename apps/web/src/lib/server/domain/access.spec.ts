@@ -165,16 +165,47 @@ describe('Realm configuration', () => {
 });
 
 describe('Quests', () => {
-	it('change only for their Owner, and adding a Labour needs editor access to its Realm', () => {
-		const quest = createQuest(db, people.editor, { name: 'Q', ownerId: people.editor.id });
+	const spec = (name: string, ownerId: number) => ({ realmId, name, ownerId });
 
-		expect(code(() => updateQuest(db, people.owner, quest.id, { name: 'Z' }))).toBe('forbidden');
-		expect(code(() => addQuestLabour(db, people.editor, quest.id, labourId))).toBe('ok');
+	it("follow their Realm's roles: an editor changes them, a viewer cannot, a stranger sees nothing", () => {
+		const quest = createQuest(db, people.editor, spec('Q', people.editor.id));
 
-		const viewerQuest = createQuest(db, people.viewer, { name: 'V', ownerId: people.viewer.id });
-		expect(code(() => addQuestLabour(db, people.viewer, viewerQuest.id, labourId))).toBe(
+		expect(code(() => updateQuest(db, people.owner, quest.id, { name: 'Z' }))).toBe('ok');
+		expect(code(() => updateQuest(db, people.viewer, quest.id, { name: 'Y' }))).toBe('forbidden');
+		expect(code(() => updateQuest(db, people.stranger, quest.id, { name: 'X' }))).toBe('not_found');
+		expect(code(() => createQuest(db, people.viewer, spec('V', people.viewer.id)))).toBe(
 			'forbidden'
 		);
+		expect(code(() => createQuest(db, people.stranger, spec('S', people.stranger.id)))).toBe(
+			'not_found'
+		);
+	});
+
+	it('are owned by a member of their Realm', () => {
+		expect(code(() => createQuest(db, people.owner, spec('Q', people.stranger.id)))).toBe(
+			'invalid'
+		);
+	});
+
+	it('may list Labours of another Realm the caller can only read, and none they cannot see', () => {
+		const other = createRealm(db, people.stranger, {
+			name: 'Other',
+			key: 'OT',
+			initialState: TODO
+		});
+		const theirs = createLabour(db, people.stranger, {
+			realmId: other.id,
+			title: 'Theirs',
+			ownerId: people.stranger.id
+		});
+		const quest = createQuest(db, people.editor, spec('Q', people.editor.id));
+
+		expect(code(() => addQuestLabour(db, people.editor, quest.id, theirs.id))).toBe('not_found');
+
+		offerMembership(db, people.stranger, other.id, people.editor.id, 'viewer');
+		acceptOffer(db, people.editor, other.id);
+
+		expect(code(() => addQuestLabour(db, people.editor, quest.id, theirs.id))).toBe('ok');
 	});
 });
 
@@ -192,7 +223,11 @@ describe('Quests with children', () => {
 		});
 		setParent(db, people.stranger, child.id, null);
 		db.update(labours).set({ parentId: labourId }).where(eq(labours.id, child.id)).run();
-		const quest = createQuest(db, people.editor, { name: 'Q', ownerId: people.editor.id });
+		const quest = createQuest(db, people.editor, {
+			realmId,
+			name: 'Q',
+			ownerId: people.editor.id
+		});
 
 		expect(code(() => addQuestLabourWithChildren(db, people.editor, quest.id, labourId))).toBe(
 			'not_found'

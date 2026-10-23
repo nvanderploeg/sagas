@@ -39,7 +39,7 @@ The server prunes Events older than `EVENT_RETENTION_DAYS` (7 by default). The r
 
 ## Who receives an Event
 
-A Stream carries an Event only when its User is an active member of the Event's Realm when it is sent, as in `docs/realm-access.md`; replay filters the same way, so a `seq` can be skipped. A Quest Event lists only the Labours in Realms the User can see, with progress recounted over them. A `labour.moved` into a Realm the User cannot see, out of one they can, arrives as `labour.deleted`. `realm.deleted` goes to every Stream: its Memberships are gone, and it carries only ids.
+A Stream carries an Event only when its User is an active member of the Event's Realm when it is sent, as in `docs/realm-access.md`; replay filters the same way, so a `seq` can be skipped. A Quest Event goes by the Quest's Realm, and lists only the Labours in Realms the User can see, with progress recounted over them. A `labour.moved` into a Realm the User cannot see, out of one they can, arrives as `labour.deleted`. `realm.deleted` goes to every Stream: its Memberships are gone, and it carries only ids.
 
 Webhooks deliver the same Events to outside services by POST: `docs/webhooks.md`.
 
@@ -110,7 +110,7 @@ Views, with dates as ISO strings:
 | `labour.comment_deleted` | `{ id, labourId }`                                 | A Comment is deleted.                                               |
 | `quest.created`          | `{ quest }`                                        | A Quest is created.                                                 |
 | `quest.updated`          | `{ quest }`                                        | Its name, description or Owner changes.                             |
-| `quest.deleted`          | `{ id }`                                           | A Quest is deleted.                                                 |
+| `quest.deleted`          | `{ id, realmId }`                                  | A Quest is deleted, or its Realm is.                                |
 | `quest.labours_added`    | `{ quest, labourIds }`                             | Labours are added to it.                                            |
 | `quest.labours_removed`  | `{ quest, labourIds }`                             | Labours leave it, whether removed or deleted.                       |
 | `quest.labour_ranked`    | `{ quest, labourId }`                              | A member is reordered.                                              |

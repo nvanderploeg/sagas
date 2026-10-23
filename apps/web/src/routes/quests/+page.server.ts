@@ -2,7 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import { getDb } from '#lib/server/db/index.ts';
 import { createQuest } from '#lib/server/domain/quests.ts';
 import { readAtSeq } from '#lib/server/events/log.ts';
-import { perform, signedIn, text } from '#lib/server/ui/form.ts';
+import { int, perform, signedIn, text } from '#lib/server/ui/form.ts';
 import { readQuestList, toJson } from '#lib/server/ui/reads.ts';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -18,6 +18,7 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const result = perform('create', () => {
 			const quest = createQuest(getDb(), actor, {
+				realmId: int(form, 'realmId'),
 				name: text(form, 'name'),
 				description: text(form, 'description'),
 				ownerId: actor.id

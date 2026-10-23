@@ -268,6 +268,7 @@ export class Presenter {
 			url: this.url(path),
 			name: view.name,
 			description: view.description,
+			realm: this.realmKey(view.realmId),
 			owner: this.username(view.ownerId),
 			progress: this.restricted(view).progress
 		};

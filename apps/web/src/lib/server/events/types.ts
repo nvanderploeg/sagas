@@ -32,7 +32,7 @@ export type EventData = {
 	'labour.comment_deleted': { id: number; labourId: number };
 	'quest.created': { quest: QuestView };
 	'quest.updated': { quest: QuestView };
-	'quest.deleted': { id: number };
+	'quest.deleted': { id: number; realmId: number };
 	'quest.labours_added': { quest: QuestView; labourIds: number[] };
 	'quest.labours_removed': { quest: QuestView; labourIds: number[] };
 	'quest.labour_ranked': { quest: QuestView; labourId: number };

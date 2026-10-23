@@ -6,7 +6,7 @@ import { subscribe } from '#lib/server/events/bus.ts';
 import { eventsSince } from '#lib/server/events/log.ts';
 import type { SagasEvent } from '#lib/server/events/types.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedRealm, seedLabour, seedUser, TODO } from '#lib/server/test/fixtures.ts';
+import { seedRealm, seedLabour, seedUser, TODO, anyRealmId } from '#lib/server/test/fixtures.ts';
 import { DomainError } from './errors.ts';
 import {
 	addQuestLabour,
@@ -274,12 +274,30 @@ describe('Realm config writes', () => {
 		expect(readLabour(db, a.id).updatedAt.getTime()).toBeGreaterThan(0);
 	});
 
+	it('deletes the Quests of a deleted Realm, one quest.deleted each, and spares the Labours they listed', () => {
+		const am = seedRealm(db, 'AM');
+		const bl = seedRealm(db, 'BL');
+		const kept = seedLabour(db, { realmId: bl.id });
+		const quest = createQuest(db, actor, { realmId: am.id, name: 'Q', ownerId: actor.id });
+		addQuestLabour(db, actor, quest.id, kept.id);
+
+		const found = recorded(() => deleteRealm(db, actor, am.id));
+
+		expect(shape(found).map(([type]) => type)).toEqual(['realm.deleted', 'quest.deleted']);
+		expect(found[1].data).toEqual({ id: quest.id, realmId: am.id });
+		expect(readLabour(db, kept.id).id).toBe(kept.id);
+	});
+
 	it('records the Children it detaches in other Realms and the Quests it shrinks when deleting a Realm', () => {
 		const am = seedRealm(db, 'AM');
 		const bl = seedRealm(db, 'BL');
 		const parent = seedLabour(db, { realmId: am.id });
 		const child = seedLabour(db, { realmId: bl.id, parentId: parent.id });
-		const quest = createQuest(db, actor, { name: 'Launch', ownerId: actor.id });
+		const quest = createQuest(db, actor, {
+			realmId: bl.id,
+			name: 'Launch',
+			ownerId: actor.id
+		});
 		addQuestLabour(db, actor, quest.id, parent.id);
 		addQuestLabour(db, actor, quest.id, child.id);
 		db.update(labours)
@@ -377,8 +395,16 @@ describe('Labour writes', () => {
 		const parent = seedLabour(db, { realmId: am.id });
 		const near = seedLabour(db, { realmId: am.id, parentId: parent.id });
 		const far = seedLabour(db, { realmId: bl.id, parentId: parent.id });
-		const first = createQuest(db, actor, { name: 'One', ownerId: actor.id });
-		const second = createQuest(db, actor, { name: 'Two', ownerId: actor.id });
+		const first = createQuest(db, actor, {
+			realmId: anyRealmId(db),
+			name: 'One',
+			ownerId: actor.id
+		});
+		const second = createQuest(db, actor, {
+			realmId: anyRealmId(db),
+			name: 'Two',
+			ownerId: actor.id
+		});
 		addQuestLabour(db, actor, first.id, parent.id);
 		addQuestLabour(db, actor, second.id, far.id);
 		addQuestLabour(db, actor, second.id, parent.id);
@@ -413,7 +439,12 @@ describe('Quest writes', () => {
 		const cases: [string, () => unknown, () => object][] = [
 			[
 				'quest.created',
-				() => (questId = createQuest(db, actor, { name: 'Launch', ownerId: actor.id }).id),
+				() =>
+					(questId = createQuest(db, actor, {
+						realmId: anyRealmId(db),
+						name: 'Launch',
+						ownerId: actor.id
+					}).id),
 				() => ({ quest: quest() })
 			],
 			[
@@ -458,7 +489,11 @@ describe('bulk Quest membership', () => {
 	it('records one Event per call, naming only the Labours that changed', () => {
 		const realm = seedRealm(db, 'AM');
 		const [a, b, c] = [1, 2, 3].map(() => seedLabour(db, { realmId: realm.id }));
-		const questId = createQuest(db, actor, { name: 'Launch', ownerId: actor.id }).id;
+		const questId = createQuest(db, actor, {
+			realmId: anyRealmId(db),
+			name: 'Launch',
+			ownerId: actor.id
+		}).id;
 		addQuestLabour(db, actor, questId, b.id);
 		const quest = () => json(readQuest(db, questId));
 
@@ -476,7 +511,11 @@ describe('bulk Quest membership', () => {
 	it('records no Event when every Labour is skipped', () => {
 		const realm = seedRealm(db, 'AM');
 		const a = seedLabour(db, { realmId: realm.id });
-		const questId = createQuest(db, actor, { name: 'Launch', ownerId: actor.id }).id;
+		const questId = createQuest(db, actor, {
+			realmId: anyRealmId(db),
+			name: 'Launch',
+			ownerId: actor.id
+		}).id;
 		addQuestLabour(db, actor, questId, a.id);
 
 		const found = recorded(() => {
@@ -490,7 +529,11 @@ describe('bulk Quest membership', () => {
 	it('records nothing when a Labour is unknown', () => {
 		const realm = seedRealm(db, 'AM');
 		const a = seedLabour(db, { realmId: realm.id });
-		const questId = createQuest(db, actor, { name: 'Launch', ownerId: actor.id }).id;
+		const questId = createQuest(db, actor, {
+			realmId: anyRealmId(db),
+			name: 'Launch',
+			ownerId: actor.id
+		}).id;
 
 		const found = recorded(() =>
 			expect(() => addQuestLabours(db, actor, questId, [a.id, 999])).toThrow(DomainError)

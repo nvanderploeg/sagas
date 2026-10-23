@@ -1,3 +1,4 @@
+import { anyRealmId } from '#lib/server/test/fixtures.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../db/client.ts';
 import { updateLabour } from '../domain/labours.ts';
@@ -30,7 +31,7 @@ function statements(read: () => unknown): number {
 
 function questsWithMembers(ownerId: number, count: number, realmId: number) {
 	for (let i = 0; i < count; i++) {
-		const quest = createQuest(db, actor, { name: `Quest ${i}`, ownerId });
+		const quest = createQuest(db, actor, { realmId: anyRealmId(db), name: `Quest ${i}`, ownerId });
 		for (let j = 0; j < 3; j++) {
 			addQuestLabour(db, actor, quest.id, seedLabour(db, { realmId, ownerId }).id);
 		}

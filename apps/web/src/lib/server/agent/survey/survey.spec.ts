@@ -13,7 +13,13 @@ import { createState, listStates } from '#lib/server/domain/states.ts';
 import { moveLabour, rankLabour, updateLabour } from '#lib/server/domain/labours.ts';
 import type { Actor } from '#lib/server/domain/write.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedActor, seedLabour, seedRealm, seedUser } from '#lib/server/test/fixtures.ts';
+import {
+	seedActor,
+	seedLabour,
+	seedRealm,
+	seedUser,
+	anyRealmId
+} from '#lib/server/test/fixtures.ts';
 
 let db: Db;
 let actor: Actor;
@@ -347,7 +353,7 @@ describe('candidates', () => {
 		const second = seedLabour(db, { realmId: realm.id });
 		const gone = seedLabour(db, { realmId: realm.id });
 		close(gone);
-		const quest = createQuest(db, actor, { name: 'Q', ownerId: actor.id });
+		const quest = createQuest(db, actor, { realmId: anyRealmId(db), name: 'Q', ownerId: actor.id });
 		addQuestLabours(db, actor, quest.id, [gone.id, second.id, first.id]);
 
 		expect(ids(run({ filter: { questId: quest.id } }))).toEqual([first.id, second.id]);

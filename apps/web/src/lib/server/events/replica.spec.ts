@@ -36,7 +36,7 @@ import {
 } from '#lib/server/domain/labours.ts';
 import type { Actor } from '#lib/server/domain/write.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedActor, TODO } from '#lib/server/test/fixtures.ts';
+import { seedActor, TODO, anyRealmId } from '#lib/server/test/fixtures.ts';
 import { eventsSince, readAtSeq } from './log.ts';
 import type { Json, SagasEvent } from './types.ts';
 
@@ -189,7 +189,11 @@ describe('a client applying Stream Events', () => {
 		const am = realm('AM');
 		const bl = realm('BL');
 		const cc = realm('CC');
-		const quest = createQuest(db, actor, { name: 'Launch', ownerId: actor.id });
+		const quest = createQuest(db, actor, {
+			realmId: anyRealmId(db),
+			name: 'Launch',
+			ownerId: actor.id
+		});
 		const closedOf = (realmId: number) => listStates(db, realmId).find((s) => s.isClosed)!.id;
 
 		const views = [

@@ -92,8 +92,10 @@ export function userId(db: Handle, ref: Ref, me: { id: number }): number {
 	return row?.id ?? notFound(`No User is named "${username}"`);
 }
 
-export function questId(db: Handle, id: number): number {
-	return getQuest(db, id).id;
+// A Quest in a Realm the viewer cannot see is not found.
+export function questId(db: Handle, id: number, viewer: Viewer): number {
+	const quest = getQuest(db, id);
+	return canSeeRealm(db, viewer, quest.realmId) ? quest.id : notFound('Quest not found');
 }
 
 export function stateId(db: Handle, realm: number | undefined, ref: Ref): number {

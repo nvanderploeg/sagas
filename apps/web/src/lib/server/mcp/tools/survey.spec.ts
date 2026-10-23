@@ -14,7 +14,13 @@ import { addQuestLabours, createQuest } from '#lib/server/domain/quests.ts';
 import { listStates } from '#lib/server/domain/states.ts';
 import type { Actor } from '#lib/server/domain/write.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedActor, seedLabour, seedRealm, seedUser } from '#lib/server/test/fixtures.ts';
+import {
+	seedActor,
+	seedLabour,
+	seedRealm,
+	seedUser,
+	anyRealmId
+} from '#lib/server/test/fixtures.ts';
 import { createMcpServer } from '../server.ts';
 
 let db: Db;
@@ -410,7 +416,11 @@ describe('the survey tool', () => {
 			const c = seedLabour(db, { realmId: am.id });
 			setValues(db, actor, a.id, { area: ['ui'] });
 			setValues(db, actor, b.id, { area: ['api'] });
-			const quest = createQuest(db, actor, { name: 'Q', ownerId: actor.id });
+			const quest = createQuest(db, actor, {
+				realmId: anyRealmId(db),
+				name: 'Q',
+				ownerId: actor.id
+			});
 			addQuestLabours(db, actor, quest.id, [c.id, b.id]);
 			appraise(db, actor, [{ labourId: a.id, links: [{ type: 'blocks', to: b.id }] }]);
 			const client = await connect();

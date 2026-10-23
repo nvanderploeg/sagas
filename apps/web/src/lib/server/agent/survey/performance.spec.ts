@@ -11,7 +11,7 @@ import { addQuestLabours, createQuest } from '#lib/server/domain/quests.ts';
 import { createState, listStates } from '#lib/server/domain/states.ts';
 import type { Actor } from '#lib/server/domain/write.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedActor, seedRealm, seedUser } from '#lib/server/test/fixtures.ts';
+import { seedActor, seedRealm, seedUser, anyRealmId } from '#lib/server/test/fixtures.ts';
 import { budget } from '#lib/server/test/budget.ts';
 
 let db: Db;
@@ -162,7 +162,11 @@ function seed() {
 	for (const part of chunks(items, 50)) appraise(db, actor, part, NOW);
 
 	for (const [q, members] of chunks(ids, 100).entries()) {
-		const quest = createQuest(db, actor, { name: `Quest ${q}`, ownerId: owner });
+		const quest = createQuest(db, actor, {
+			realmId: anyRealmId(db),
+			name: `Quest ${q}`,
+			ownerId: owner
+		});
 		addQuestLabours(db, actor, quest.id, members);
 	}
 

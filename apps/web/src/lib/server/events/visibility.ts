@@ -1,9 +1,13 @@
 import { inArray, eq } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
-import { labours, states } from '../db/schema.ts';
+import { labours, realms, states } from '../db/schema.ts';
 import { visibleRealmIds } from '../domain/access.ts';
 import { restrictQuest } from '../domain/quest-view.ts';
 import type { SagasEvent } from './types.ts';
+
+function realmExists(db: Handle, id: number): boolean {
+	return db.select({ id: realms.id }).from(realms).where(eq(realms.id, id)).get() !== undefined;
+}
 
 function realmOfLabour(db: Handle, id: number): number | null {
 	return (
@@ -69,14 +73,17 @@ export function eventForViewer(
 		case 'quest.created':
 		case 'quest.updated':
 		case 'quest.labour_ranked':
+			if (!sees(event.data.quest.realmId)) return null;
 			return {
 				...event,
 				data: { ...event.data, quest: restrictQuest(event.data.quest, visible) }
 			} as SagasEvent;
 		case 'quest.deleted':
-			return event;
+			// A Realm's deletion takes its Memberships with it, so its Quests go to every Stream.
+			return sees(event.data.realmId) || !realmExists(db, event.data.realmId) ? event : null;
 		case 'quest.labours_added':
 		case 'quest.labours_removed': {
+			if (!sees(event.data.quest.realmId)) return null;
 			const rows = event.data.labourIds.length
 				? db
 						.select({ id: labours.id, realmId: labours.realmId })

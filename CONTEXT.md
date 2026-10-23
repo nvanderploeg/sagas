@@ -91,7 +91,7 @@ An optional subdivision of one State (`In Progress › Code review`), configured
 A Labour's position within its State's board column, set by dragging: the order people give the column. Which Labour to work on next is a Survey's question.
 
 **Quest**:
-A named, ordered set of Labours that may span Realms, with a description and an Owner. A Labour can be in any number of Quests. Membership is explicit: adding a Labour never adds its Children. A Quest has no State; its progress is its Closed Labours over all its Labours.
+A named, ordered set of Labours with a description and an Owner. It belongs to one Realm, which decides who sees and edits it, and its Labours may be in any Realm. Its Owner is a member of that Realm. A Labour can be in any number of Quests. Membership is explicit: adding a Labour never adds its Children. A Quest has no State; its progress is its Closed Labours over all its Labours.
 
 **Agent layer**:
 What sagas holds for agents rather than people: Attributes, Appraisals, Links, Mentions, Skills, Sentiment, Affinity, Surveys and Outcomes. Any member of a Realm may change its part of it, whoever set it; each value keeps who set it, through which API token, and when. The contract is `docs/agent-layer.md`.

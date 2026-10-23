@@ -131,7 +131,8 @@ export function registerSurveyTools({ db, actor, define }: Tools): void {
 								),
 								has: filter.has,
 								labels: filter.labels === undefined ? undefined : normalizeLabels(filter.labels),
-								questId: filter.quest === undefined ? undefined : refs.questId(db, filter.quest),
+								questId:
+									filter.quest === undefined ? undefined : refs.questId(db, filter.quest, actor),
 								unblocked: filter.unblocked
 							},
 				temperature: args.temperature,

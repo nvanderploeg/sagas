@@ -80,13 +80,6 @@ export function requireActiveMember(
 	}
 }
 
-// A Quest belongs to its Owner, whatever Realms its Labours are in.
-export function requireQuestOwner(quest: { ownerId: number }, user: { id: number }): void {
-	if (enforced && quest.ownerId !== user.id) {
-		throw new DomainError('forbidden', "Only a Quest's Owner can change it");
-	}
-}
-
 export function canSeeLabour(db: Handle, user: { id: number }, labourId: number): boolean {
 	if (!enforced) return true;
 	const row = db

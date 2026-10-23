@@ -50,6 +50,9 @@ export function readAllRealms(db: Handle, viewer: Viewer): RealmView[] {
 const inRealms = (visible: Set<number> | null) =>
 	visible === null ? undefined : inArray(labours.realmId, [...visible]);
 
+const inQuestRealms = (visible: Set<number> | null) =>
+	visible === null ? undefined : inArray(quests.realmId, [...visible]);
+
 export function readHome(db: Handle, viewer: Viewer) {
 	const userId = viewer.id;
 	const visible = seen(db, viewer);
@@ -67,7 +70,7 @@ export function readHome(db: Handle, viewer: Viewer) {
 	const owned = db
 		.select({ id: quests.id })
 		.from(quests)
-		.where(eq(quests.ownerId, userId))
+		.where(and(eq(quests.ownerId, userId), inQuestRealms(visible)))
 		.orderBy(asc(quests.id))
 		.all();
 	return {
@@ -91,6 +94,7 @@ export function readLabourPage(db: Handle, viewer: Viewer, labourId: number) {
 		quests: db
 			.select({ id: quests.id, name: quests.name })
 			.from(quests)
+			.where(inQuestRealms(visible))
 			.orderBy(asc(quests.id))
 			.all(),
 		memberOf: listLabourQuests(db, labourId).map((q) => q.id),
@@ -99,8 +103,10 @@ export function readLabourPage(db: Handle, viewer: Viewer, labourId: number) {
 }
 
 export function readQuestPage(db: Handle, viewer: Viewer, questId: number) {
+	const quest = readQuest(db, questId);
+	requireRealmRole(db, viewer, quest.realmId, 'viewer');
 	return {
-		quest: restrictQuest(readQuest(db, questId), seen(db, viewer)),
+		quest: restrictQuest(quest, seen(db, viewer)),
 		realms: readAllRealms(db, viewer)
 	};
 }
@@ -111,7 +117,9 @@ export function readQuestList(
 ): { quests: QuestView[]; realms: RealmView[] } {
 	const visible = seen(db, viewer);
 	return {
-		quests: listQuests(db).map((quest) => restrictQuest(quest, visible)),
+		quests: listQuests(db)
+			.filter((quest) => visible === null || visible.has(quest.realmId))
+			.map((quest) => restrictQuest(quest, visible)),
 		realms: readAllRealms(db, viewer)
 	};
 }

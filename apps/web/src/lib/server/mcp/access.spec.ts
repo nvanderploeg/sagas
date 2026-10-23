@@ -48,6 +48,7 @@ beforeEach(async () => {
 	const owner = await connect(ada);
 	await ok(owner, 'create_realm', { name: 'Atlas', key: 'am' });
 	await ok(owner, 'create_labour', { realm: 'AM', title: 'Secret plan' });
+	await ok(owner, 'create_quest', { realm: 'AM', name: 'Hidden quest' });
 });
 
 afterEach(async () => {
@@ -62,6 +63,7 @@ describe('a stranger over MCP', () => {
 
 		expect((await ok(stranger, 'list_realms')).realms).toEqual([]);
 		expect((await ok(stranger, 'list_labours')).labours).toEqual([]);
+		expect((await ok(stranger, 'list_quests')).quests).toEqual([]);
 		for (const [tool, args] of [
 			['get_realm', { realm: 'AM' }],
 			['get_labour', { labour: 'AM-1' }],
@@ -69,7 +71,9 @@ describe('a stranger over MCP', () => {
 			['list_comments', { labour: 'AM-1' }],
 			['create_labour', { realm: 'AM', title: 'x' }],
 			['update_labour', { labour: 'AM-1', title: 'x' }],
-			['list_members', { realm: 'AM' }]
+			['list_members', { realm: 'AM' }],
+			['get_quest', { quest: 1 }],
+			['create_quest', { realm: 'AM', name: 'x' }]
 		] as const) {
 			expect(await errorCode(stranger, tool, args), tool).toBe('not_found');
 		}

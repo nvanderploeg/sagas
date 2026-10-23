@@ -6,7 +6,13 @@ import { createQuest } from '#lib/server/domain/quests.ts';
 import { createSubstate, listStates } from '#lib/server/domain/states.ts';
 import { moveLabour } from '#lib/server/domain/labours.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedActor, seedRealm, seedLabour, seedUser } from '#lib/server/test/fixtures.ts';
+import {
+	seedActor,
+	seedRealm,
+	seedLabour,
+	seedUser,
+	anyRealmId
+} from '#lib/server/test/fixtures.ts';
 import * as refs from './refs.ts';
 
 let db: Db;
@@ -111,10 +117,14 @@ describe('realmId and userId', () => {
 	});
 
 	it('finds a Quest by id', () => {
-		const quest = createQuest(db, seedActor(db), { name: 'Q', ownerId: seedUser(db) });
+		const quest = createQuest(db, seedActor(db), {
+			realmId: anyRealmId(db),
+			name: 'Q',
+			ownerId: seedUser(db)
+		});
 
-		expect(refs.questId(db, quest.id)).toBe(quest.id);
-		expect(failure(() => refs.questId(db, 999))).toMatchObject({ code: 'not_found' });
+		expect(refs.questId(db, quest.id, viewer)).toBe(quest.id);
+		expect(failure(() => refs.questId(db, 999, viewer))).toMatchObject({ code: 'not_found' });
 	});
 });
 

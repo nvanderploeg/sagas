@@ -67,7 +67,7 @@ describe('eventForViewer', () => {
 	it('trims a Quest to the Labours in Realms the viewer can see, and recounts its progress', () => {
 		const open = createLabour(db, ada, { realmId: shared, title: 'Open', ownerId: ada.id });
 		const hidden = createLabour(db, ada, { realmId: secret, title: 'Hidden', ownerId: ada.id });
-		const quest = createQuest(db, ada, { name: 'Q', ownerId: ada.id });
+		const quest = createQuest(db, ada, { realmId: shared, name: 'Q', ownerId: ada.id });
 		addQuestLabour(db, ada, quest.id, open.id);
 		addQuestLabour(db, ada, quest.id, hidden.id);
 

@@ -260,7 +260,7 @@ describe('the MCP server', () => {
 			icon: 'play'
 		});
 		await ok(client, 'update_labour', { labour: 'AM-2', state: 'doing' });
-		const { quest } = await ok(client, 'create_quest', { name: 'Launch' });
+		const { quest } = await ok(client, 'create_quest', { name: 'Launch', realm: 'AM' });
 
 		const ranked = await call(client, 'rank_labour', { labour: 'AM-1', after: 'AM-2' });
 		const outside = await call(client, 'rank_quest_labour', {
@@ -307,7 +307,7 @@ describe('the MCP server', () => {
 	it('gives each Labour, Realm and Quest the path of its page', async () => {
 		const client = await connect(admin);
 		await seedRealm(client, 1);
-		const { quest } = await ok(client, 'create_quest', { name: 'Launch' });
+		const { quest } = await ok(client, 'create_quest', { name: 'Launch', realm: 'AM' });
 
 		expect((await ok(client, 'get_labour', { labour: 'AM-1' })).labour.path).toBe('/l/AM-1');
 		expect((await ok(client, 'get_realm', { realm: 'AM' })).realm.path).toBe('/r/AM');
@@ -318,7 +318,7 @@ describe('the MCP server', () => {
 		const client = await connect(admin, 'https://sagas.example.org');
 		await seedRealm(client, 2);
 		await ok(client, 'set_parent', { labour: 'AM-2', parent: 'AM-1' });
-		const { quest } = await ok(client, 'create_quest', { name: 'Launch' });
+		const { quest } = await ok(client, 'create_quest', { name: 'Launch', realm: 'AM' });
 		await ok(client, 'add_quest_labours', { quest: quest.id, labours: ['AM-1'] });
 
 		const { labour } = await ok(client, 'get_labour', { labour: 'AM-1' });
@@ -342,7 +342,7 @@ describe('the MCP server', () => {
 		const client = await connect(admin);
 		await seedRealm(client, 3);
 		await ok(client, 'set_parent', { labour: 'AM-2', parent: 'AM-1' });
-		const { quest } = await ok(client, 'create_quest', { name: 'Launch' });
+		const { quest } = await ok(client, 'create_quest', { name: 'Launch', realm: 'AM' });
 		await ok(client, 'add_quest_labours', { quest: quest.id, labours: ['AM-2', 'AM-3'] });
 		await ok(client, 'appraise', {
 			labours: [
@@ -414,7 +414,7 @@ describe('the MCP server', () => {
 	it('adds and removes 100 Labours of a Quest with one Event each', async () => {
 		const client = await connect(admin);
 		await seedRealm(client, 100);
-		const { quest } = await ok(client, 'create_quest', { name: 'Launch' });
+		const { quest } = await ok(client, 'create_quest', { name: 'Launch', realm: 'AM' });
 		const labours = Array.from({ length: 100 }, (_, i) => `AM-${i + 1}`);
 
 		const before = lastSeq();
@@ -432,7 +432,7 @@ describe('the MCP server', () => {
 	it('skips and reports Labours already as asked, without an error', async () => {
 		const client = await connect(admin);
 		await seedRealm(client, 3);
-		const { quest } = await ok(client, 'create_quest', { name: 'Launch' });
+		const { quest } = await ok(client, 'create_quest', { name: 'Launch', realm: 'AM' });
 		await ok(client, 'add_quest_labours', { quest: quest.id, labours: ['AM-1'] });
 
 		const added = await call(client, 'add_quest_labours', {
@@ -458,7 +458,8 @@ describe('the MCP server', () => {
 
 	it('refuses more than 100 Labours in one call', async () => {
 		const client = await connect(admin);
-		const { quest } = await ok(client, 'create_quest', { name: 'Launch' });
+		await seedRealm(client, 3);
+		const { quest } = await ok(client, 'create_quest', { name: 'Launch', realm: 'AM' });
 
 		const result = await call(client, 'add_quest_labours', {
 			quest: quest.id,

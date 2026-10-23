@@ -23,7 +23,13 @@ import { addComment, editComment } from '#lib/server/domain/comments.ts';
 import { createState } from '#lib/server/domain/states.ts';
 import type { Actor } from '#lib/server/domain/write.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedActor, seedLabour, seedRealm, seedUser } from '#lib/server/test/fixtures.ts';
+import {
+	anyRealmId,
+	seedActor,
+	seedLabour,
+	seedRealm,
+	seedUser
+} from '#lib/server/test/fixtures.ts';
 import { appraise } from '../appraisals.ts';
 import { defineAttribute, RESERVED, setValues } from '../attributes.ts';
 import { contentHash, hashContent } from '../content.ts';
@@ -356,7 +362,11 @@ describe('features', () => {
 		const b = seedLabour(db, { realmId: other });
 		const done = seedLabour(db, { realmId: other, stateId: closedStateId(other) });
 		const lone = labour();
-		const quest = db.insert(quests).values({ name: 'Q', ownerId: actor.id }).returning().get();
+		const quest = db
+			.insert(quests)
+			.values({ realmId: anyRealmId(db), name: 'Q', ownerId: actor.id })
+			.returning()
+			.get();
 		const [r1, r2, r3] = generateNKeysBetween(null, null, 3);
 		db.insert(questLabours)
 			.values([
@@ -570,7 +580,11 @@ describe('filters', () => {
 		setValues(db, actor, a.id, { topic: ['ui'] });
 		setValues(db, actor, b.id, { topic: ['audio'] });
 		const [rank] = generateNKeysBetween(null, null, 1);
-		const quest = db.insert(quests).values({ name: 'Q', ownerId: actor.id }).returning().get();
+		const quest = db
+			.insert(quests)
+			.values({ realmId: anyRealmId(db), name: 'Q', ownerId: actor.id })
+			.returning()
+			.get();
 		db.insert(questLabours).values({ questId: quest.id, labourId: c.id, rank }).run();
 		db.insert(links).values({ fromId: a.id, toId: c.id, type: 'blocks', setBy: actor.id }).run();
 
@@ -983,7 +997,7 @@ describe('performance', () => {
 			for (let q = 0; q < n / 200; q += 1) {
 				const questId = tx
 					.insert(quests)
-					.values({ name: `Q${q}`, ownerId: admin.id })
+					.values({ realmId: anyRealmId(db), name: `Q${q}`, ownerId: admin.id })
 					.returning()
 					.get().id;
 				questIds.push(questId);

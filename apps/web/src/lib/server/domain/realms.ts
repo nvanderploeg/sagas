@@ -1,7 +1,7 @@
 import { asc, eq } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import type { EventSpec } from '../events/types.ts';
-import { realmKeys, realms, labours } from '../db/schema.ts';
+import { realmKeys, realms, labours, quests } from '../db/schema.ts';
 import { falloutEvents, prepareLabourDelete } from './cascade.ts';
 import { DomainError } from './errors.ts';
 import { getRealm, getState } from './lookup.ts';
@@ -129,11 +129,21 @@ export function deleteRealm(db: Db, actor: Actor, realmId: number): void {
 			.all()
 			.map((row) => row.id);
 		const fallout = prepareLabourDelete(tx, held);
+		// The Realm's Quests go with it: they get a deletion each, not a removal of Labours.
+		const ownQuests = tx
+			.select({ id: quests.id })
+			.from(quests)
+			.where(eq(quests.realmId, realmId))
+			.orderBy(asc(quests.id))
+			.all()
+			.map((row) => row.id);
+		for (const questId of ownQuests) fallout.quests.delete(questId);
 		tx.delete(realms).where(eq(realms.id, realmId)).run();
 		return {
 			value: undefined,
 			events: [
 				{ type: 'realm.deleted', data: { realmId, labourIds } },
+				...ownQuests.map((id): EventSpec => ({ type: 'quest.deleted', data: { id, realmId } })),
 				...falloutEvents(tx, fallout)
 			]
 		};

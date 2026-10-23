@@ -1,3 +1,4 @@
+import { visibleRealmIds } from '../../domain/access.ts';
 import { z } from 'zod';
 import { DomainError } from '../../domain/errors.ts';
 import {
@@ -15,7 +16,7 @@ import {
 import { count, questLine, type Presenter } from '../present.ts';
 import * as refs from '../refs.ts';
 import { reply } from '../result.ts';
-import { placementShape, questRef, labourRef, userRef, type Tools } from '../tool.ts';
+import { placementShape, questRef, labourRef, realmRef, userRef, type Tools } from '../tool.ts';
 
 function questReply(present: Presenter, questId: number) {
 	const quest = present.quest(readQuest(present.db, questId));
@@ -52,11 +53,14 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'read',
 			description:
-				'List every Quest with its Owner and progress: its Closed Labours over all its Labours.',
+				'List the Quests in Realms you can see, with their Realm, Owner and progress: Closed Labours over all the Labours you can see in them.',
 			input: {}
 		},
 		(_args, present) => {
-			const quests = listQuests(db).map((q) => present.questSummary(q));
+			const visible = visibleRealmIds(db, actor);
+			const quests = listQuests(db)
+				.filter((q) => visible === null || visible.includes(q.realmId))
+				.map((q) => present.questSummary(q));
 			return reply({ quests }, quests.length === 0 ? 'No Quests' : count(quests.length, 'Quest'));
 		}
 	);
@@ -69,7 +73,7 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 				'Get a Quest with its Labours in Quest order and its progress (Closed over total). A Quest has no State of its own.',
 			input: { quest: questRef }
 		},
-		(args, present) => questReply(present, refs.questId(db, args.quest))
+		(args, present) => questReply(present, refs.questId(db, args.quest, actor))
 	);
 
 	define(
@@ -77,8 +81,9 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'write',
 			description:
-				'Create a Quest: a named, ordered set of Labours that may span Realms. Owner defaults to you.',
+				'Create a Quest in a Realm: a named, ordered set of Labours that may come from any Realm you can see. The Realm decides who sees and edits the Quest. Owner defaults to you and must be a member of the Realm.',
 			input: {
+				realm: realmRef,
 				name: z.string().describe('1 to 120 characters'),
 				description: z.string().optional().describe('Markdown'),
 				owner: userRef.optional()
@@ -86,6 +91,7 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		},
 		(args, present) => {
 			const quest = createQuest(db, actor, {
+				realmId: refs.realmId(db, args.realm, actor),
 				name: args.name,
 				description: args.description,
 				ownerId: args.owner === undefined ? actor.id : refs.userId(db, args.owner, actor)
@@ -98,7 +104,8 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		'update_quest',
 		{
 			kind: 'write',
-			description: "Change a Quest's name, description or Owner.",
+			description:
+				"Change a Quest's name, description or Owner (a member of its Realm). Needs editor access to the Quest's Realm.",
 			input: {
 				quest: questRef,
 				name: z.string().optional(),
@@ -107,7 +114,7 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 			}
 		},
 		(args, present) => {
-			const questId = refs.questId(db, args.quest);
+			const questId = refs.questId(db, args.quest, actor);
 			updateQuest(db, actor, questId, {
 				name: args.name,
 				description: args.description,
@@ -125,7 +132,7 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 			input: { quest: questRef }
 		},
 		(args) => {
-			const quest = readQuest(db, refs.questId(db, args.quest));
+			const quest = readQuest(db, refs.questId(db, args.quest, actor));
 			deleteQuest(db, actor, quest.id);
 			return reply(
 				{ deleted: { id: quest.id, name: quest.name } },
@@ -143,7 +150,7 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 			input: { quest: questRef, labours: labourList, ...placementShape }
 		},
 		(args, present) => {
-			const questId = refs.questId(db, args.quest);
+			const questId = refs.questId(db, args.quest, actor);
 			const labourIds = args.labours.map((ref) => refs.labourId(db, ref, actor));
 			const placement = refs.placement(db, args, actor);
 			const change = addQuestLabours(db, actor, questId, labourIds, placement);
@@ -160,7 +167,7 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 			input: { quest: questRef, labours: labourList }
 		},
 		(args, present) => {
-			const questId = refs.questId(db, args.quest);
+			const questId = refs.questId(db, args.quest, actor);
 			const labourIds = args.labours.map((ref) => refs.labourId(db, ref, actor));
 			const change = removeQuestLabours(db, actor, questId, labourIds);
 			return changeReply(present, change, 'removed', 'not in it');
@@ -176,7 +183,7 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 			input: { quest: questRef, labour: labourRef, ...placementShape }
 		},
 		(args, present) => {
-			const questId = refs.questId(db, args.quest);
+			const questId = refs.questId(db, args.quest, actor);
 			const labourId = refs.labourId(db, args.labour, actor);
 			const placement = refs.placement(db, args, actor);
 			if (placement === undefined) {

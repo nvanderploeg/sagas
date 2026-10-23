@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import type { Db } from '#lib/server/db/client.ts';
-import { users } from '#lib/server/db/schema.ts';
+import { realms, users } from '#lib/server/db/schema.ts';
 import { createRealm } from '#lib/server/domain/realms.ts';
 import { createLabour, type LabourSpec } from '#lib/server/domain/labours.ts';
 import type { Actor } from '#lib/server/domain/write.ts';
@@ -27,4 +27,11 @@ export function seedRealm(db: Db, key = 'AM') {
 export function seedLabour(db: Db, spec: Partial<LabourSpec> & { realmId: number }) {
 	const ownerId = spec.ownerId ?? seedUser(db, `owner${Math.random().toString(36).slice(2, 8)}`);
 	return createLabour(db, seedActor(db), { title: 'Labour', ownerId, ...spec });
+}
+
+// A Realm for a Quest a spec does not care about: the first one, or a new one.
+export function anyRealmId(db: Db): number {
+	return (
+		db.select({ id: realms.id }).from(realms).orderBy(realms.id).get()?.id ?? seedRealm(db, 'QR').id
+	);
 }

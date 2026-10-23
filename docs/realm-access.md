@@ -35,10 +35,10 @@ An Owner adds a User by username with a role. That creates a pending Membership,
 ## Instance-wide things
 
 - Users and Skills stay instance-wide and listable by any User; inviting needs to find people by username.
-- A Quest has an Owner and spans Realms. It lists only the Labours the caller can see, and its progress counts only those. Editing a Quest needs its Owner; adding a Labour needs `editor` in that Labour's Realm.
+- A Quest belongs to one Realm and follows its roles: a member sees it, an editor or Owner creates, changes and deletes it. Its Owner is a member of that Realm. Its Labours may be in any Realm: adding one needs only that the caller can see the Labour's Realm. A viewer of the Quest sees only the Labours in Realms they can see, and progress counts only those. Deleting a Realm deletes its Quests.
 - A Survey draws only from Realms the subject User is a member of. A request for another User's Survey is allowed only for Realms both belong to.
 - Affinity belongs to its User and is readable by that User and by agents acting for them; Pulses it was built from are not exposed across Realms.
-- The Event stream, Webhooks and `/api/events` deliver an Event only to a User with an active Membership in the Event's Realm at delivery time. An Event with no Realm (Users, Quests) goes to everyone it concerns.
+- The Event stream, Webhooks and `/api/events` deliver an Event only to a User with an active Membership in the Event's Realm at delivery time. A Quest Event goes by the Quest's Realm.
 - Realm keys stay unique across the instance. A key collision with a private Realm discloses that the key is taken; accepted.
 
 ## Migration
@@ -51,4 +51,4 @@ The first Admin becomes Owner of every existing Realm. Nobody else is a member u
 - MCP resolves Realm and Labour arguments through `mcp/refs.ts`, which answers `not_found` for anything the caller cannot see, so a tool never reaches a hidden row.
 - Specs run with enforcement off (`test/setup.ts`); the access specs turn it on and act as a non-member, a viewer, an editor and an Owner against one Realm.
 - Membership changes record no Events. Only a Realm's Labours, Quests and States do, and an Event reaches only members, per `docs/events.md`.
-- The Labour page's "add to Quest" list still names every Quest; adding fails `forbidden` unless the caller owns it.
+- The Labour page's "add to Quest" list names the Quests in every Realm the caller can see; adding fails `forbidden` unless they can edit the Quest's Realm.

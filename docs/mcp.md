@@ -128,16 +128,16 @@ The Realm's `state` and `substate` arguments resolve within `realm`. Every write
 
 ### Quests
 
-| Tool                   | Input                                         | Output                                                                |
-| ---------------------- | --------------------------------------------- | --------------------------------------------------------------------- |
-| `list_quests`          |                                               | `{ quests: [{ id, path, url, name, description, owner, progress }] }` |
-| `get_quest`            | `quest`                                       | `{ quest: Quest }`                                                    |
-| `create_quest`         | `name, description?, owner? (you)`            | `{ quest: Quest }`                                                    |
-| `update_quest`         | `quest, name?, description?, owner?`          | `{ quest: Quest }`                                                    |
-| `delete_quest`         | `quest`                                       | `{ deleted: { id, name } }`                                           |
-| `add_quest_labours`    | `quest, labours: Labour[] (1–100), placement` | `{ quest: Quest, added, skipped }`                                    |
-| `remove_quest_labours` | `quest, labours: Labour[] (1–100)`            | `{ quest: Quest, removed, skipped }`                                  |
-| `rank_quest_labour`    | `quest, labour, placement` (required)         | `{ quest: Quest }`                                                    |
+| Tool                   | Input                                         | Output                                                                       |
+| ---------------------- | --------------------------------------------- | ---------------------------------------------------------------------------- |
+| `list_quests`          |                                               | `{ quests: [{ id, path, url, name, description, realm, owner, progress }] }` |
+| `get_quest`            | `quest`                                       | `{ quest: Quest }`                                                           |
+| `create_quest`         | `realm, name, description?, owner? (you)`     | `{ quest: Quest }`                                                           |
+| `update_quest`         | `quest, name?, description?, owner?`          | `{ quest: Quest }`                                                           |
+| `delete_quest`         | `quest`                                       | `{ deleted: { id, name } }`                                                  |
+| `add_quest_labours`    | `quest, labours: Labour[] (1–100), placement` | `{ quest: Quest, added, skipped }`                                           |
+| `remove_quest_labours` | `quest, labours: Labour[] (1–100)`            | `{ quest: Quest, removed, skipped }`                                         |
+| `rank_quest_labour`    | `quest, labour, placement` (required)         | `{ quest: Quest }`                                                           |
 
 `add_quest_labours` and `remove_quest_labours` are one write each, recording one `quest.labours_added` or `quest.labours_removed` that names only the Labours that changed. `added`, `removed` and `skipped` are Labour keys. A Labour already as asked is skipped, never an error, so a repeated call is safe; a Labour listed twice counts once; an unknown Labour fails the whole call. Labours are added in the order given, and never with their Children.
 

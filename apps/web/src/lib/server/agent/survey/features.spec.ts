@@ -12,7 +12,13 @@ import { addQuestLabours, createQuest } from '#lib/server/domain/quests.ts';
 import { listStates } from '#lib/server/domain/states.ts';
 import type { Actor } from '#lib/server/domain/write.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedActor, seedLabour, seedRealm, seedUser } from '#lib/server/test/fixtures.ts';
+import {
+	seedActor,
+	seedLabour,
+	seedRealm,
+	seedUser,
+	anyRealmId
+} from '#lib/server/test/fixtures.ts';
 
 let db: Db;
 let actor: Actor;
@@ -427,9 +433,17 @@ describe('quest_finish', () => {
 		const h = seedLabour(db, { realmId: am.id });
 		const i = seedLabour(db, { realmId: am.id });
 		for (const labour of [shutHere, shutThere, h, i]) close(labour);
-		const big = createQuest(db, actor, { name: 'Big', ownerId: actor.id });
-		const small = createQuest(db, actor, { name: 'Small', ownerId: actor.id });
-		const nearly = createQuest(db, actor, { name: 'Nearly', ownerId: actor.id });
+		const big = createQuest(db, actor, { realmId: anyRealmId(db), name: 'Big', ownerId: actor.id });
+		const small = createQuest(db, actor, {
+			realmId: anyRealmId(db),
+			name: 'Small',
+			ownerId: actor.id
+		});
+		const nearly = createQuest(db, actor, {
+			realmId: anyRealmId(db),
+			name: 'Nearly',
+			ownerId: actor.id
+		});
 		addQuestLabours(db, actor, big.id, [a.id, shutHere.id, shutThere.id, d.id]);
 		addQuestLabours(db, actor, small.id, [a.id, e.id]);
 		addQuestLabours(db, actor, nearly.id, [g.id, h.id, i.id]);
@@ -450,7 +464,7 @@ describe('quest_finish', () => {
 		const shutThere = seedLabour(db, { realmId: bl.id });
 		const d = seedLabour(db, { realmId: bl.id });
 		close(shutThere);
-		const quest = createQuest(db, actor, { name: 'Q', ownerId: actor.id });
+		const quest = createQuest(db, actor, { realmId: anyRealmId(db), name: 'Q', ownerId: actor.id });
 		addQuestLabours(db, actor, quest.id, [a.id, shutThere.id, d.id]);
 
 		const { of } = featureScores({ quest_finish: 1 }, { realmIds: [am.id] });
@@ -464,7 +478,7 @@ describe('quest_finish', () => {
 		const shut = seedLabour(db, { realmId: realm.id });
 		const loose = seedLabour(db, { realmId: realm.id });
 		close(shut);
-		const quest = createQuest(db, actor, { name: 'Q', ownerId: actor.id });
+		const quest = createQuest(db, actor, { realmId: anyRealmId(db), name: 'Q', ownerId: actor.id });
 		addQuestLabours(db, actor, quest.id, [open.id, shut.id]);
 
 		const { of } = featureScores({ quest_finish: 1 }, { filter: { includeClosed: true } });

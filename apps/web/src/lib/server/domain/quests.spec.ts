@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { questLabours, labours } from '#lib/server/db/schema.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedActor, seedRealm, seedLabour, seedUser } from '#lib/server/test/fixtures.ts';
+import {
+	seedActor,
+	seedRealm,
+	seedLabour,
+	seedUser,
+	anyRealmId
+} from '#lib/server/test/fixtures.ts';
 import { DomainError } from './errors.ts';
 import {
 	addQuestLabour,
@@ -49,13 +55,19 @@ function expectDomainError(action: () => unknown, code: DomainError['code']) {
 	expect((thrown as DomainError).code).toBe(code);
 }
 
-const seedQuest = (name = 'Launch') => createQuest(db, actor, { name, ownerId });
+const seedQuest = (name = 'Launch') =>
+	createQuest(db, actor, { realmId: anyRealmId(db), name, ownerId });
 const keys = (questId: number) => listQuestLabours(db, questId).map((t) => t.key);
 const closedOf = (realmId: number) => listStates(db, realmId).find((s) => s.isClosed)!;
 
 describe('Quest CRUD', () => {
 	it('creates a Quest with a name, description and Owner, and no Labours', () => {
-		const quest = createQuest(db, actor, { name: ' Launch ', description: 'Ship it', ownerId });
+		const quest = createQuest(db, actor, {
+			realmId: anyRealmId(db),
+			name: ' Launch ',
+			description: 'Ship it',
+			ownerId
+		});
 
 		expect(quest).toMatchObject({
 			name: 'Launch',
@@ -68,8 +80,14 @@ describe('Quest CRUD', () => {
 	});
 
 	it('rejects a blank name and an Owner that does not exist', () => {
-		expectDomainError(() => createQuest(db, actor, { name: '  ', ownerId }), 'invalid');
-		expectDomainError(() => createQuest(db, actor, { name: 'x', ownerId: 999 }), 'invalid');
+		expectDomainError(
+			() => createQuest(db, actor, { realmId: anyRealmId(db), name: '  ', ownerId }),
+			'invalid'
+		);
+		expectDomainError(
+			() => createQuest(db, actor, { realmId: anyRealmId(db), name: 'x', ownerId: 999 }),
+			'invalid'
+		);
 		expect(listQuests(db)).toEqual([]);
 	});
 

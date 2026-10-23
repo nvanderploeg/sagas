@@ -35,7 +35,8 @@
 	<div>
 		<h1 class="text-4xl font-extrabold tracking-tight">Quests</h1>
 		<p class="mt-1 max-w-prose text-muted">
-			A Quest gathers Labours from any Realm. It is complete when every one of them is Closed.
+			A Quest belongs to a Realm, which decides who sees and edits it, and gathers Labours from any
+			Realm you can see. It is complete when every one of them is Closed.
 		</p>
 	</div>
 
@@ -43,13 +44,23 @@
 		method="POST"
 		action="?/create"
 		use:enhance
-		class="panel grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-end"
+		class="panel grid gap-3 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-end"
 	>
 		<label class="grid gap-1">
 			<span class="label">New Quest</span>
 			<input name="name" required maxlength="120" placeholder="Name" class="field" />
 		</label>
-		<button type="submit" class="btn btn-primary">Create Quest</button>
+		<label class="grid gap-1">
+			<span class="label">Realm</span>
+			<select name="realmId" required class="field">
+				{#each list.realms as realm (realm.id)}
+					<option value={realm.id}>{realm.name} ({realm.key})</option>
+				{/each}
+			</select>
+		</label>
+		<button type="submit" class="btn btn-primary" disabled={list.realms.length === 0}>
+			Create Quest
+		</button>
 		{#if failed}<p role="alert" class="error sm:col-span-2">{failed.error}</p>{/if}
 	</form>
 
@@ -67,6 +78,7 @@
 						>
 						{#if owner}<Avatar person={owner} size="sm" title="Owner: {owner.displayName}" />{/if}
 					</div>
+					<p class="key">{list.realms.find((r) => r.id === quest.realmId)?.key}</p>
 					<XpBar closed={quest.progress.closed} total={quest.progress.total} />
 				</li>
 			{/each}

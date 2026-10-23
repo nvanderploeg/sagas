@@ -22,7 +22,7 @@ const INSTRUCTIONS = `sagas is a labour tracker. Vocabulary:
 - Substate: an optional subdivision of a State. When a State has Substates, its Labours are always in one.
 - Rank: a Labour's position within its State's board column, top first: the order people set on the board. To decide what comes next, run a Survey.
 - Parent and Children: a Labour has at most one Parent.
-- Quest: a named, ordered set of Labours across Realms; progress is its Closed Labours over all.
+- Quest: a named, ordered set of Labours that belongs to one Realm (which decides who sees and edits it) and may list Labours from any Realm you can see; progress is its Closed Labours over all.
 - Agent layer: data for agents, shown to people only in an Advanced view. Any member of a Realm may change its part of it; its writes record no Events.
 - Attribute: a field a Realm defines for agents to set on its Labours (a scale, tags or text), with a rubric saying what each value means.
 - Appraisal: an agent's Brief (one or two sentences summing up a Labour, returned with every Labour) and References for a Labour, stamped with the hash of the content it read; stale once that content changes.

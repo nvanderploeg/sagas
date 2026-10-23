@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedActor, seedRealm, seedLabour, seedUser } from '#lib/server/test/fixtures.ts';
+import {
+	seedActor,
+	seedRealm,
+	seedLabour,
+	seedUser,
+	anyRealmId
+} from '#lib/server/test/fixtures.ts';
 import { addQuestLabour, createQuest } from './quests.ts';
 import { createState, listStates, moveState, updateState } from './states.ts';
 import { queryLabours, type LabourFilter } from './labour-query.ts';
@@ -93,7 +99,11 @@ describe('queryLabours', () => {
 	it('lists a Quest in Quest order', () => {
 		const am = seedRealm(db, 'AM');
 		const actor = seedActor(db);
-		const quest = createQuest(db, actor, { name: 'Q', ownerId: seedUser(db) });
+		const quest = createQuest(db, actor, {
+			realmId: anyRealmId(db),
+			name: 'Q',
+			ownerId: seedUser(db)
+		});
 		const [a, b] = [seedLabour(db, { realmId: am.id }), seedLabour(db, { realmId: am.id })];
 		seedLabour(db, { realmId: am.id });
 		addQuestLabour(db, actor, quest.id, a.id);

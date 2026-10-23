@@ -120,7 +120,7 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 					closed: args.closed,
 					open: args.open,
 					labels: args.labels === undefined ? undefined : normalizeLabels(args.labels),
-					questId: args.quest === undefined ? undefined : refs.questId(db, args.quest)
+					questId: args.quest === undefined ? undefined : refs.questId(db, args.quest, actor)
 				},
 				{ offset: args.offset, limit: args.limit }
 			);

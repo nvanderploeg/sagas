@@ -37,7 +37,7 @@ import {
 import type { Actor } from '#lib/server/domain/write.ts';
 import { eventsSince, readAtSeq } from '#lib/server/events/log.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { seedActor, seedUser, TODO } from '#lib/server/test/fixtures.ts';
+import { seedActor, seedUser, TODO, anyRealmId } from '#lib/server/test/fixtures.ts';
 import {
 	readHome,
 	readQuestList,
@@ -136,7 +136,11 @@ describe('the client views, fed by the Stream', () => {
 		const am = realm('AM');
 		const bl = realm('BL');
 		const cc = realm('CC');
-		const quest = createQuest(db, actor, { name: 'Launch', ownerId: actor.id });
+		const quest = createQuest(db, actor, {
+			realmId: anyRealmId(db),
+			name: 'Launch',
+			ownerId: actor.id
+		});
 		const closedOf = (realmId: number) => listStates(db, realmId).find((s) => s.isClosed)!.id;
 
 		const feed = new FeedCore();
@@ -188,7 +192,10 @@ describe('the client views, fed by the Stream', () => {
 			['add to the Quest', () => addQuestLabour(db, actor, quest.id, a)],
 			['add with Children', () => addQuestLabourWithChildren(db, actor, quest.id, d)],
 			['add across Realms', () => addQuestLabour(db, actor, quest.id, c, 'top')],
-			['a second Quest', () => createQuest(db, actor, { name: 'Other', ownerId: other })],
+			[
+				'a second Quest',
+				() => createQuest(db, actor, { realmId: anyRealmId(db), name: 'Other', ownerId: other })
+			],
 			['edit a member', () => updateLabour(db, actor, a, { title: 'renamed' })],
 			['assign away', () => updateLabour(db, actor, b, { assigneeId: other })],
 			['hand over', () => updateLabour(db, actor, b, { ownerId: other })],
@@ -249,7 +256,7 @@ describe('applyToBoard', () => {
 		rankLabour(db, actor, sibling.id, 'top');
 		setParent(db, actor, sibling.id, there.id);
 		createState(db, actor, bl.id, style);
-		const quest = createQuest(db, actor, { name: 'Q', ownerId: actor.id });
+		const quest = createQuest(db, actor, { realmId: anyRealmId(db), name: 'Q', ownerId: actor.id });
 		addQuestLabour(db, actor, quest.id, there.id);
 		renameRealmKey(db, actor, bl.id, 'BX');
 		deleteLabour(db, actor, sibling.id);
