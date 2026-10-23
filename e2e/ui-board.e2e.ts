@@ -121,6 +121,7 @@ test.describe('board', () => {
 		const tag = Date.now().toString(36);
 		const name = `Filter Bot ${tag}`;
 		const bot = ui.agent(`bot${tag}`, name);
+		ui.join(p.id, bot.id);
 		ui.labour(p.id, { title: 'Mine, unassigned' });
 		ui.labour(p.id, { title: 'For the bot', assigneeId: bot.id });
 

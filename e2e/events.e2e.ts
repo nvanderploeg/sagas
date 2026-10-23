@@ -272,7 +272,11 @@ test.describe('GET /api/events', () => {
 		const stream = await openStream({ authorization: `Bearer ${apiToken.token}` }, '?since=0');
 		try {
 			const frames = await stream.until((f) => ids(f).at(-1) === last);
-			expect(ids(frames)).toEqual(Array.from({ length: last }, (_, i) => i + 1));
+			// Events of Realms this User is not in are skipped, so the seqs only ascend.
+			const seen = ids(frames);
+			expect(seen).toEqual([...seen].sort((x, y) => x - y));
+			expect(new Set(seen).size).toBe(seen.length);
+			expect(seen.at(-1)).toBe(last);
 		} finally {
 			await stream.close();
 		}

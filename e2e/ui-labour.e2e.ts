@@ -47,6 +47,7 @@ test.describe('labour page', () => {
 		const tag = Date.now().toString(36);
 		const name = `Field Bot ${tag}`;
 		const bot = ui.agent(`bot${tag}`, name);
+		ui.join(p.id, bot.id);
 		const t = ui.labour(p.id, { title: 'Fields' });
 		await page.goto(`/l/${t.key}`);
 		await live(page);
@@ -130,7 +131,7 @@ test.describe('labour page', () => {
 
 	test('joins and leaves a Quest, and deletes the Labour', async ({ page, ui }) => {
 		const p = ui.realm();
-		const quest = ui.quest(`Side quest ${Date.now().toString(36)}`);
+		const quest = ui.quest(p.id, `Side quest ${Date.now().toString(36)}`);
 		const t = ui.labour(p.id, { title: 'Doomed' });
 		await page.goto(`/l/${t.key}`);
 		await live(page);

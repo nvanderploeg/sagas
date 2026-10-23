@@ -372,6 +372,7 @@ test.describe('advanced view', () => {
 		await expect(layer(page).getByTestId('agent-brief')).toBeVisible();
 
 		const scout = ui.agent(uniqueName('scout'), 'Scout Bot');
+		ui.join(target.realmId, scout.id);
 		ui.appraiseAs(scout.id, [{ labourId: target.id, brief: 'Rewritten by the scout.' }]);
 		await layer(page).getByRole('button', { name: 'Refresh' }).click();
 		const brief = layer(page).getByRole('region', { name: 'Brief' });

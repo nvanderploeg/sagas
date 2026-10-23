@@ -48,6 +48,14 @@ const TOOLS = [
 	'delete_quest',
 	'add_quest_labours',
 	'remove_quest_labours',
+	'list_members',
+	'offer_membership',
+	'withdraw_offer',
+	'set_member_role',
+	'remove_member',
+	'list_offers',
+	'accept_offer',
+	'decline_offer',
 	'rank_quest_labour',
 	'whoami',
 	'list_users',
@@ -154,9 +162,18 @@ test.describe('MCP at /mcp', () => {
 			const before = seed.lastSeq();
 			await agent.ok('create_realm', { name: 'By the bot', key: uniqueRealmKey() });
 
-			const events = await eventsAfter(apiToken.token, before);
+			const events = await eventsAfter(token, before);
 			expect(events.map((e) => [e.type, e.actor])).toEqual([
-				['realm.created', { id: bot.id, kind: 'agent', username, displayName: 'Bot' }]
+				[
+					'realm.created',
+					{
+						id: bot.id,
+						kind: 'agent',
+						username,
+						displayName: 'Bot',
+						via: { tokenId: expect.any(Number), name: 'e2e' }
+					}
+				]
 			]);
 		} finally {
 			await agent.close();
@@ -297,7 +314,11 @@ test.describe('MCP at /mcp', () => {
 		}
 		await mcp.ok('set_parent', { labour: `${key}-2`, parent: `${key}-1` });
 
-		const { quest } = await mcp.ok('create_quest', { name: 'Launch', description: 'Go live' });
+		const { quest } = await mcp.ok('create_quest', {
+			realm: key,
+			name: 'Launch',
+			description: 'Go live'
+		});
 		expect(quest).toMatchObject({ name: 'Launch', labours: [], progress: { closed: 0, total: 0 } });
 
 		const added = await mcp.ok('add_quest_labours', {
@@ -409,7 +430,7 @@ test.describe('MCP at /mcp', () => {
 			await mcp.ok('create_labour', { realm: key, title: `Bulk ${i}` });
 			labours.push(`${key}-${i}`);
 		}
-		const { quest } = await mcp.ok('create_quest', { name: 'Bulk' });
+		const { quest } = await mcp.ok('create_quest', { realm: key, name: 'Bulk' });
 
 		const before = seed.lastSeq();
 		const added = await mcp.ok('add_quest_labours', { quest: quest.id, labours });

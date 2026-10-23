@@ -110,7 +110,8 @@ test.describe('live sync between two browsers', () => {
 
 		const tag = Date.now().toString(36);
 		const name = `Late Bot ${tag}`;
-		ui.agent(`late${tag}`, name);
+		const late = ui.agent(`late${tag}`, name);
+		ui.join(p.id, late.id);
 		await page.goto(`/l/${t.key}`);
 		await live(page);
 		await page.getByLabel('Owner').selectOption({ label: name });

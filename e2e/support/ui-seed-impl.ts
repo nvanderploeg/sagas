@@ -18,6 +18,7 @@ import {
 import { pulses } from '../../apps/web/src/lib/server/db/schema.ts';
 import { addComment } from '../../apps/web/src/lib/server/domain/comments.ts';
 import { createRealm, readRealm } from '../../apps/web/src/lib/server/domain/realms.ts';
+import { acceptOffer, offerMembership } from '../../apps/web/src/lib/server/domain/memberships.ts';
 import {
 	addQuestLabour,
 	createQuest,
@@ -45,7 +46,20 @@ export function createUiSeed(db: Db, actorId: number) {
 	const actor = findUser(db, actorId);
 	if (!actor) throw new Error(`no user ${actorId} in the run database`);
 
+	// Users every new Realm is shared with as an Owner, so a second browser can use it fully.
+	const sharedWith: number[] = [];
+
 	const self = {
+		shareNewRealmsWith(userId: number) {
+			sharedWith.push(userId);
+		},
+
+		// Adds a User to a Realm: the Owner's Offer, accepted.
+		join(realmId: number, userId: number, role: 'owner' | 'editor' | 'viewer' = 'editor') {
+			offerMembership(db, actor, realmId, userId, role);
+			acceptOffer(db, findUser(db, userId)!, realmId);
+		},
+
 		// A Realm with To do, In progress and Closed.
 		realm(input: { key?: string; name?: string } = {}) {
 			const key = input.key ?? freshKey();
@@ -54,6 +68,9 @@ export function createUiSeed(db: Db, actorId: number) {
 				key,
 				initialState: { key: 'todo', label: 'To do', color: '#94a3b8', icon: 'circle' }
 			});
+			for (const userId of sharedWith) {
+				self.join(realm.id, userId, 'owner');
+			}
 			const doing = createState(db, actor, realm.id, {
 				key: 'doing',
 				label: 'In progress',
@@ -102,8 +119,8 @@ export function createUiSeed(db: Db, actorId: number) {
 			return updateLabour(db, actor, labourId, { stateId: closedStateId });
 		},
 
-		quest(name = 'Quest', description = '') {
-			return createQuest(db, actor, { name, description, ownerId: actor.id });
+		quest(realmId: number, name = 'Quest', description = '') {
+			return createQuest(db, actor, { realmId, name, description, ownerId: actor.id });
 		},
 
 		addToQuest(questId: number, labourId: number) {
