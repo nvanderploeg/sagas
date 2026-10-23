@@ -62,10 +62,11 @@ function attribute(key: string, kind: 'scale' | 'tags' | 'text', spec?: object, 
 describe('readLabourLayer', () => {
 	it('answers a Labour with nothing kept as an empty layer', () => {
 		const target = labour();
-		expect(readLabourLayer(db, target.id)).toEqual({
+		expect(readLabourLayer(db, actor, target.id)).toEqual({
 			brief: '',
 			refs: [],
 			setBy: null,
+			via: null,
 			setAt: null,
 			stamp: null,
 			unappraised: true,
@@ -96,13 +97,19 @@ describe('readLabourLayer', () => {
 			ago(5)
 		);
 
-		const { values } = readLabourLayer(db, target.id);
+		const { values } = readLabourLayer(db, actor, target.id);
 		expect(values.map(({ key, label, kind, display }) => ({ key, label, kind, display }))).toEqual([
 			{ key: 'effort', label: 'Effort', kind: 'scale', display: '3 / 5' },
 			{ key: 'area', label: 'area', kind: 'tags', display: 'Database, Interface' },
 			{ key: 'why', label: 'Why', kind: 'text', display: 'Players asked' }
 		]);
-		expect(values[0]).toMatchObject({ value: 3, setBy: actor.id, setAt: ago(5), stale: false });
+		expect(values[0]).toMatchObject({
+			value: 3,
+			setBy: actor.id,
+			via: null,
+			setAt: ago(5),
+			stale: false
+		});
 	});
 
 	it('marks a value stale once its Attribute is revised', () => {
@@ -110,7 +117,7 @@ describe('readLabourLayer', () => {
 		attribute('effort', 'scale', { min: 1, max: 5 });
 		setValues(db, actor, target.id, { effort: 2 }, ago(5));
 		defineAttribute(db, actor, realm.id, { key: 'effort', kind: 'scale', rubric: 'New' }, ago(1));
-		expect(readLabourLayer(db, target.id).values[0].stale).toBe(true);
+		expect(readLabourLayer(db, actor, target.id).values[0].stale).toBe(true);
 	});
 
 	it('carries the Brief, References, needs and the stamp', () => {
@@ -131,14 +138,14 @@ describe('readLabourLayer', () => {
 		);
 		expect(labourId).toBe(target.id);
 
-		const layer = readLabourLayer(db, target.id);
+		const layer = readLabourLayer(db, actor, target.id);
 		expect(layer.brief).toBe('Rubber-banding on join');
 		expect(layer.refs).toEqual([
 			{ href: 'https://example.com/a', label: 'Report' },
 			{ href: 'src/net.ts', label: null }
 		]);
 		expect(layer.needs).toEqual([
-			{ key: 'netcode', label: 'Netcode', level: 4, setBy: actor.id, setAt: ago(3) }
+			{ key: 'netcode', label: 'Netcode', level: 4, setBy: actor.id, via: null, setAt: ago(3) }
 		]);
 		expect(layer).toMatchObject({ stamp: null, unappraised: true, setBy: actor.id });
 	});
@@ -147,14 +154,17 @@ describe('readLabourLayer', () => {
 		const target = labour();
 		const hash = contentHash(db, target.id);
 		appraise(db, actor, [{ labourId: target.id, stamp: hash }], ago(2));
-		expect(readLabourLayer(db, target.id)).toMatchObject({
-			stamp: { appraisedBy: actor.id, appraisedAt: ago(2) },
+		expect(readLabourLayer(db, actor, target.id)).toMatchObject({
+			stamp: { appraisedBy: actor.id, appraisedVia: null, appraisedAt: ago(2) },
 			unappraised: false,
 			stale: false
 		});
 
 		addComment(db, actor, target.id, 'Something new');
-		expect(readLabourLayer(db, target.id)).toMatchObject({ unappraised: false, stale: true });
+		expect(readLabourLayer(db, actor, target.id)).toMatchObject({
+			unappraised: false,
+			stale: true
+		});
 	});
 
 	it('gives Links a direction from this Labour and names the other end', () => {
@@ -173,7 +183,7 @@ describe('readLabourLayer', () => {
 			}
 		]);
 
-		const { links, moreLinks } = readLabourLayer(db, target.id);
+		const { links, moreLinks } = readLabourLayer(db, actor, target.id);
 		expect(moreLinks).toBe(0);
 		expect(
 			links.map((link) => [link.type, link.direction, link.other.key, link.other.title, link.note])
@@ -193,7 +203,7 @@ describe('readLabourLayer', () => {
 		for (let at = 0; at < links.length; at += 25) {
 			appraise(db, actor, [{ labourId: target.id, links: links.slice(at, at + 25) }]);
 		}
-		const layer = readLabourLayer(db, target.id);
+		const layer = readLabourLayer(db, actor, target.id);
 		expect(layer.links).toHaveLength(LINKS_SHOWN);
 		expect(layer.moreLinks).toBe(3);
 	});
@@ -202,7 +212,7 @@ describe('readLabourLayer', () => {
 		const target = labour('Target');
 		const source = labour('Source');
 		addComment(db, actor, source.id, `See ${'AM-1'}`);
-		const { mentions } = readLabourLayer(db, target.id);
+		const { mentions } = readLabourLayer(db, actor, target.id);
 		expect(mentions).toHaveLength(1);
 		expect(mentions[0]).toMatchObject({
 			source: { id: source.id, key: 'AM-2', title: 'Source' },
@@ -212,7 +222,7 @@ describe('readLabourLayer', () => {
 	});
 
 	it('is not found for a missing Labour', () => {
-		expect(() => readLabourLayer(db, 999)).toThrow(DomainError);
+		expect(() => readLabourLayer(db, actor, 999)).toThrow(DomainError);
 	});
 
 	it('reads in as many statements however much the Labour holds', () => {
@@ -239,17 +249,17 @@ describe('readLabourLayer', () => {
 			for (const other of others) addComment(db, actor, other.id, 'AM-1 again');
 		};
 		kept([first]);
-		const few = statements(() => readLabourLayer(db, target.id));
+		const few = statements(() => readLabourLayer(db, actor, target.id));
 
 		kept([first, ...Array.from({ length: 6 }, () => labour())]);
-		expect(readLabourLayer(db, target.id).links).toHaveLength(7);
-		expect(statements(() => readLabourLayer(db, target.id))).toBe(few);
+		expect(readLabourLayer(db, actor, target.id).links).toHaveLength(7);
+		expect(statements(() => readLabourLayer(db, actor, target.id))).toBe(few);
 	});
 });
 
 describe('readRealmLayer', () => {
 	it('answers a Realm with nothing kept as defaults', () => {
-		expect(readRealmLayer(db, realm.id, NOW)).toEqual({
+		expect(readRealmLayer(db, actor, realm.id, NOW)).toEqual({
 			notes: '',
 			halfLifeDays: 14,
 			loudness: 5,
@@ -286,7 +296,7 @@ describe('readRealmLayer', () => {
 			NOW
 		);
 
-		const layer = readRealmLayer(db, realm.id, NOW);
+		const layer = readRealmLayer(db, actor, realm.id, NOW);
 		expect(layer).toMatchObject({ notes: '**Play** first', halfLifeDays: 7, loudness: 3 });
 		expect(layer.attributes.map((a) => [a.key, a.label, a.held, a.stale])).toEqual([
 			['perf', 'Performance', 1, 0],
@@ -312,7 +322,7 @@ describe('readRealmLayer', () => {
 		postPulses(db, actor, realm.id, keyed.slice(0, 24), NOW);
 		postPulses(db, actor, realm.id, loose.slice(0, 24), NOW);
 
-		const layer = readRealmLayer(db, realm.id, NOW);
+		const layer = readRealmLayer(db, actor, realm.id, NOW);
 		expect(layer.sentiment).toHaveLength(KEYS_SHOWN);
 		expect(layer.moreSentiment).toBe(4);
 		expect(layer.unfiled).toHaveLength(KEYS_SHOWN);
@@ -320,13 +330,13 @@ describe('readRealmLayer', () => {
 	});
 
 	it('is not found for a missing Realm', () => {
-		expect(() => readRealmLayer(db, 999)).toThrow(DomainError);
+		expect(() => readRealmLayer(db, actor, 999)).toThrow(DomainError);
 	});
 
 	it('reads in as many statements however much the Realm holds', () => {
 		attribute('perf', 'scale', { min: 0, max: 4 });
 		postPulses(db, actor, realm.id, [{ key: 'perf', amount: 1, mood: 1 }], NOW);
-		const few = statements(() => readRealmLayer(db, realm.id, NOW));
+		const few = statements(() => readRealmLayer(db, actor, realm.id, NOW));
 
 		for (let at = 0; at < 8; at++) attribute(`more${at}`, 'scale', { min: 0, max: 4 });
 		postPulses(
@@ -340,7 +350,7 @@ describe('readRealmLayer', () => {
 			],
 			NOW
 		);
-		expect(statements(() => readRealmLayer(db, realm.id, NOW))).toBe(few);
+		expect(statements(() => readRealmLayer(db, actor, realm.id, NOW))).toBe(few);
 	});
 });
 

@@ -21,23 +21,40 @@ import {
 	updateSubstate,
 	type StyleUpdate
 } from '#lib/server/domain/states.ts';
+import { memberRole } from '#lib/server/domain/access.ts';
+import {
+	listMembers,
+	offerMembership,
+	removeMember,
+	requireRole,
+	setMemberRole,
+	withdrawOffer
+} from '#lib/server/domain/memberships.ts';
+import { findUserByName } from '#lib/server/auth/users.ts';
 import { readAtSeq } from '#lib/server/events/log.ts';
 import { int, perform, signedIn, text } from '#lib/server/ui/form.ts';
 import { findRealmByKey, toJson } from '#lib/server/ui/reads.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-function realmFor(key: string) {
-	const realm = findRealmByKey(getDb(), key);
+function realmFor(locals: App.Locals, key: string) {
+	const realm = findRealmByKey(getDb(), key, signedIn(locals));
 	if (!realm) error(404, 'No Realm has that key');
 	return realm;
 }
 
-export const load: PageServerLoad = ({ params }) => {
-	const realm = realmFor(params.key);
+export const load: PageServerLoad = ({ params, locals }) => {
+	const realm = realmFor(locals, params.key);
 	if (realm.key !== params.key) redirect(307, `/r/${realm.key}/settings`);
 	try {
+		const viewer = signedIn(locals);
 		const { seq, value } = readAtSeq(getDb(), (tx) => ({ realm: readRealm(tx, realm.id) }));
-		return { seq, settings: toJson(value) };
+		return {
+			seq,
+			settings: toJson(value),
+			members: toJson(listMembers(getDb(), viewer, realm.id)),
+			role: memberRole(getDb(), realm.id, viewer.id),
+			me: viewer.id
+		};
 	} catch (e) {
 		if (e instanceof DomainError && e.code === 'not_found') error(404, 'No Realm has that key');
 		throw e;
@@ -80,7 +97,7 @@ export const actions: Actions = {
 	rename: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const realm = realmFor(params.key);
+		const realm = realmFor(locals, params.key);
 		return perform('rename', () => {
 			updateRealm(getDb(), actor, realm.id, { name: text(form, 'name') });
 		});
@@ -89,7 +106,7 @@ export const actions: Actions = {
 	rekey: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const realm = realmFor(params.key);
+		const realm = realmFor(locals, params.key);
 		const result = perform('rekey', () => {
 			const renamed = renameRealmKey(getDb(), actor, realm.id, text(form, 'key'));
 			return { key: renamed.key };
@@ -103,7 +120,7 @@ export const actions: Actions = {
 	initial: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const realm = realmFor(params.key);
+		const realm = realmFor(locals, params.key);
 		return perform('initial', () => {
 			setInitialState(getDb(), actor, realm.id, int(form, 'stateId'));
 		});
@@ -112,7 +129,7 @@ export const actions: Actions = {
 	addState: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const realm = realmFor(params.key);
+		const realm = realmFor(locals, params.key);
 		return perform('addState', () => {
 			const db = getDb();
 			const taken = readRealm(db, realm.id).states.map((s) => s.key);
@@ -171,7 +188,7 @@ export const actions: Actions = {
 	addSubstate: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const realm = realmFor(params.key);
+		const realm = realmFor(locals, params.key);
 		return perform(`substates:${text(form, 'stateId')}`, () => {
 			const id = int(form, 'stateId');
 			const db = getDb();
@@ -217,9 +234,44 @@ export const actions: Actions = {
 		});
 	},
 
+	offer: async ({ request, locals, params }) => {
+		const actor = signedIn(locals);
+		const form = await request.formData();
+		const realm = realmFor(locals, params.key);
+		return perform('members', () => {
+			const db = getDb();
+			const user = findUserByName(db, text(form, 'username'));
+			if (!user) throw new DomainError('not_found', 'No User has that username');
+			offerMembership(db, actor, realm.id, user.id, requireRole(text(form, 'role')));
+		});
+	},
+
+	setRole: async ({ request, locals, params }) => {
+		const actor = signedIn(locals);
+		const form = await request.formData();
+		const realm = realmFor(locals, params.key);
+		return perform('members', () => {
+			setMemberRole(getDb(), actor, realm.id, int(form, 'userId'), requireRole(text(form, 'role')));
+		});
+	},
+
+	removeMember: async ({ request, locals, params }) => {
+		const actor = signedIn(locals);
+		const form = await request.formData();
+		const realm = realmFor(locals, params.key);
+		const userId = int(form, 'userId');
+		const result = perform('members', () => {
+			const db = getDb();
+			if (form.get('pending') === 'true') withdrawOffer(db, actor, realm.id, userId);
+			else removeMember(db, actor, realm.id, userId);
+		});
+		if (!isActionFailure(result) && userId === actor.id) redirect(303, '/');
+		return result;
+	},
+
 	deleteRealm: async ({ locals, params }) => {
 		const actor = signedIn(locals);
-		const realm = realmFor(params.key);
+		const realm = realmFor(locals, params.key);
 		const result = perform('deleteRealm', () => deleteRealm(getDb(), actor, realm.id));
 		if (!isActionFailure(result)) redirect(303, '/');
 		return result;

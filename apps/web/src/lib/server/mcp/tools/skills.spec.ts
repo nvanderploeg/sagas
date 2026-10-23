@@ -406,8 +406,8 @@ describe('needs on appraise and get_appraisal', () => {
 		expect(result.isError).toBeFalsy();
 		expect(result.structuredContent).toEqual({ appraised: [{ labour: 'AM-1', stamped: false }] });
 		expect((await getAppraisal(client, 'AM-1')).needs).toEqual([
-			{ skill: 'combat-design', level: 4, setBy: 'bob', setAt: now },
-			{ skill: 'vfx', level: 3, setBy: 'bob', setAt: now }
+			{ skill: 'combat-design', level: 4, setBy: 'bob', via: null, setAt: now },
+			{ skill: 'vfx', level: 3, setBy: 'bob', via: null, setAt: now }
 		]);
 	});
 
@@ -434,8 +434,8 @@ describe('needs on appraise and get_appraisal', () => {
 		await appraise(await connect(bob), { labour: 'AM-1', needs: { audio: 2 } });
 
 		expect((await getAppraisal(await connect(), 'AM-1')).needs).toEqual([
-			{ skill: 'audio', level: 2, setBy: 'bob', setAt: second },
-			{ skill: 'vfx', level: 3, setBy: 'root', setAt: first }
+			{ skill: 'audio', level: 2, setBy: 'bob', via: null, setAt: second },
+			{ skill: 'vfx', level: 3, setBy: 'root', via: null, setAt: first }
 		]);
 	});
 
@@ -447,7 +447,7 @@ describe('needs on appraise and get_appraisal', () => {
 		await appraise(await connect(bob), { labour: 'AM-1', needs: { vfx: 5 } });
 
 		expect((await getAppraisal(await connect(), 'AM-1')).needs).toEqual([
-			{ skill: 'vfx', level: 5, setBy: 'bob', setAt: later }
+			{ skill: 'vfx', level: 5, setBy: 'bob', via: null, setAt: later }
 		]);
 	});
 
@@ -598,7 +598,7 @@ describe('needs on appraise and get_appraisal', () => {
 		expect(await getAppraisal(client, 'AM-1')).toMatchObject({
 			labour: 'AM-1',
 			brief: 'a brief',
-			needs: [{ skill: 'audio', level: 5, setBy: 'root', setAt: now }]
+			needs: [{ skill: 'audio', level: 5, setBy: 'root', via: null, setAt: now }]
 		});
 	});
 });

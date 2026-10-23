@@ -118,7 +118,10 @@ describe('the MCP server', () => {
 		});
 		const recorded = eventsSince(db, before);
 		expect(recorded.map((e) => [e.type, e.actor])).toEqual([
-			['labour.created', { id: bob.id, kind: 'human', username: 'bob', displayName: 'bob' }]
+			[
+				'labour.created',
+				{ id: bob.id, kind: 'human', username: 'bob', displayName: 'bob', via: null }
+			]
 		]);
 	});
 

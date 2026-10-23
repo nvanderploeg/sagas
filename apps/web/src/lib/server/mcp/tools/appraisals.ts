@@ -1,3 +1,4 @@
+import { canSeeLabour, visibleRealmIds } from '../../domain/access.ts';
 import { z } from 'zod';
 import {
 	appraise,
@@ -88,14 +89,14 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 		},
 		(args) => {
 			const items = args.labours.map((item): AppraiseItem => ({
-				labourId: refs.labourId(db, item.labour),
+				labourId: refs.labourId(db, item.labour, actor),
 				brief: item.brief,
 				refs: item.refs,
 				values: item.values,
 				links: item.links?.map((link) => ({
 					type: link.type,
-					to: link.to === undefined ? undefined : refs.labourId(db, link.to),
-					from: link.from === undefined ? undefined : refs.labourId(db, link.from),
+					to: link.to === undefined ? undefined : refs.labourId(db, link.to, actor),
+					from: link.from === undefined ? undefined : refs.labourId(db, link.from, actor),
 					note: link.note,
 					remove: link.remove
 				})),
@@ -134,8 +135,8 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 				actor,
 				args.links.map((link) => ({
 					type: link.type,
-					from: refs.labourId(db, link.from),
-					to: refs.labourId(db, link.to),
+					from: refs.labourId(db, link.from, actor),
+					to: refs.labourId(db, link.to, actor),
 					note: link.note,
 					remove: link.remove === true
 				}))
@@ -153,7 +154,7 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 			input: { labour: labourRef }
 		},
 		(args, present) => {
-			const view = readAppraisal(db, refs.labourId(db, args.labour));
+			const view = readAppraisal(db, refs.labourId(db, args.labour, actor));
 			const key = refs.labourKey(db, view.labourId);
 			const setBy = (id: number | null) => (id === null ? null : present.username(id));
 			const data = {
@@ -161,6 +162,7 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 				brief: view.brief,
 				refs: view.refs,
 				setBy: setBy(view.setBy),
+				via: view.via,
 				setAt: view.setAt?.toISOString() ?? null,
 				contentHash: view.contentHash,
 				stamp:
@@ -169,6 +171,7 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 						: {
 								contentHash: view.stamp.contentHash,
 								appraisedBy: present.username(view.stamp.appraisedBy),
+								appraisedVia: view.stamp.appraisedVia,
 								appraisedAt: view.stamp.appraisedAt.toISOString()
 							},
 				unappraised: view.unappraised,
@@ -178,29 +181,36 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 					kind: value.kind,
 					value: value.value,
 					setBy: present.username(value.setBy),
+					via: value.via,
 					setAt: value.setAt.toISOString(),
 					stale: value.stale
 				})),
-				links: view.links.map((link) => ({
-					type: link.type,
-					from: refs.labourKey(db, link.from),
-					to: refs.labourKey(db, link.to),
-					note: link.note,
-					setBy: present.username(link.setBy),
-					setAt: link.setAt.toISOString()
-				})),
+				links: view.links
+					.filter((link) => canSeeLabour(db, actor, link.from) && canSeeLabour(db, actor, link.to))
+					.map((link) => ({
+						type: link.type,
+						from: refs.labourKey(db, link.from),
+						to: refs.labourKey(db, link.to),
+						note: link.note,
+						setBy: present.username(link.setBy),
+						via: link.via,
+						setAt: link.setAt.toISOString()
+					})),
 				needs: view.needs.map((need) => ({
 					skill: need.key,
 					level: need.level,
 					setBy: present.username(need.setBy),
+					via: need.via,
 					setAt: need.setAt.toISOString()
 				})),
-				mentions: view.mentions.map((mention) => ({
-					in: refs.labourKey(db, mention.sourceLabourId),
-					comment: mention.commentId,
-					by: present.username(mention.authorId),
-					firstSeenAt: mention.firstSeenAt.toISOString()
-				}))
+				mentions: view.mentions
+					.filter((mention) => canSeeLabour(db, actor, mention.sourceLabourId))
+					.map((mention) => ({
+						in: refs.labourKey(db, mention.sourceLabourId),
+						comment: mention.commentId,
+						by: present.username(mention.authorId),
+						firstSeenAt: mention.firstSeenAt.toISOString()
+					}))
 			};
 			const state = view.unappraised ? 'unappraised' : view.stale ? 'stale' : 'current';
 			return reply(
@@ -226,7 +236,8 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 			const page = listUnappraised(
 				db,
 				{
-					realmId: args.realm === undefined ? undefined : refs.realmId(db, args.realm),
+					realms: visibleRealmIds(db, actor) ?? undefined,
+					realmId: args.realm === undefined ? undefined : refs.realmId(db, args.realm, actor),
 					includeClosed: args.include_closed
 				},
 				{ offset: args.offset, limit: args.limit }

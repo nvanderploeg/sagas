@@ -24,7 +24,8 @@ export const GET: RequestHandler = ({ request, url, locals }) => {
 	const stream = openEventStream(db, {
 		since,
 		heartbeatMs: streamHeartbeatMs,
-		guard: credentialGuard(db, locals.credential)
+		guard: credentialGuard(db, locals.credential),
+		viewer: locals.user ?? undefined
 	});
 	return new Response(stream, { headers: STREAM_HEADERS });
 };

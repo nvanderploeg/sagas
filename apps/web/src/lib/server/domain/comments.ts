@@ -1,3 +1,4 @@
+import { currentVia } from '#lib/server/auth/via.ts';
 import { asc, eq } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { comments } from '../db/schema.ts';
@@ -6,6 +7,7 @@ import { refreshLabourText } from '../agent/search.ts';
 import { DomainError } from './errors.ts';
 import { getLabour } from './lookup.ts';
 import { requireText } from './validate.ts';
+import { requireRealmRole } from './access.ts';
 import { write, type Actor } from './write.ts';
 
 export type CommentView = typeof comments.$inferSelect;
@@ -24,12 +26,13 @@ export function listComments(db: Handle, labourId: number): CommentView[] {
 
 export function addComment(db: Db, actor: Actor, labourId: number, body: string): CommentView {
 	return write(db, actor, (tx) => {
-		getLabour(tx, labourId);
+		requireRealmRole(tx, actor, getLabour(tx, labourId).realmId, 'editor');
 		const comment = tx
 			.insert(comments)
 			.values({
 				labourId,
 				authorId: actor.id,
+				via: currentVia(),
 				body: requireText(body, 'Comment', COMMENT_MAX)
 			})
 			.returning()
@@ -50,6 +53,7 @@ export function addComment(db: Db, actor: Actor, labourId: number, body: string)
 function ownComment(tx: Handle, actor: Actor, id: number): CommentView {
 	const row = tx.select().from(comments).where(eq(comments.id, id)).get();
 	if (row === undefined) throw new DomainError('not_found', 'Comment not found');
+	requireRealmRole(tx, actor, getLabour(tx, row.labourId).realmId, 'editor');
 	if (row.authorId !== actor.id) {
 		throw new DomainError('forbidden', "Only a Comment's author can change it");
 	}

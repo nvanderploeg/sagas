@@ -6,12 +6,20 @@
 	let {
 		people,
 		by,
+		via = null,
 		at,
 		stale = false
-	}: { people: Map<number, Person>; by: number; at: string; stale?: boolean } = $props();
+	}: {
+		people: Map<number, Person>;
+		by: number;
+		via?: string | null;
+		at: string;
+		stale?: boolean;
+	} = $props();
 </script>
 
 <span class="text-xs text-muted"
-	>{people.get(by)?.displayName ?? 'Someone'} · <time datetime={at}>{stamp(at)}</time></span
+	>{people.get(by)?.displayName ?? 'Someone'}{via ? ` (${via})` : ''} ·
+	<time datetime={at}>{stamp(at)}</time></span
 >
 {#if stale}<Stale />{/if}

@@ -8,6 +8,7 @@ import { placeAt, writePositions } from './positions.ts';
 import { stateEvent, substateEvent } from './realm-view.ts';
 import { readLabour } from './labour-view.ts';
 import { COLOR, ICON, requireMatch, requireText, STATE_KEY } from './validate.ts';
+import { requireRealmRole } from './access.ts';
 import { write, type Actor } from './write.ts';
 
 export type State = typeof states.$inferSelect;
@@ -117,6 +118,7 @@ export function createState(
 ): State {
 	return write(db, actor, (tx) => {
 		getRealm(tx, realmId);
+		requireRealmRole(tx, actor, realmId, 'owner');
 		const value = insertState(tx, realmId, input, { index, open });
 		return {
 			value,
@@ -128,6 +130,7 @@ export function createState(
 export function updateState(db: Db, actor: Actor, stateId: number, patch: StateUpdate): State {
 	return write(db, actor, (tx) => {
 		const state = getState(tx, stateId);
+		requireRealmRole(tx, actor, state.realmId, 'owner');
 		const update: Partial<Pick<State, 'label' | 'color' | 'icon' | 'isOpen'>> = normalizeUpdate(
 			patch,
 			'State'
@@ -151,6 +154,7 @@ export function updateState(db: Db, actor: Actor, stateId: number, patch: StateU
 export function setNextStates(db: Db, actor: Actor, stateId: number, next: number[]): State {
 	return write(db, actor, (tx) => {
 		const state = getState(tx, stateId);
+		requireRealmRole(tx, actor, state.realmId, 'owner');
 		if (state.isClosed) throw new DomainError('forbidden', 'The Closed State has no next States');
 		const ids = [...new Set(next)];
 		const realmStates = listStates(tx, state.realmId);
@@ -182,6 +186,7 @@ export function setNextStates(db: Db, actor: Actor, stateId: number, next: numbe
 export function moveState(db: Db, actor: Actor, stateId: number, index: number): State {
 	return write(db, actor, (tx) => {
 		const state = getState(tx, stateId);
+		requireRealmRole(tx, actor, state.realmId, 'owner');
 		if (state.isClosed) throw new DomainError('forbidden', 'The Closed State cannot be reordered');
 		const rows = listStates(tx, state.realmId);
 		const open = rows.filter((s) => !s.isClosed && s.id !== stateId).map((s) => s.id);
@@ -201,6 +206,7 @@ export function moveState(db: Db, actor: Actor, stateId: number, index: number):
 export function deleteState(db: Db, actor: Actor, stateId: number): void {
 	write(db, actor, (tx) => {
 		const state = getState(tx, stateId);
+		requireRealmRole(tx, actor, state.realmId, 'owner');
 		if (state.isClosed) throw new DomainError('forbidden', 'The Closed State cannot be removed');
 		const realm = getRealm(tx, state.realmId);
 		if (realm.initialStateId === stateId) {
@@ -233,7 +239,7 @@ export function createSubstate(
 	index?: number
 ): Substate {
 	return write(db, actor, (tx) => {
-		getState(tx, stateId);
+		requireRealmRole(tx, actor, getState(tx, stateId).realmId, 'owner');
 		const spec = normalizeStyle(input, 'Substate');
 		const existing = listSubstates(tx, stateId);
 		if (existing.some((s) => s.key === spec.key)) {
@@ -285,6 +291,7 @@ export function updateSubstate(
 ): Substate {
 	return write(db, actor, (tx) => {
 		const substate = getSubstate(tx, substateId);
+		requireRealmRole(tx, actor, getState(tx, substate.stateId).realmId, 'owner');
 		const update = normalizeUpdate(patch, 'Substate');
 		if (!changes(substate, update)) return { value: substate, events: [] };
 		const value = tx
@@ -300,6 +307,7 @@ export function updateSubstate(
 export function moveSubstate(db: Db, actor: Actor, substateId: number, index: number): Substate {
 	return write(db, actor, (tx) => {
 		const substate = getSubstate(tx, substateId);
+		requireRealmRole(tx, actor, getState(tx, substate.stateId).realmId, 'owner');
 		const rows = listSubstates(tx, substate.stateId).map((s) => s.id);
 		const order = placeAt(
 			rows.filter((id) => id !== substateId),
@@ -320,6 +328,7 @@ export function moveSubstate(db: Db, actor: Actor, substateId: number, index: nu
 export function deleteSubstate(db: Db, actor: Actor, substateId: number): void {
 	write(db, actor, (tx) => {
 		const substate = getSubstate(tx, substateId);
+		requireRealmRole(tx, actor, getState(tx, substate.stateId).realmId, 'owner');
 		const state = getState(tx, substate.stateId);
 		if (state.defaultSubstateId === substateId && listSubstates(tx, state.id).length > 1) {
 			throw new DomainError('conflict', 'Set another default Substate before removing this one');
@@ -348,6 +357,7 @@ export function setDefaultSubstate(
 ): State {
 	return write(db, actor, (tx) => {
 		const state = getState(tx, stateId);
+		requireRealmRole(tx, actor, state.realmId, 'owner');
 		const substate = getSubstate(tx, substateId);
 		if (substate.stateId !== state.id) {
 			throw new DomainError('invalid', 'The default Substate must belong to the State');

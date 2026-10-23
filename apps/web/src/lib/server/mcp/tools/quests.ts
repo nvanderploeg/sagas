@@ -144,8 +144,8 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		},
 		(args, present) => {
 			const questId = refs.questId(db, args.quest);
-			const labourIds = args.labours.map((ref) => refs.labourId(db, ref));
-			const placement = refs.placement(db, args);
+			const labourIds = args.labours.map((ref) => refs.labourId(db, ref, actor));
+			const placement = refs.placement(db, args, actor);
 			const change = addQuestLabours(db, actor, questId, labourIds, placement);
 			return changeReply(present, change, 'added', 'already in it');
 		}
@@ -161,7 +161,7 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		},
 		(args, present) => {
 			const questId = refs.questId(db, args.quest);
-			const labourIds = args.labours.map((ref) => refs.labourId(db, ref));
+			const labourIds = args.labours.map((ref) => refs.labourId(db, ref, actor));
 			const change = removeQuestLabours(db, actor, questId, labourIds);
 			return changeReply(present, change, 'removed', 'not in it');
 		}
@@ -177,8 +177,8 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		},
 		(args, present) => {
 			const questId = refs.questId(db, args.quest);
-			const labourId = refs.labourId(db, args.labour);
-			const placement = refs.placement(db, args);
+			const labourId = refs.labourId(db, args.labour, actor);
+			const placement = refs.placement(db, args, actor);
 			if (placement === undefined) {
 				throw new DomainError('invalid', 'Give one of position, before or after');
 			}

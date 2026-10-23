@@ -1,6 +1,8 @@
 import { and, asc, count, eq, inArray, or, sql } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
 import { realmKeys, realms, quests, states, labours } from '../db/schema.ts';
+import { canSeeRealm, requireRealmRole, visibleRealmIds } from '../domain/access.ts';
+import { restrictQuest } from '../domain/quest-view.ts';
 import { listComments } from '../domain/comments.ts';
 import { getRealm } from '../domain/lookup.ts';
 import { listRealms, readRealm, type Realm, type RealmView } from '../domain/realms.ts';
@@ -21,23 +23,43 @@ export function toJson<T>(value: T): Json<T> {
 }
 
 // Resolves a current or former Realm key, in any case.
-export function findRealmByKey(db: Handle, input: string): Realm | null {
+// A Realm the viewer cannot see reads as missing.
+export function findRealmByKey(db: Handle, input: string, viewer: Viewer): Realm | null {
 	const row = db
 		.select({ realmId: realmKeys.realmId })
 		.from(realmKeys)
 		.where(eq(realmKeys.key, input.trim().toUpperCase()))
 		.get();
-	return row ? getRealm(db, row.realmId) : null;
+	return row && canSeeRealm(db, viewer, row.realmId) ? getRealm(db, row.realmId) : null;
 }
 
-export function readAllRealms(db: Handle): RealmView[] {
-	return listRealms(db).map((p) => readRealm(db, p.id));
+type Viewer = { id: number };
+
+const seen = (db: Handle, viewer: Viewer): Set<number> | null => {
+	const ids = visibleRealmIds(db, viewer);
+	return ids === null ? null : new Set(ids);
+};
+
+export function readAllRealms(db: Handle, viewer: Viewer): RealmView[] {
+	const visible = seen(db, viewer);
+	return listRealms(db)
+		.filter((p) => visible === null || visible.has(p.id))
+		.map((p) => readRealm(db, p.id));
 }
 
-export function readHome(db: Handle, userId: number) {
+const inRealms = (visible: Set<number> | null) =>
+	visible === null ? undefined : inArray(labours.realmId, [...visible]);
+
+export function readHome(db: Handle, viewer: Viewer) {
+	const userId = viewer.id;
+	const visible = seen(db, viewer);
 	const mine = selectLabourViews(db)
 		.where(
-			and(or(eq(labours.ownerId, userId), eq(labours.assigneeId, userId)), eq(states.isOpen, true))
+			and(
+				or(eq(labours.ownerId, userId), eq(labours.assigneeId, userId)),
+				eq(states.isOpen, true),
+				inRealms(visible)
+			)
 		)
 		.orderBy(asc(labours.id))
 		.all()
@@ -48,16 +70,24 @@ export function readHome(db: Handle, userId: number) {
 		.where(eq(quests.ownerId, userId))
 		.orderBy(asc(quests.id))
 		.all();
-	return { realms: readAllRealms(db), mine, quests: owned.map((q) => readQuest(db, q.id)) };
+	return {
+		realms: readAllRealms(db, viewer),
+		mine,
+		quests: owned.map((q) => restrictQuest(readQuest(db, q.id), visible))
+	};
 }
 
-export function readLabourPage(db: Handle, labourId: number) {
+export function readLabourPage(db: Handle, viewer: Viewer, labourId: number) {
 	const labour = readLabour(db, labourId);
+	requireRealmRole(db, viewer, labour.realmId, 'viewer');
+	const visible = seen(db, viewer);
+	const shown = (item: LabourView) => visible === null || visible.has(item.realmId);
+	const parent = labour.parentId === null ? null : readLabour(db, labour.parentId);
 	return {
 		labour,
-		parent: labour.parentId === null ? null : readLabour(db, labour.parentId),
-		children: listChildren(db, labourId),
-		realms: readAllRealms(db),
+		parent: parent !== null && shown(parent) ? parent : null,
+		children: listChildren(db, labourId).filter(shown),
+		realms: readAllRealms(db, viewer),
 		quests: db
 			.select({ id: quests.id, name: quests.name })
 			.from(quests)
@@ -68,28 +98,48 @@ export function readLabourPage(db: Handle, labourId: number) {
 	};
 }
 
-export function readQuestPage(db: Handle, questId: number) {
-	return { quest: readQuest(db, questId), realms: readAllRealms(db) };
+export function readQuestPage(db: Handle, viewer: Viewer, questId: number) {
+	return {
+		quest: restrictQuest(readQuest(db, questId), seen(db, viewer)),
+		realms: readAllRealms(db, viewer)
+	};
 }
 
-export function readQuestList(db: Handle): { quests: QuestView[]; realms: RealmView[] } {
-	return { quests: listQuests(db), realms: readAllRealms(db) };
+export function readQuestList(
+	db: Handle,
+	viewer: Viewer
+): { quests: QuestView[]; realms: RealmView[] } {
+	const visible = seen(db, viewer);
+	return {
+		quests: listQuests(db).map((quest) => restrictQuest(quest, visible)),
+		realms: readAllRealms(db, viewer)
+	};
 }
 
 export type LabourMatch = LabourView & { childCount: number };
 
 // Matches a Labour key, current or former, then key prefixes and titles.
-export function searchLabours(db: Handle, input: string, limit = 12): LabourMatch[] {
+export function searchLabours(
+	db: Handle,
+	viewer: Viewer,
+	input: string,
+	limit = 12
+): LabourMatch[] {
 	const query = input.trim();
 	if (query === '') return [];
-	const exact = resolveLabourKey(db, query);
+	const visible = seen(db, viewer);
+	const found0 = resolveLabourKey(db, query);
+	const exact = found0 && (visible === null || visible.has(found0.realmId)) ? found0 : null;
 	const pattern = `%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 	const keyPrefix = `${query.toUpperCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 	const found = selectLabourViews(db)
 		.where(
-			or(
-				sql`${labours.title} LIKE ${pattern} ESCAPE '\\'`,
-				sql`(${realms.key} || '-' || ${labours.number}) LIKE ${keyPrefix} ESCAPE '\\'`
+			and(
+				or(
+					sql`${labours.title} LIKE ${pattern} ESCAPE '\\'`,
+					sql`(${realms.key} || '-' || ${labours.number}) LIKE ${keyPrefix} ESCAPE '\\'`
+				),
+				inRealms(visible)
 			)
 		)
 		.orderBy(asc(labours.id))

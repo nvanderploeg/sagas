@@ -8,14 +8,14 @@ import { int, perform, placement, signedIn, text } from '#lib/server/ui/form.ts'
 import { findRealmByKey, toJson } from '#lib/server/ui/reads.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-function realmFor(key: string) {
-	const realm = findRealmByKey(getDb(), key);
+function realmFor(locals: App.Locals, key: string) {
+	const realm = findRealmByKey(getDb(), key, signedIn(locals));
 	if (!realm) error(404, 'No Realm has that key');
 	return realm;
 }
 
-export const load: PageServerLoad = ({ params }) => {
-	const realm = realmFor(params.key);
+export const load: PageServerLoad = ({ params, locals }) => {
+	const realm = realmFor(locals, params.key);
 	if (realm.key !== params.key) redirect(307, `/r/${realm.key}`);
 	try {
 		const { seq, value } = readAtSeq(getDb(), (tx) => readBoard(tx, realm.id));
@@ -30,7 +30,7 @@ export const actions: Actions = {
 	create: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const realm = realmFor(params.key);
+		const realm = realmFor(locals, params.key);
 		return perform('create', () => {
 			const labour = createLabour(getDb(), actor, {
 				realmId: realm.id,

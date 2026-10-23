@@ -13,12 +13,13 @@ The contract for clients of the Stream at `GET /api/events`: the UI and the MCP 
 
 ## Frames
 
-| Frame     | Fields                                        | Meaning                                                          |
-| --------- | --------------------------------------------- | ---------------------------------------------------------------- |
-| Event     | `id: <seq>`, `event: <type>`, `data: <Event>` | One Event; see below.                                            |
-| `ready`   | `id: <S>`, `event: ready`, `data: {"seq": S}` | The Stream is live. `S` is the last seq assigned when it opened. |
-| `reset`   | `id: <S>`, `event: reset`, `data: {"seq": S}` | The resume point cannot be served. Reload every view.            |
-| heartbeat | `: ping`                                      | Every `STREAM_HEARTBEAT_MS` (25 s by default). Ignore it.        |
+| Frame     | Fields                                        | Meaning                                                                                                         |
+| --------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Event     | `id: <seq>`, `event: <type>`, `data: <Event>` | One Event; see below.                                                                                           |
+| `ready`   | `id: <S>`, `event: ready`, `data: {"seq": S}` | The Stream is live. `S` is the last seq assigned when it opened.                                                |
+| `reset`   | `id: <S>`, `event: reset`, `data: {"seq": S}` | The resume point cannot be served. Reload every view.                                                           |
+| `seq`     | `id: <S>`, `event: seq`, `data: {"seq": S}`   | Events up to `S` concerned nothing you may see. Treat every view as having applied them. Sent with a heartbeat. |
+| heartbeat | `: ping`                                      | Every `STREAM_HEARTBEAT_MS` (25 s by default). Ignore it.                                                       |
 
 A connection opens with exactly one of these, then live Events and heartbeats:
 
@@ -35,6 +36,10 @@ A connection opens with exactly one of these, then live Events and heartbeats:
 5. On `reset`, reload every view as in step 1, and drop Events at or below each view's new `L`.
 
 The server prunes Events older than `EVENT_RETENTION_DAYS` (7 by default). The retained Events are always one contiguous seq range.
+
+## Who receives an Event
+
+A Stream carries an Event only when its User is an active member of the Event's Realm when it is sent, as in `docs/realm-access.md`; replay filters the same way, so a `seq` can be skipped. A Quest Event lists only the Labours in Realms the User can see, with progress recounted over them. A `labour.moved` into a Realm the User cannot see, out of one they can, arrives as `labour.deleted`. `realm.deleted` goes to every Stream: its Memberships are gone, and it carries only ids.
 
 Webhooks deliver the same Events to outside services by POST: `docs/webhooks.md`.
 
@@ -64,11 +69,14 @@ Webhooks deliver the same Events to outside services by POST: `docs/webhooks.md`
 		kind: 'human' | 'agent';
 		username: string;
 		displayName: string;
+		via: { tokenId: number | null; name: string } | null;
 	}
 	createdAt: string; // ISO 8601
 	data: EventData[type];
 }
 ```
+
+`actor.via` names the API token the write came through, as it was named then; `tokenId` is null once the token is deleted. It is null for a write made from a browser session. A client that skips Events it caused itself must skip only those with a null `via`, since an agent acting as the same User is a different source.
 
 An Event does not list the Realms it touches. It names the entities it changed and carries their view after the write. Apply it to every view that shows those entities, matching by id.
 
@@ -92,7 +100,7 @@ Views, with dates as ISO strings:
 | `substate.deleted`       | `{ realm, stateId, substateId }`                   | A Substate is removed.                                              |
 | `labour.created`         | `{ labour }`                                       | A Labour is created.                                                |
 | `labour.updated`         | `{ labour }`                                       | Its fields, State or Substate change.                               |
-| `labour.moved`           | `{ labour }`                                       | It moves to another Realm, which gives it a new key.                |
+| `labour.moved`           | `{ labour, fromRealmId }`                          | It moves to another Realm, which gives it a new key.                |
 | `labour.reparented`      | `{ labour }`                                       | Its Parent is set or cleared.                                       |
 | `labour.ranked`          | `{ id, stateId, rank }`                            | Only its Rank changes.                                              |
 | `labour.rekeyed`         | `{ realmId, labours: [{ id, previousKey, key }] }` | Its Realm's key is renamed. Lists every Labour in the Realm.        |

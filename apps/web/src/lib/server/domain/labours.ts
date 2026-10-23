@@ -23,6 +23,7 @@ import {
 	type LabourView
 } from './labour-view.ts';
 import { requireText } from './validate.ts';
+import { requireActiveMember, requireRealmRole } from './access.ts';
 import { write, type Actor } from './write.ts';
 
 export {
@@ -122,7 +123,7 @@ export function recordLabourKey(db: Handle, labourId: number, key: string): void
 
 function labourOutcome(
 	db: Handle,
-	type: 'labour.created' | 'labour.updated' | 'labour.moved' | 'labour.reparented',
+	type: 'labour.created' | 'labour.updated' | 'labour.reparented',
 	labourId: number
 ): { value: LabourView; events: EventSpec[] } {
 	const labour = readLabour(db, labourId);
@@ -132,11 +133,14 @@ function labourOutcome(
 export function createLabour(db: Db, actor: Actor, input: LabourSpec): LabourView {
 	const created = write(db, actor, (tx) => {
 		const realm = getRealm(tx, input.realmId);
+		requireRealmRole(tx, actor, realm.id, 'editor');
 		const title = requireText(input.title, 'Labour title', TITLE_MAX);
 		const description = checkDescription(input.description ?? '');
 		const ownerId = requireUser(tx, input.ownerId, 'Owner');
 		const assigneeId =
 			input.assigneeId == null ? null : requireUser(tx, input.assigneeId, 'Assignee');
+		requireActiveMember(tx, realm.id, ownerId, 'Owner');
+		if (assigneeId !== null) requireActiveMember(tx, realm.id, assigneeId, 'Assignee');
 
 		const stateId = input.stateId ?? realm.initialStateId;
 		if (stateId === null) throw new DomainError('conflict', 'The Realm has no Initial State');
@@ -146,7 +150,10 @@ export function createLabour(db: Db, actor: Actor, input: LabourSpec): LabourVie
 		}
 		const substateId = substateFor(tx, state, input.substateId);
 		const parentId = input.parentId ?? null;
-		if (parentId !== null) assertParent(tx, null, parentId);
+		if (parentId !== null) {
+			requireRealmRole(tx, actor, getLabour(tx, parentId).realmId, 'editor');
+			assertParent(tx, null, parentId);
+		}
 		const labels = normalizeLabels(input.labels ?? []);
 
 		const rank = rankAt(
@@ -199,6 +206,7 @@ export function updateLabour(
 	let retext = false;
 	const updated = write(db, actor, (tx) => {
 		const labour = getLabour(tx, labourId);
+		requireRealmRole(tx, actor, labour.realmId, 'editor');
 		const changes: Partial<typeof labours.$inferInsert> = {};
 
 		if (patch.title !== undefined) {
@@ -207,10 +215,16 @@ export function updateLabour(
 		if (patch.description !== undefined) {
 			changes.description = checkDescription(patch.description);
 		}
-		if (patch.ownerId !== undefined) changes.ownerId = requireUser(tx, patch.ownerId, 'Owner');
+		if (patch.ownerId !== undefined) {
+			changes.ownerId = requireUser(tx, patch.ownerId, 'Owner');
+			requireActiveMember(tx, labour.realmId, changes.ownerId, 'Owner');
+		}
 		if (patch.assigneeId !== undefined) {
 			changes.assigneeId =
 				patch.assigneeId === null ? null : requireUser(tx, patch.assigneeId, 'Assignee');
+			if (changes.assigneeId !== null) {
+				requireActiveMember(tx, labour.realmId, changes.assigneeId, 'Assignee');
+			}
 		}
 
 		if (
@@ -292,7 +306,11 @@ export function setParent(
 ): LabourView {
 	return write(db, actor, (tx) => {
 		const labour = getLabour(tx, labourId);
-		if (parentId !== null) assertParent(tx, labourId, parentId);
+		requireRealmRole(tx, actor, labour.realmId, 'editor');
+		if (parentId !== null) {
+			requireRealmRole(tx, actor, getLabour(tx, parentId).realmId, 'editor');
+			assertParent(tx, labourId, parentId);
+		}
 		if (parentId === labour.parentId) return { value: readLabour(tx, labourId), events: [] };
 		tx.update(labours)
 			.set({ parentId, updatedAt: new Date() })
@@ -313,10 +331,12 @@ export type MoveTarget = {
 export function moveLabour(db: Db, actor: Actor, labourId: number, input: MoveTarget): LabourView {
 	return write(db, actor, (tx) => {
 		const labour = getLabour(tx, labourId);
+		requireRealmRole(tx, actor, labour.realmId, 'editor');
 		if (labour.realmId === input.realmId) {
 			throw new DomainError('invalid', 'The Labour is already in that Realm');
 		}
 		const target = getRealm(tx, input.realmId);
+		requireRealmRole(tx, actor, target.id, 'editor');
 		const state = targetState(tx, target, getState(tx, labour.stateId).isClosed, input.stateId);
 		const substateId = substateFor(tx, state, input.substateId);
 		const rank = rankAt(
@@ -344,7 +364,11 @@ export function moveLabour(db: Db, actor: Actor, labourId: number, input: MoveTa
 			.run();
 		attachValues(tx, labourId, labour.realmId, target.id, detached, movedAt);
 		refreshLabourText(tx, labourId);
-		return labourOutcome(tx, 'labour.moved', labourId);
+		const value = readLabour(tx, labourId);
+		return {
+			value,
+			events: [{ type: 'labour.moved', data: { labour: value, fromRealmId: labour.realmId } }]
+		};
 	});
 }
 
@@ -357,6 +381,7 @@ export function rankLabour(
 ): LabourView {
 	return write(db, actor, (tx) => {
 		const labour = getLabour(tx, labourId);
+		requireRealmRole(tx, actor, labour.realmId, 'editor');
 		const rank = rankAt(columnOf(tx, labour.stateId), labour, placement, 'State', labourName(tx));
 		if (rank === labour.rank) return { value: readLabour(tx, labourId), events: [] };
 		tx.update(labours).set({ rank }).where(eq(labours.id, labourId)).run();
@@ -370,6 +395,7 @@ export function rankLabour(
 export function deleteLabour(db: Db, actor: Actor, labourId: number): void {
 	write(db, actor, (tx) => {
 		const labour = getLabour(tx, labourId);
+		requireRealmRole(tx, actor, labour.realmId, 'editor');
 		const fallout = prepareLabourDelete(tx, eq(labours.id, labourId));
 		tx.delete(labours).where(eq(labours.id, labourId)).run();
 		return {

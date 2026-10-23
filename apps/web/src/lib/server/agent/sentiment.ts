@@ -1,3 +1,5 @@
+import { accessEnforced, requireRealmRole } from '../domain/access.ts';
+import { currentVia } from '#lib/server/auth/via.ts';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { attributes, pulses } from '../db/schema.ts';
@@ -344,6 +346,7 @@ export function postPulses(
 	}
 	return db.transaction((tx) => {
 		getRealm(tx, realmId);
+		requireRealmRole(tx, actor, realmId, 'editor');
 		const checked = items.map(checkItem);
 		const named = new Set(
 			checked.flatMap((item) => item.evidence.flatMap((e) => ('labour' in e ? [e.labour] : [])))
@@ -381,6 +384,7 @@ export function postPulses(
 					evidence: item.evidence,
 					ref: item.ref,
 					authorId: actor.id,
+					via: currentVia(),
 					createdAt: now
 				})
 				.returning({ id: pulses.id })
@@ -513,13 +517,14 @@ function readUnfiled(db: Handle, realmId: number, now: Date): SentimentView['unf
 
 export function filePulses(
 	db: Db,
-	_actor: Actor,
+	actor: Actor,
 	realmId: number,
 	rawKey: string,
 	key: string
 ): number {
 	return db.transaction((tx) => {
 		getRealm(tx, realmId);
+		requireRealmRole(tx, actor, realmId, 'editor');
 		const from = parseKey(rawKey, 'raw_key');
 		const to = parseKey(key);
 		const target = filingOf(tx, realmId, to);
@@ -539,9 +544,19 @@ export function filePulses(
 	});
 }
 
-export function deletePulse(db: Db, _actor: Actor, pulseId: number): void {
-	const removed = db.delete(pulses).where(eq(pulses.id, pulseId)).run().changes;
-	if (removed === 0) throw new DomainError('not_found', 'Pulse not found');
+export function deletePulse(db: Db, actor: Actor, pulseId: number): void {
+	const pulse = db
+		.select({ realmId: pulses.realmId, userId: pulses.userId })
+		.from(pulses)
+		.where(eq(pulses.id, pulseId))
+		.get();
+	if (pulse === undefined) throw new DomainError('not_found', 'Pulse not found');
+	// A Realm's Pulses take an editor; an Affinity Pulse belongs to its User alone.
+	if (pulse.realmId !== null) requireRealmRole(db, actor, pulse.realmId, 'editor');
+	else if (accessEnforced() && pulse.userId !== actor.id) {
+		throw new DomainError('not_found', 'Pulse not found');
+	}
+	db.delete(pulses).where(eq(pulses.id, pulseId)).run();
 }
 
 export function prunePulses(db: Handle, now = Date.now()): number {

@@ -141,7 +141,7 @@
 	}
 
 	function onEvent(event: LiveEvent) {
-		if (event.actor.id === me.id) return;
+		if (event.actor.id === me.id && !event.actor.via) return;
 		for (const id of touchedLabours(event)) {
 			const n = ++flashes;
 			glows.set(id, { actor: event.actor, n });

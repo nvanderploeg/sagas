@@ -19,7 +19,7 @@ export type EventData = {
 	'substate.deleted': { realm: RealmView; stateId: number; substateId: number };
 	'labour.created': { labour: LabourView };
 	'labour.updated': { labour: LabourView };
-	'labour.moved': { labour: LabourView };
+	'labour.moved': { labour: LabourView; fromRealmId: number };
 	'labour.reparented': { labour: LabourView };
 	'labour.ranked': { id: number; stateId: number; rank: string };
 	'labour.rekeyed': {
@@ -70,8 +70,11 @@ const TYPES: { [K in EventType]: true } = {
 
 export const EVENT_TYPES = Object.keys(TYPES) as [EventType, ...EventType[]];
 
+export type EventVia = { tokenId: number | null; name: string };
+
 export type EventActor = {
 	id: number;
+	via: EventVia | null;
 	kind: 'human' | 'agent';
 	username: string;
 	displayName: string;

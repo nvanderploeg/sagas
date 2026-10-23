@@ -68,7 +68,7 @@ export function registerAttributeTools({ db, actor, define }: Tools): void {
 			}
 		},
 		(args) => {
-			const realmId = refs.realmId(db, args.realm);
+			const realmId = refs.realmId(db, args.realm, actor);
 			const { key } = getRealm(db, realmId);
 			const agent = settings(realmId);
 			if (args.since === agent.version) {
@@ -111,7 +111,7 @@ export function registerAttributeTools({ db, actor, define }: Tools): void {
 			}
 		},
 		(args) => {
-			const realmId = refs.realmId(db, args.realm);
+			const realmId = refs.realmId(db, args.realm, actor);
 			const { version, attribute } = defineAttribute(db, actor, realmId, {
 				key: args.key,
 				kind: args.kind,
@@ -135,7 +135,7 @@ export function registerAttributeTools({ db, actor, define }: Tools): void {
 			input: { realm: realmRef, key: keyField }
 		},
 		(args) => {
-			const realmId = refs.realmId(db, args.realm);
+			const realmId = refs.realmId(db, args.realm, actor);
 			const { version } = deleteAttribute(db, actor, realmId, args.key);
 			return reply({ version, deleted: { key: args.key } }, `Deleted Attribute ${args.key}`);
 		}
@@ -155,7 +155,7 @@ export function registerAttributeTools({ db, actor, define }: Tools): void {
 			}
 		},
 		(args) => {
-			const realmId = refs.realmId(db, args.realm);
+			const realmId = refs.realmId(db, args.realm, actor);
 			tuneRealm(db, actor, realmId, {
 				notes: args.notes,
 				halfLifeDays: args.half_life_days,

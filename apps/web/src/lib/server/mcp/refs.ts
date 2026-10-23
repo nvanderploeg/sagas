@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
 import { realmKeys, states, substates, users } from '../db/schema.ts';
+import { canSeeRealm } from '../domain/access.ts';
 import { DomainError } from '../domain/errors.ts';
 import { parseLabourKey } from '../domain/keys.ts';
 import { getRealm, getState, getSubstate } from '../domain/lookup.ts';
@@ -38,24 +39,45 @@ function labourById(db: Handle, id: number) {
 	}
 }
 
-export function labourId(db: Handle, ref: Ref): number {
-	if (typeof ref === 'number') return labourById(db, ref).id;
+type Viewer = { id: number };
+
+// A Labour in a Realm the viewer cannot see is not found, worded as for one that doesn't exist.
+export function labourId(db: Handle, ref: Ref, viewer: Viewer): number {
+	if (typeof ref === 'number') {
+		const found = labourById(db, ref);
+		return canSeeRealm(db, viewer, found.realmId)
+			? found.id
+			: notFound(`No Labour has the id ${ref}`);
+	}
 	const key = text(ref, 'a Labour key');
 	if (parseLabourKey(key) === null) {
 		throw new DomainError('invalid', `"${key}" is not a Labour key, e.g. "AM-12"`);
 	}
-	return resolveLabourKey(db, key)?.id ?? notFound(`No Labour has the key ${key.toUpperCase()}`);
+	const found = resolveLabourKey(db, key);
+	return found && canSeeRealm(db, viewer, found.realmId)
+		? found.id
+		: notFound(`No Labour has the key ${key.toUpperCase()}`);
 }
 
 export function labourKey(db: Handle, id: number): string {
 	return readLabour(db, id).key;
 }
 
-export function realmId(db: Handle, ref: Ref): number {
-	if (typeof ref === 'number') return getRealm(db, ref).id;
+export function realmId(db: Handle, ref: Ref, viewer: Viewer): number {
+	if (typeof ref === 'number') {
+		const id = getRealm(db, ref).id;
+		return canSeeRealm(db, viewer, id) ? id : notFound('Realm not found');
+	}
 	const key = text(ref, 'a Realm key').toUpperCase();
 	const row = db.select().from(realmKeys).where(eq(realmKeys.key, key)).get();
-	return row?.realmId ?? notFound(`No Realm has the key ${key}`);
+	return row && canSeeRealm(db, viewer, row.realmId)
+		? row.realmId
+		: notFound(`No Realm has the key ${key}`);
+}
+
+export function username(db: Handle, id: number): string | undefined {
+	return db.select({ username: users.username }).from(users).where(eq(users.id, id)).get()
+		?.username;
 }
 
 // "me" is the caller, whatever the usernames.
@@ -127,13 +149,13 @@ export function substateId(db: Handle, state: number | undefined, ref: Ref): num
 
 export type PlacementArgs = { position?: 'top' | 'bottom'; before?: Ref; after?: Ref };
 
-export function placement(db: Handle, args: PlacementArgs): Placement | undefined {
+export function placement(db: Handle, args: PlacementArgs, viewer: Viewer): Placement | undefined {
 	const given = [args.position, args.before, args.after].filter((v) => v !== undefined);
 	if (given.length > 1) {
 		throw new DomainError('invalid', 'Give at most one of position, before and after');
 	}
 	if (args.position !== undefined) return args.position;
-	if (args.before !== undefined) return { before: labourId(db, args.before) };
-	if (args.after !== undefined) return { after: labourId(db, args.after) };
+	if (args.before !== undefined) return { before: labourId(db, args.before, viewer) };
+	if (args.after !== undefined) return { after: labourId(db, args.after, viewer) };
 	return undefined;
 }

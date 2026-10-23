@@ -9,6 +9,7 @@ import { rankAt, ranksAt, type Placement } from './rank.ts';
 import { labourName } from './labour-view.ts';
 import { DESCRIPTION_MAX, listChildren } from './labours.ts';
 import { requireText } from './validate.ts';
+import { requireQuestOwner, requireRealmRole } from './access.ts';
 import { write, type Actor } from './write.ts';
 
 export {
@@ -85,6 +86,7 @@ export function createQuest(db: Db, actor: Actor, input: QuestSpec): QuestView {
 export function updateQuest(db: Db, actor: Actor, questId: number, patch: QuestPatch): QuestView {
 	return write(db, actor, (tx) => {
 		const quest = getQuest(tx, questId);
+		requireQuestOwner(quest, actor);
 		const changes: Partial<typeof quests.$inferInsert> = {};
 		if (patch.name !== undefined) changes.name = requireText(patch.name, 'Quest name', 120);
 		if (patch.description !== undefined) {
@@ -106,7 +108,7 @@ export function updateQuest(db: Db, actor: Actor, questId: number, patch: QuestP
 
 export function deleteQuest(db: Db, actor: Actor, questId: number): void {
 	write(db, actor, (tx) => {
-		getQuest(tx, questId);
+		requireQuestOwner(getQuest(tx, questId), actor);
 		tx.delete(quests).where(eq(quests.id, questId)).run();
 		return { value: undefined, events: [{ type: 'quest.deleted', data: { id: questId } }] };
 	});
@@ -121,8 +123,8 @@ export function addQuestLabour(
 	placement: Placement = 'bottom'
 ): QuestView {
 	return write(db, actor, (tx) => {
-		getQuest(tx, questId);
-		getLabour(tx, labourId);
+		requireQuestOwner(getQuest(tx, questId), actor);
+		requireRealmRole(tx, actor, getLabour(tx, labourId).realmId, 'editor');
 		const members = membersOf(tx, questId);
 		if (members.some((member) => member.id === labourId)) {
 			throw new DomainError('conflict', 'The Labour is already in the Quest');
@@ -149,12 +151,13 @@ export function addQuestLabourWithChildren(
 	placement: Placement = 'bottom'
 ): QuestView {
 	return write(db, actor, (tx) => {
-		getQuest(tx, questId);
-		getLabour(tx, labourId);
+		requireQuestOwner(getQuest(tx, questId), actor);
+		requireRealmRole(tx, actor, getLabour(tx, labourId).realmId, 'editor');
 		const present = new Set(membersOf(tx, questId).map((member) => member.id));
 		const adding = [labourId, ...listChildren(tx, labourId).map((child) => child.id)].filter(
 			(id) => !present.has(id)
 		);
+		for (const id of adding) requireRealmRole(tx, actor, getLabour(tx, id).realmId, 'editor');
 		if (adding.length === 0) {
 			throw new DomainError('conflict', 'The Labour and its Children are already in the Quest');
 		}
@@ -191,10 +194,11 @@ export function addQuestLabours(
 	placement: Placement = 'bottom'
 ): QuestLaboursChange {
 	return write(db, actor, (tx) => {
-		getQuest(tx, questId);
+		requireQuestOwner(getQuest(tx, questId), actor);
 		const members = membersOf(tx, questId);
 		const present = new Set(members.map((member) => member.id));
 		const wanted = distinctLabours(tx, labourIds);
+		for (const id of wanted) requireRealmRole(tx, actor, getLabour(tx, id).realmId, 'editor');
 		const adding = wanted.filter((id) => !present.has(id));
 		const skipped = wanted.filter((id) => present.has(id));
 		if (adding.length === 0) {
@@ -220,7 +224,7 @@ export function removeQuestLabours(
 	labourIds: number[]
 ): QuestLaboursChange {
 	return write(db, actor, (tx) => {
-		getQuest(tx, questId);
+		requireQuestOwner(getQuest(tx, questId), actor);
 		const present = new Set(membersOf(tx, questId).map((member) => member.id));
 		const wanted = distinctLabours(tx, labourIds);
 		const removing = wanted.filter((id) => present.has(id));
@@ -247,7 +251,7 @@ export function removeQuestLabour(
 	labourId: number
 ): QuestView {
 	return write(db, actor, (tx) => {
-		getQuest(tx, questId);
+		requireQuestOwner(getQuest(tx, questId), actor);
 		const removed = tx
 			.delete(questLabours)
 			.where(and(eq(questLabours.questId, questId), eq(questLabours.labourId, labourId)))
@@ -269,7 +273,7 @@ export function rankQuestLabour(
 	placement: Placement
 ): QuestView {
 	return write(db, actor, (tx) => {
-		getQuest(tx, questId);
+		requireQuestOwner(getQuest(tx, questId), actor);
 		const members = membersOf(tx, questId);
 		const member = members.find((m) => m.id === labourId);
 		if (member === undefined) throw new DomainError('not_found', 'The Labour is not in the Quest');

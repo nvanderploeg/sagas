@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { events, quests, labours, users } from '#lib/server/db/schema.ts';
+import { insertApiToken } from '#lib/server/auth/tokens.ts';
 import { subscribe } from '#lib/server/events/bus.ts';
 import { eventsSince } from '#lib/server/events/log.ts';
 import type { SagasEvent } from '#lib/server/events/types.ts';
@@ -106,9 +107,24 @@ describe('the Event record', () => {
 			id: actor.id,
 			kind: 'agent',
 			username: 'writer',
-			displayName: 'The Writer'
+			displayName: 'The Writer',
+			via: null
 		});
 		expect(event.createdAt).toBeInstanceOf(Date);
+	});
+
+	it('names the API token the write came through, in the live Event and in replay', () => {
+		const via = {
+			tokenId: insertApiToken(db, actor.id, 'norm-mint-main').id,
+			name: 'norm-mint-main'
+		};
+
+		const event = expectOneEvent(() =>
+			createRealm(db, { ...actor, via }, { name: 'Amber', key: 'AM', initialState: TODO })
+		);
+
+		expect(event.actor.via).toEqual(via);
+		expect(eventsSince(db, event.seq - 1)[0].actor.via).toEqual(via);
 	});
 });
 

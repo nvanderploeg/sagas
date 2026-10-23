@@ -20,7 +20,7 @@ Attachments (first after MVP), history and audit log, blocked flag, search beyon
 
 - **Deployment**: one container, adapter-node, SQLite file at `DATABASE_PATH` on a mounted volume. No other services.
 - **Passwords**: 7–256 characters.
-- **Permissions**: any signed-in User may do anything except manage Users and Invites, which needs an Admin.
+- **Permissions**: Admin manages Users and Invites. Access to a Realm is by Membership: `docs/realm-access.md`.
 - **Moving a Labour** to another Realm: the caller picks the target State and Substate, defaulting to that Realm's Initial State. A Labour in Closed lands in the target's Closed. Its Parent and Children stay where they are.
 - **Deleting a Labour** leaves a gap in its Realm's numbering.
 - **Rank** is a fractional index within a State's column, so a move writes one row.

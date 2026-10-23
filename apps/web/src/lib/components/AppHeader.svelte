@@ -7,7 +7,7 @@
 	import Avatar from './Avatar.svelte';
 	import ThemeToggle from './ThemeToggle.svelte';
 
-	let { user }: { user: Person & { isAdmin: boolean } } = $props();
+	let { user, offers = 0 }: { user: Person & { isAdmin: boolean }; offers?: number } = $props();
 
 	const connection = $derived(
 		{ idle: 'Offline', connecting: 'Connecting', live: 'Live', retrying: 'Reconnecting' }[
@@ -40,13 +40,30 @@
 		{/if}
 		<AdvancedToggle />
 		<ThemeToggle />
-		<a class="me" href={resolve('/account')} aria-label="Your account ({user.displayName})">
+		<a
+			class="me"
+			href={resolve('/account')}
+			aria-label="Your account ({user.displayName}){offers > 0 ? `, ${offers} Offers` : ''}"
+		>
 			<Avatar person={user} />
+			{#if offers > 0}<span class="offers" data-testid="offers-badge">{offers}</span>{/if}
 		</a>
 	</div>
 </header>
 
 <style>
+	.offers {
+		position: absolute;
+		top: -0.25rem;
+		right: -0.25rem;
+		min-width: 1.1rem;
+		border-radius: 999px;
+		background: var(--color-danger, #c0392b);
+		color: white;
+		font-size: 0.7rem;
+		text-align: center;
+	}
+
 	.bar {
 		display: flex;
 		align-items: center;
@@ -122,6 +139,7 @@
 	}
 
 	.me {
+		position: relative;
 		display: inline-flex;
 		border-radius: 999px;
 	}

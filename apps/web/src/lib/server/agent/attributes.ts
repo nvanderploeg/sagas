@@ -1,3 +1,5 @@
+import { requireRealmRole } from '../domain/access.ts';
+import { currentVia } from '#lib/server/auth/via.ts';
 import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { attributes, labourAttributes, pulses, realmAgent } from '../db/schema.ts';
@@ -57,6 +59,7 @@ export type ValueView = {
 	kind: AttributeKind;
 	value: number | string[] | string;
 	setBy: number;
+	via: string | null;
 	setAt: Date;
 	stale: boolean;
 };
@@ -177,6 +180,7 @@ export function readValues(db: Handle, labourId: number): ValueView[] {
 			kind: attributes.kind,
 			value: labourAttributes.value,
 			setBy: labourAttributes.setBy,
+			via: labourAttributes.via,
 			setAt: labourAttributes.setAt,
 			revisedAt: attributes.revisedAt
 		})
@@ -190,6 +194,7 @@ export function readValues(db: Handle, labourId: number): ValueView[] {
 			kind: row.kind,
 			value: row.value as Value,
 			setBy: row.setBy,
+			via: row.via,
 			setAt: row.setAt,
 			stale: row.setAt < row.revisedAt
 		}));
@@ -348,13 +353,14 @@ function reshapeValues(tx: Handle, row: AttributeRow, next: Spec): boolean {
 
 export function defineAttribute(
 	db: Db,
-	_actor: Actor,
+	actor: Actor,
 	realmId: number,
 	input: AttributeInput,
 	now: Date = new Date()
 ): { version: number; attribute: AttributeView } {
 	return db.transaction((tx) => {
 		getRealm(tx, realmId);
+		requireRealmRole(tx, actor, realmId, 'owner');
 		const key = normalizeKey(input.key);
 		if (!KINDS.includes(input.kind)) invalid('Attribute kind must be scale, tags or text');
 		const existing = findAttribute(tx, realmId, key);
@@ -514,13 +520,14 @@ export function removeAttribute(tx: Handle, row: AttributeRow): void {
 
 export function deleteAttribute(
 	db: Db,
-	_actor: Actor,
+	actor: Actor,
 	realmId: number,
 	key: string,
 	now: Date = new Date()
 ): { version: number } {
 	return db.transaction((tx) => {
 		getRealm(tx, realmId);
+		requireRealmRole(tx, actor, realmId, 'owner');
 		const row = findAttribute(tx, realmId, key);
 		if (row === undefined) throw new DomainError('not_found', 'Attribute not found');
 		removeAttribute(tx, row);
@@ -531,12 +538,13 @@ export function deleteAttribute(
 
 export function tuneRealm(
 	db: Db,
-	_actor: Actor,
+	actor: Actor,
 	realmId: number,
 	input: { notes?: string; halfLifeDays?: number; loudness?: number },
 	now: Date = new Date()
 ): RealmAgentView {
 	return db.transaction((tx) => {
+		requireRealmRole(tx, actor, realmId, 'owner');
 		const current = readRealmAgent(tx, realmId);
 		const next = { ...current };
 		if (input.notes !== undefined) {
@@ -647,11 +655,12 @@ export function writeValues(
 				attributeId: row.id,
 				value,
 				setBy: userId,
+				via: currentVia(),
 				setAt: now
 			})
 			.onConflictDoUpdate({
 				target: [labourAttributes.labourId, labourAttributes.attributeId],
-				set: { value, setBy: userId, setAt: now }
+				set: { value, setBy: userId, via: currentVia(), setAt: now }
 			})
 			.run();
 		touched.add(labour.realmId);
@@ -668,6 +677,7 @@ export function setValues(
 ): ValueView[] {
 	return db.transaction((tx) => {
 		const labour = getLabour(tx, labourId);
+		requireRealmRole(tx, actor, labour.realmId, 'editor');
 		const touched = new Set<number>();
 		writeValues(tx, actor.id, labour, values, now, touched);
 		bumpRealms(tx, touched, now);

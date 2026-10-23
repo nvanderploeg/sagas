@@ -13,6 +13,8 @@ export type AuthUser = {
 	username: string;
 	displayName: string;
 	mustChangePassword: boolean;
+	// The API token this User acts through; absent for a session.
+	via?: { tokenId: number; name: string };
 };
 
 type UserRow = typeof users.$inferSelect;
@@ -116,6 +118,15 @@ export async function authenticate(
 
 export function listUsers(db: Handle): AuthUser[] {
 	return db.select().from(users).orderBy(users.displayName, users.id).all().map(toAuthUser);
+}
+
+export function findUserByName(db: Handle, username: string): AuthUser | null {
+	const row = db
+		.select()
+		.from(users)
+		.where(eq(users.username, username.trim().toLowerCase()))
+		.get();
+	return row ? toAuthUser(row) : null;
 }
 
 export function findUser(db: Handle, id: number): AuthUser | null {

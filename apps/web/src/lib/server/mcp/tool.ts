@@ -1,3 +1,4 @@
+import { withVia } from '#lib/server/auth/via.ts';
 import type { CallToolResult, Tool, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import type { AuthUser } from '../auth/users.ts';
@@ -119,7 +120,9 @@ export function toolRegistry(db: Db, actor: AuthUser, origin: string): Registry 
 			if (!parsed.success) {
 				return toErrorResult(invalidArguments(name, tool.schema, given, parsed.error));
 			}
-			return run(name, () => tool.body(parsed.data as never, new Presenter(db, origin)));
+			return withVia(actor.via, () =>
+				run(name, () => tool.body(parsed.data as never, new Presenter(db, origin, actor)))
+			);
 		}
 	};
 }

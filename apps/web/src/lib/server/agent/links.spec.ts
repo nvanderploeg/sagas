@@ -209,7 +209,15 @@ describe('readLinks', () => {
 		link(a, { type: 'evidence', to: b, note: 'logs show it' }, day(3), other);
 
 		expect(readLinks(db, a)).toEqual([
-			{ type: 'evidence', from: a, to: b, note: 'logs show it', setBy: other.id, setAt: day(3) }
+			{
+				type: 'evidence',
+				from: a,
+				to: b,
+				note: 'logs show it',
+				setBy: other.id,
+				via: null,
+				setAt: day(3)
+			}
 		]);
 	});
 
@@ -320,7 +328,7 @@ describe('Link notes', () => {
 
 		link(a, { type: 'evidence', to: b }, day(4), other);
 
-		expect(readLinks(db, a)[0]).toMatchObject({ setBy: other.id, setAt: day(4) });
+		expect(readLinks(db, a)[0]).toMatchObject({ setBy: other.id, via: null, setAt: day(4) });
 	});
 
 	it('sets setBy and setAt again when a Link is re-noted', () => {
@@ -330,7 +338,15 @@ describe('Link notes', () => {
 		link(a, { type: 'evidence', to: b, note: 'second' }, day(5), other);
 
 		expect(readLinks(db, a)).toEqual([
-			{ type: 'evidence', from: a, to: b, note: 'second', setBy: other.id, setAt: day(5) }
+			{
+				type: 'evidence',
+				from: a,
+				to: b,
+				note: 'second',
+				setBy: other.id,
+				via: null,
+				setAt: day(5)
+			}
 		]);
 	});
 

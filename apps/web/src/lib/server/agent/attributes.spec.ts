@@ -852,9 +852,24 @@ describe('narrowing a scale', () => {
 
 		define(scale('quality', 3, 7), T2, realm.id, actor);
 
-		expect(valueOf(low.id, 'quality')).toMatchObject({ value: 3, setBy: ada.id, setAt: T1 });
-		expect(valueOf(mid.id, 'quality')).toMatchObject({ value: 5, setBy: ada.id, setAt: T1 });
-		expect(valueOf(high.id, 'quality')).toMatchObject({ value: 7, setBy: ada.id, setAt: T1 });
+		expect(valueOf(low.id, 'quality')).toMatchObject({
+			value: 3,
+			setBy: ada.id,
+			via: null,
+			setAt: T1
+		});
+		expect(valueOf(mid.id, 'quality')).toMatchObject({
+			value: 5,
+			setBy: ada.id,
+			via: null,
+			setAt: T1
+		});
+		expect(valueOf(high.id, 'quality')).toMatchObject({
+			value: 7,
+			setBy: ada.id,
+			via: null,
+			setAt: T1
+		});
 	});
 
 	it('clamps a value that sits wholly outside the new range to its nearest edge', () => {
@@ -910,8 +925,18 @@ describe('removing tags members', () => {
 
 		define(tags('area', ['b', 'c']), T2, realm.id, actor);
 
-		expect(valueOf(one.id, 'area')).toMatchObject({ value: ['b'], setBy: ada.id, setAt: T1 });
-		expect(valueOf(two.id, 'area')).toMatchObject({ value: ['b', 'c'], setBy: ada.id, setAt: T1 });
+		expect(valueOf(one.id, 'area')).toMatchObject({
+			value: ['b'],
+			setBy: ada.id,
+			via: null,
+			setAt: T1
+		});
+		expect(valueOf(two.id, 'area')).toMatchObject({
+			value: ['b', 'c'],
+			setBy: ada.id,
+			via: null,
+			setAt: T1
+		});
 	});
 
 	it('deletes a value left with no members', () => {
@@ -1047,7 +1072,7 @@ describe('setting scale values', () => {
 		const result = set(labour.id, { quality: 4 }, T1, ada);
 
 		expect(result).toEqual([
-			{ key: 'quality', kind: 'scale', value: 4, setBy: ada.id, setAt: T1, stale: false }
+			{ key: 'quality', kind: 'scale', value: 4, setBy: ada.id, via: null, setAt: T1, stale: false }
 		]);
 		expect(readValues(db, labour.id)).toEqual(result);
 	});
@@ -1312,7 +1337,7 @@ describe('who set a value and when', () => {
 	it('records the writer and the time', () => {
 		set(labour.id, { quality: 2 }, T1, ada);
 
-		expect(valueOf(labour.id, 'quality')).toMatchObject({ setBy: ada.id, setAt: T1 });
+		expect(valueOf(labour.id, 'quality')).toMatchObject({ setBy: ada.id, via: null, setAt: T1 });
 	});
 
 	it('rewrites setBy and setAt when the value changes', () => {
@@ -1320,7 +1345,12 @@ describe('who set a value and when', () => {
 
 		set(labour.id, { quality: 4 }, T2, actor);
 
-		expect(valueOf(labour.id, 'quality')).toMatchObject({ value: 4, setBy: actor.id, setAt: T2 });
+		expect(valueOf(labour.id, 'quality')).toMatchObject({
+			value: 4,
+			setBy: actor.id,
+			via: null,
+			setAt: T2
+		});
 	});
 
 	it('rewrites setBy and setAt even when the value is identical', () => {
@@ -1328,7 +1358,12 @@ describe('who set a value and when', () => {
 
 		set(labour.id, { quality: 2 }, T2, actor);
 
-		expect(valueOf(labour.id, 'quality')).toMatchObject({ value: 2, setBy: actor.id, setAt: T2 });
+		expect(valueOf(labour.id, 'quality')).toMatchObject({
+			value: 2,
+			setBy: actor.id,
+			via: null,
+			setAt: T2
+		});
 	});
 
 	it('rewrites them for identical tags and text too', () => {
@@ -1338,8 +1373,8 @@ describe('who set a value and when', () => {
 
 		set(labour.id, { area: ['a', 'b'], note: ' hi ' }, T2, actor);
 
-		expect(valueOf(labour.id, 'area')).toMatchObject({ setBy: actor.id, setAt: T2 });
-		expect(valueOf(labour.id, 'note')).toMatchObject({ setBy: actor.id, setAt: T2 });
+		expect(valueOf(labour.id, 'area')).toMatchObject({ setBy: actor.id, via: null, setAt: T2 });
+		expect(valueOf(labour.id, 'note')).toMatchObject({ setBy: actor.id, via: null, setAt: T2 });
 	});
 
 	it('leaves the values a call does not name untouched', () => {
@@ -1347,7 +1382,12 @@ describe('who set a value and when', () => {
 
 		set(labour.id, { quality: 4 }, T2, actor);
 
-		expect(valueOf(labour.id, 'other')).toMatchObject({ value: 3, setBy: ada.id, setAt: T1 });
+		expect(valueOf(labour.id, 'other')).toMatchObject({
+			value: 3,
+			setBy: ada.id,
+			via: null,
+			setAt: T1
+		});
 	});
 
 	it('keeps the values of different Labours apart', () => {
@@ -1795,6 +1835,7 @@ describe('moving a Labour to another Realm', () => {
 			kind: 'scale',
 			value: 4,
 			setBy: ada.id,
+			via: null,
 			setAt: T1
 		});
 		expect(attributeOf('quality', other.id)).toMatchObject({ held: 1, counts: { '4': 1 } });
@@ -1870,6 +1911,7 @@ describe('moving a Labour to another Realm', () => {
 		expect(valueOf(labour.id, 'area')).toMatchObject({
 			value: ['a', 'b'],
 			setBy: ada.id,
+			via: null,
 			setAt: T1
 		});
 		expect(attributeOf('area', other.id).counts).toEqual({ a: 1, b: 1, x: 0 });

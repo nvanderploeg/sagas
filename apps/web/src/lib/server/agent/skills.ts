@@ -1,3 +1,4 @@
+import { currentVia } from '#lib/server/auth/via.ts';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { labourNeeds, skills, userSkills, users } from '../db/schema.ts';
@@ -14,7 +15,13 @@ export type SkillView = {
 	updatedAt: Date;
 };
 
-export type NeedView = { key: string; level: number; setBy: number; setAt: Date };
+export type NeedView = {
+	key: string;
+	level: number;
+	setBy: number;
+	via: string | null;
+	setAt: Date;
+};
 
 export type SkillInput = { key: string; label?: string; rubric?: string };
 
@@ -133,6 +140,7 @@ export function readNeeds(db: Handle, labourId: number): NeedView[] {
 			key: skills.key,
 			level: labourNeeds.level,
 			setBy: labourNeeds.setBy,
+			via: labourNeeds.via,
 			setAt: labourNeeds.setAt
 		})
 		.from(labourNeeds)
@@ -194,7 +202,7 @@ export function setSkills(
 				tx.delete(userSkills).where(match).run();
 				continue;
 			}
-			const set = { level, setBy: actor.id, setAt: now };
+			const set = { level, setBy: actor.id, via: currentVia(), setAt: now };
 			tx.insert(userSkills)
 				.values({ userId, skillId, ...set })
 				.onConflictDoUpdate({ target: [userSkills.userId, userSkills.skillId], set })
@@ -218,7 +226,7 @@ export function writeNeeds(
 			tx.delete(labourNeeds).where(match).run();
 			continue;
 		}
-		const set = { level, setBy: userId, setAt: now };
+		const set = { level, setBy: userId, via: currentVia(), setAt: now };
 		tx.insert(labourNeeds)
 			.values({ labourId, skillId, ...set })
 			.onConflictDoUpdate({ target: [labourNeeds.labourId, labourNeeds.skillId], set })

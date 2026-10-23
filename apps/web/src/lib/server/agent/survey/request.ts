@@ -1,3 +1,4 @@
+import { canSeeRealm } from '../../domain/access.ts';
 import { eq, sql } from 'drizzle-orm';
 import type { Handle } from '../../db/client.ts';
 import { quests, realms, users } from '../../db/schema.ts';
@@ -98,6 +99,11 @@ export function checkRequest(tx: Handle, actor: Actor, input: SurveyInput): Surv
 	const forUserId = input.forUserId ?? actor.id;
 	if (!isId(forUserId)) invalid('forUserId must be a User id');
 
+	// A Survey draws on Realms its caller and its subject both belong to.
+	const reachable = (id: number) =>
+		canSeeRealm(tx, actor, id) &&
+		(forUserId === actor.id || canSeeRealm(tx, { id: forUserId }, id));
+
 	let realmIds = input.realmIds;
 	if (realmIds !== undefined) {
 		if (!Array.isArray(realmIds) || realmIds.length === 0 || !realmIds.every(isId)) {
@@ -111,7 +117,8 @@ export function checkRequest(tx: Handle, actor: Actor, input: SurveyInput): Surv
 				.select({ id: realms.id })
 				.from(realms)
 				.where(sql`${realms.id} IN ${anyOf(realmIds)}`)
-				.all(),
+				.all()
+				.filter((row) => reachable(row.id)),
 			'Realm'
 		);
 	} else {
@@ -120,6 +127,7 @@ export function checkRequest(tx: Handle, actor: Actor, input: SurveyInput): Surv
 			.from(realms)
 			.all()
 			.map((row) => row.id)
+			.filter(reachable)
 			.sort((a, b) => a - b);
 	}
 

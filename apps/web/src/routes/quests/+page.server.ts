@@ -6,8 +6,9 @@ import { perform, signedIn, text } from '#lib/server/ui/form.ts';
 import { readQuestList, toJson } from '#lib/server/ui/reads.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = () => {
-	const { seq, value } = readAtSeq(getDb(), (tx) => readQuestList(tx));
+export const load: PageServerLoad = ({ locals }) => {
+	const viewer = signedIn(locals);
+	const { seq, value } = readAtSeq(getDb(), (tx) => readQuestList(tx, viewer));
 	return { seq, list: toJson(value) };
 };
 

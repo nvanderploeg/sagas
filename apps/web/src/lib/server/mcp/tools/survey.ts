@@ -114,7 +114,7 @@ export function registerSurveyTools({ db, actor, define }: Tools): void {
 			const realms = args.realm === undefined ? undefined : [args.realm].flat();
 			const filter = args.filter;
 			const input: SurveyInput = {
-				realmIds: realms?.map((ref) => refs.realmId(db, ref)),
+				realmIds: realms?.map((ref) => refs.realmId(db, ref, actor)),
 				forUserId: args.for === undefined ? undefined : refs.userId(db, args.for, actor),
 				query: args.query,
 				weights: args.weights,

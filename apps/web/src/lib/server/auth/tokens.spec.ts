@@ -197,3 +197,13 @@ describe('API token expiry', () => {
 		expect(info.oauth).toBe(false);
 	});
 });
+
+describe('verifyApiToken via', () => {
+	it('carries the token that authenticated, so writes can name it', () => {
+		const db = testDb();
+		const user = seedHuman(db, 'ada');
+		const { id, token } = createApiToken(db, user, user.id, 'norm-mint-main');
+
+		expect(verifyApiToken(db, token)?.via).toEqual({ tokenId: id, name: 'norm-mint-main' });
+	});
+});

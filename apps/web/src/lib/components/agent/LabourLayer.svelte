@@ -92,7 +92,7 @@
 			{:else}
 				<p class="text-sm whitespace-pre-wrap" data-testid="agent-brief">{layer.brief}</p>
 				{#if layer.setBy !== null && layer.setAt !== null}
-					<p><Attribution {people} by={layer.setBy} at={layer.setAt} /></p>
+					<p><Attribution {people} by={layer.setBy} via={layer.via} at={layer.setAt} /></p>
 				{/if}
 			{/if}
 		</section>
@@ -134,7 +134,13 @@
 								<span>{value.display}</span>
 							</div>
 							<div class="flex flex-wrap items-center gap-2">
-								<Attribution {people} by={value.setBy} at={value.setAt} stale={value.stale} />
+								<Attribution
+									{people}
+									by={value.setBy}
+									via={value.via}
+									at={value.setAt}
+									stale={value.stale}
+								/>
 							</div>
 						</li>
 					{/each}
@@ -151,7 +157,7 @@
 							<span class="font-semibold">{need.label}</span>
 							<span class="key">{need.key}</span>
 							<span>level {need.level}</span>
-							<Attribution {people} by={need.setBy} at={need.setAt} />
+							<Attribution {people} by={need.setBy} via={need.via} at={need.setAt} />
 						</li>
 					{/each}
 				</ul>
@@ -169,7 +175,7 @@
 								<li class="grid gap-0.5 py-2 text-sm">
 									<div class="min-w-0">{@render labour(link.other)}</div>
 									{#if link.note !== ''}<p class="whitespace-pre-wrap">{link.note}</p>{/if}
-									<div><Attribution {people} by={link.setBy} at={link.setAt} /></div>
+									<div><Attribution {people} by={link.setBy} via={link.via} at={link.setAt} /></div>
 								</li>
 							{/each}
 						</ul>

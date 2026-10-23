@@ -3,7 +3,13 @@ import type { Handle } from '../db/client.ts';
 import { appraisals, realmAgent, realmKeys, labourKeys, users } from '../db/schema.ts';
 import { getRealm, getState, getSubstate } from '../domain/lookup.ts';
 import { readRealm } from '../domain/realm-view.ts';
-import { questProgress, type QuestProgress, type QuestView } from '../domain/quest-view.ts';
+import {
+	readQuest,
+	restrictQuest,
+	type QuestProgress,
+	type QuestView
+} from '../domain/quest-view.ts';
+import { canSeeRealm, visibleRealmIds } from '../domain/access.ts';
 import { listLabourQuests } from '../domain/quests.ts';
 import { readLabour, type LabourView } from '../domain/labour-view.ts';
 import type { CommentView } from '../domain/comments.ts';
@@ -47,9 +53,17 @@ export class Presenter {
 	private readonly memo = new Map<string, unknown>();
 	private readonly briefs = new Map<number, string>();
 
-	constructor(db: Handle, origin: string) {
+	readonly viewer: { id: number };
+
+	constructor(db: Handle, origin: string, viewer: { id: number }) {
 		this.db = db;
 		this.origin = origin;
+		this.viewer = viewer;
+	}
+
+	// What a Labour in a Realm the viewer cannot see reveals: nothing.
+	private visibleLabour(id: number): boolean {
+		return canSeeRealm(this.db, this.viewer, readLabour(this.db, id).realmId);
 	}
 
 	url(path: string): string {
@@ -126,7 +140,10 @@ export class Presenter {
 			closed: view.closed,
 			owner: this.username(view.ownerId),
 			assignee: view.assigneeId === null ? null : this.username(view.assigneeId),
-			parent: view.parentId === null ? null : this.labourKey(view.parentId),
+			parent:
+				view.parentId === null || !this.visibleLabour(view.parentId)
+					? null
+					: this.labourKey(view.parentId),
 			labels: view.labels
 		};
 	}
@@ -144,12 +161,19 @@ export class Presenter {
 			aliases: this.aliases(view),
 			createdAt: view.createdAt.toISOString(),
 			updatedAt: view.updatedAt.toISOString(),
-			parentLabour: view.parentId === null ? null : this.labour(readLabour(this.db, view.parentId)),
-			children: this.labours(listChildren(this.db, view.id)),
+			parentLabour:
+				view.parentId === null || !this.visibleLabour(view.parentId)
+					? null
+					: this.labour(readLabour(this.db, view.parentId)),
+			children: this.labours(
+				listChildren(this.db, view.id).filter((child) =>
+					canSeeRealm(this.db, this.viewer, child.realmId)
+				)
+			),
 			quests: listLabourQuests(this.db, view.id).map((quest) => ({
 				id: quest.id,
 				name: quest.name,
-				progress: questProgress(this.db, quest.id)
+				progress: this.restricted(readQuest(this.db, quest.id)).progress
 			}))
 		};
 	}
@@ -225,6 +249,17 @@ export class Presenter {
 		};
 	}
 
+	// A Quest as the viewer sees it: other Realms' Labours are neither listed nor counted.
+	restricted(view: QuestView): QuestView {
+		return restrictQuest(
+			view,
+			this.once('visible', () => {
+				const ids = visibleRealmIds(this.db, this.viewer);
+				return ids === null ? null : new Set(ids);
+			})
+		);
+	}
+
 	questSummary(view: QuestView) {
 		const path = `/quests/${view.id}`;
 		return {
@@ -234,12 +269,13 @@ export class Presenter {
 			name: view.name,
 			description: view.description,
 			owner: this.username(view.ownerId),
-			progress: view.progress
+			progress: this.restricted(view).progress
 		};
 	}
 
 	quest(view: QuestView) {
-		return { ...this.questSummary(view), labours: this.labours(view.labours) };
+		const shown = this.restricted(view);
+		return { ...this.questSummary(shown), labours: this.labours(shown.labours) };
 	}
 }
 

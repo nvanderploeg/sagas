@@ -107,5 +107,5 @@ export function verifyApiToken(db: Db, token: string, now = new Date()): AuthUse
 		.get();
 	if (!row) return null;
 	db.update(apiTokens).set({ lastUsedAt: new Date() }).where(eq(apiTokens.id, row.token.id)).run();
-	return toAuthUser(row.user);
+	return { ...toAuthUser(row.user), via: { tokenId: row.token.id, name: row.token.name } };
 }

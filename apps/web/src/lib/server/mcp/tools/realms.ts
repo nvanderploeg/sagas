@@ -1,3 +1,4 @@
+import { visibleRealmIds } from '../../domain/access.ts';
 import { z } from 'zod';
 import { getRealm } from '../../domain/lookup.ts';
 import {
@@ -60,7 +61,7 @@ function realmReply(present: Presenter, realmId: number) {
 
 export function registerRealmTools({ db, actor, define }: Tools): void {
 	const inState = (args: { realm: string | number; state: string | number }) => {
-		const realmId = refs.realmId(db, args.realm);
+		const realmId = refs.realmId(db, args.realm, actor);
 		return { realmId, stateId: refs.stateId(db, realmId, args.state) };
 	};
 	const inSubstate = (args: {
@@ -80,10 +81,13 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 			input: {}
 		},
 		(_args, present) => {
-			const realms = listRealms(db).map((p) => {
-				const { id, key, url, name, aliases } = present.realm(p.id);
-				return { id, key, url, name, aliases };
-			});
+			const visible = visibleRealmIds(db, actor);
+			const realms = listRealms(db)
+				.filter((p) => visible === null || visible.includes(p.id))
+				.map((p) => {
+					const { id, key, url, name, aliases } = present.realm(p.id);
+					return { id, key, url, name, aliases };
+				});
 			const keys = realms.map((p) => p.key).join(', ');
 			const summary =
 				realms.length === 0 ? 'No Realms' : `${count(realms.length, 'Realm')}: ${keys}`;
@@ -99,7 +103,7 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 				"Get a Realm with its States in board order, each with its Substates in order and default Substate, its Initial State, and its agent `notes`: how agents should work in this Realm. A Realm's States are its board columns; Closed is built in, always last, and cannot be renamed, reordered or removed.",
 			input: { realm: realmRef }
 		},
-		(args, present) => realmReply(present, refs.realmId(db, args.realm))
+		(args, present) => realmReply(present, refs.realmId(db, args.realm, actor))
 	);
 
 	define(
@@ -135,7 +139,7 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 			input: { realm: realmRef, name: z.string().describe('1 to 120 characters') }
 		},
 		(args, present) => {
-			const realmId = refs.realmId(db, args.realm);
+			const realmId = refs.realmId(db, args.realm, actor);
 			updateRealm(db, actor, realmId, { name: args.name });
 			return realmReply(present, realmId);
 		}
@@ -150,7 +154,7 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 			input: { realm: realmRef, key: z.string().describe('The new Realm key') }
 		},
 		(args, present) => {
-			const realmId = refs.realmId(db, args.realm);
+			const realmId = refs.realmId(db, args.realm, actor);
 			renameRealmKey(db, actor, realmId, args.key);
 			return realmReply(present, realmId);
 		}
@@ -165,7 +169,7 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 			input: { realm: realmRef }
 		},
 		(args) => {
-			const realmId = refs.realmId(db, args.realm);
+			const realmId = refs.realmId(db, args.realm, actor);
 			const { key } = getRealm(db, realmId);
 			deleteRealm(db, actor, realmId);
 			return reply({ deleted: { id: realmId, key } }, `Deleted Realm ${key}`);
@@ -201,7 +205,7 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 			}
 		},
 		(args, present) => {
-			const realmId = refs.realmId(db, args.realm);
+			const realmId = refs.realmId(db, args.realm, actor);
 			const { key, label, color, icon } = args;
 			createState(db, actor, realmId, { key, label, color, icon }, args.index, args.open);
 			return realmReply(present, realmId);

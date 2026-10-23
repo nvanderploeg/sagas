@@ -34,7 +34,7 @@
 	// svelte-ignore state_referenced_locally
 	const live = new LiveView<LabourPageView>(seq, loaded, applyToLabourPage, {
 		onEvent(event: LiveEvent, _before: LabourPageView, after: LabourPageView) {
-			if (event.actor.id === me.id) return;
+			if (event.actor.id === me.id && !event.actor.via) return;
 			if (!touchedLabours(event).includes(after.labour.id)) return;
 			const n = ++glows;
 			glow = { actor: event.actor, n };
@@ -318,7 +318,10 @@
 				{#if glow}
 					{#key glow.n}
 						<span class="editor" data-testid="remote-editor">
-							<Avatar person={glow.actor} size="xs" /> changed by {glow.actor.displayName}
+							<Avatar person={glow.actor} size="xs" /> changed by {glow.actor.displayName}{glow
+								.actor.via
+								? ` (${glow.actor.via.name})`
+								: ''}
 						</span>
 					{/key}
 				{/if}
@@ -427,9 +430,7 @@
 						Children <span class="font-normal text-muted">{view.children.length}</span>
 					</h2>
 					{#if view.children.length === 0}
-						<p class="px-5 pb-5 text-sm text-muted">
-							No Children. A Labour becomes a Child when its Parent is set to {labour.key}.
-						</p>
+						<p class="px-5 pb-5 text-sm text-muted">No Children.</p>
 					{:else}
 						<ul class="divide-y divide-line border-t border-line" data-testid="children">
 							{#each view.children as child (child.id)}
@@ -453,6 +454,7 @@
 									<div class="flex items-center gap-2 text-sm">
 										{#if author}<Avatar person={author} size="xs" />{/if}
 										<span class="font-semibold">{author?.displayName ?? 'Someone'}</span>
+										{#if comment.via}<span class="text-xs text-muted">({comment.via})</span>{/if}
 										<time class="text-xs text-muted" datetime={comment.createdAt}
 											>{stamp(comment.createdAt)}</time
 										>

@@ -16,7 +16,7 @@
 	>Skip to content</a
 >
 {#if data.user}
-	<AppHeader user={data.user} />
+	<AppHeader user={data.user} offers={data.offers} />
 {/if}
 <div id="main" class="min-w-0">
 	{@render children()}

@@ -21,10 +21,11 @@ function questId(raw: string): number {
 	return Number(raw);
 }
 
-export const load: PageServerLoad = ({ params }) => {
+export const load: PageServerLoad = ({ params, locals }) => {
+	const viewer = signedIn(locals);
 	const id = questId(params.id);
 	try {
-		const { seq, value } = readAtSeq(getDb(), (tx) => readQuestPage(tx, id));
+		const { seq, value } = readAtSeq(getDb(), (tx) => readQuestPage(tx, viewer, id));
 		return { seq, page: toJson(value) };
 	} catch (e) {
 		if (e instanceof DomainError && e.code === 'not_found') error(404, 'No such Quest');

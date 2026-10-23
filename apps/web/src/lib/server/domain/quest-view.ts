@@ -53,3 +53,17 @@ export function readQuest(db: Handle, questId: number): QuestView {
 export function touchQuest(db: Handle, questId: number): void {
 	db.update(quests).set({ updatedAt: new Date() }).where(eq(quests.id, questId)).run();
 }
+
+// A Quest as a viewer may see it: only Labours in `visible` Realms (null for all), progress
+// recounted over those.
+export function restrictQuest<
+	T extends { labours: { realmId: number; closed: boolean }[]; progress: QuestProgress }
+>(quest: T, visible: ReadonlySet<number> | null): T {
+	if (visible === null) return quest;
+	const shown = quest.labours.filter((labour) => visible.has(labour.realmId));
+	return {
+		...quest,
+		labours: shown,
+		progress: { closed: shown.filter((labour) => labour.closed).length, total: shown.length }
+	};
+}

@@ -53,7 +53,11 @@ class Stream implements Feed {
 		const onEvent = (message: MessageEvent<string>) =>
 			this.#core.push(JSON.parse(message.data) as LiveEvent, message.data.length);
 		for (const type of EVENT_TYPES) source.addEventListener(type, onEvent);
-		source.addEventListener('ready', () => {
+		source.addEventListener('seq', (message: MessageEvent<string>) => {
+			this.#core.advance((JSON.parse(message.data) as { seq: number }).seq);
+		});
+		source.addEventListener('ready', (message: MessageEvent<string>) => {
+			this.#core.advance((JSON.parse(message.data) as { seq: number }).seq);
 			this.status = 'live';
 			this.#attempt = 0;
 		});

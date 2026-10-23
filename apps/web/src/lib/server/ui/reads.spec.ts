@@ -42,23 +42,26 @@ describe('page reads', () => {
 		const realm = seedRealm(db);
 		const labour = seedLabour(db, { realmId: realm.id, ownerId: actor.id });
 		questsWithMembers(actor.id, 1, realm.id);
-		const few = statements(() => readLabourPage(db, labour.id));
+		const few = statements(() => readLabourPage(db, actor, labour.id));
 
 		questsWithMembers(actor.id, 12, realm.id);
-		expect(statements(() => readLabourPage(db, labour.id))).toBe(few);
-		expect(readLabourPage(db, labour.id).quests).toHaveLength(13);
-		expect(Object.keys(readLabourPage(db, labour.id).quests[0]).sort()).toEqual(['id', 'name']);
+		expect(statements(() => readLabourPage(db, actor, labour.id))).toBe(few);
+		expect(readLabourPage(db, actor, labour.id).quests).toHaveLength(13);
+		expect(Object.keys(readLabourPage(db, actor, labour.id).quests[0]).sort()).toEqual([
+			'id',
+			'name'
+		]);
 	});
 
 	it('read Home without touching the Quests other Users own', () => {
 		const realm = seedRealm(db);
 		const other = seedUser(db, 'other');
 		questsWithMembers(actor.id, 2, realm.id);
-		const few = statements(() => readHome(db, actor.id));
+		const few = statements(() => readHome(db, actor));
 
 		questsWithMembers(other, 12, realm.id);
-		expect(statements(() => readHome(db, actor.id))).toBe(few);
-		expect(readHome(db, actor.id).quests.map((q) => q.ownerId)).toEqual([actor.id, actor.id]);
+		expect(statements(() => readHome(db, actor))).toBe(few);
+		expect(readHome(db, actor).quests.map((q) => q.ownerId)).toEqual([actor.id, actor.id]);
 	});
 
 	it("lists only the User's Labours in open States", () => {
@@ -75,6 +78,6 @@ describe('page reads', () => {
 		const groom = seedLabour(db, { realmId: realm.id, ownerId: actor.id });
 		updateLabour(db, actor, groom.id, { stateId: backlog.id });
 
-		expect(readHome(db, actor.id).mine.map((t) => t.id)).toEqual([ready.id]);
+		expect(readHome(db, actor).mine.map((t) => t.id)).toEqual([ready.id]);
 	});
 });

@@ -203,6 +203,31 @@ export const realms = sqliteTable(
 	]
 );
 
+// One User's role in one Realm, per docs/realm-access.md. `pending` is an Offer: it grants nothing.
+export const realmMembers = sqliteTable(
+	'realm_members',
+	{
+		realmId: integer('realm_id')
+			.notNull()
+			.references(() => realms.id, { onDelete: 'cascade' }),
+		userId: integer('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: ['owner', 'editor', 'viewer'] }).notNull(),
+		status: text('status', { enum: ['pending', 'active'] }).notNull(),
+		invitedBy: integer('invited_by').references(() => users.id, { onDelete: 'set null' }),
+		createdAt: now(),
+		acceptedAt: timestamp('accepted_at')
+	},
+	(t) => [
+		primaryKey({ columns: [t.realmId, t.userId] }),
+		index('realm_members_user_idx').on(t.userId, t.status),
+		check('realm_members_role', sql.raw(`"role" IN ('owner', 'editor', 'viewer')`)),
+		check('realm_members_status', sql.raw(`"status" IN ('pending', 'active')`)),
+		check('realm_members_accepted', sql.raw(`("status" = 'active') = ("accepted_at" IS NOT NULL)`))
+	]
+);
+
 // Every key a Realm has held, its current one included.
 export const realmKeys = sqliteTable(
 	'realm_keys',
@@ -373,6 +398,8 @@ export const comments = sqliteTable(
 			.notNull()
 			.references(() => users.id),
 		body: text('body').notNull(),
+		// The API token's name when set through one.
+		via: text('via'),
 		createdAt: now(),
 		// Null until the body is edited.
 		updatedAt: timestamp('updated_at')
@@ -420,6 +447,10 @@ export const events = sqliteTable(
 		actorId: integer('actor_id')
 			.notNull()
 			.references(() => users.id),
+		// The API token the write came through; null for a session. `tokenName` is the name it
+		// had then, kept after the token is revoked or renamed.
+		tokenId: integer('token_id').references(() => apiTokens.id, { onDelete: 'set null' }),
+		tokenName: text('token_name'),
 		createdAt: now(),
 		// The type's payload in docs/events.md.
 		data: text('data', { mode: 'json' }).notNull().$type<unknown>()
@@ -492,6 +523,7 @@ export const labourAttributes = sqliteTable(
 		setBy: integer('set_by')
 			.notNull()
 			.references(() => users.id),
+		via: text('via'),
 		setAt: now('set_at')
 	},
 	(t) => [
@@ -522,9 +554,11 @@ export const appraisals = sqliteTable(
 		// Null until a brief or refs write.
 		setBy: integer('set_by').references(() => users.id),
 		setAt: timestamp('set_at'),
+		via: text('via'),
 		contentHash: text('content_hash'),
 		appraisedBy: integer('appraised_by').references(() => users.id),
-		appraisedAt: timestamp('appraised_at')
+		appraisedAt: timestamp('appraised_at'),
+		appraisedVia: text('appraised_via')
 	},
 	() => [
 		check('appraisals_refs_json', sql.raw(`json_valid("refs")`)),
@@ -552,6 +586,7 @@ export const links = sqliteTable(
 		setBy: integer('set_by')
 			.notNull()
 			.references(() => users.id),
+		via: text('via'),
 		setAt: now('set_at')
 	},
 	(t) => [
@@ -624,6 +659,7 @@ export const pulses = sqliteTable(
 		authorId: integer('author_id')
 			.notNull()
 			.references(() => users.id),
+		via: text('via'),
 		createdAt: now()
 	},
 	(t) => [
@@ -686,6 +722,7 @@ export const outcomes = sqliteTable(
 		authorId: integer('author_id')
 			.notNull()
 			.references(() => users.id),
+		via: text('via'),
 		createdAt: now()
 	},
 	(t) => [
@@ -731,6 +768,7 @@ export const userSkills = sqliteTable(
 		setBy: integer('set_by')
 			.notNull()
 			.references(() => users.id),
+		via: text('via'),
 		setAt: now('set_at')
 	},
 	(t) => [
@@ -753,6 +791,7 @@ export const labourNeeds = sqliteTable(
 		setBy: integer('set_by')
 			.notNull()
 			.references(() => users.id),
+		via: text('via'),
 		setAt: now('set_at')
 	},
 	(t) => [

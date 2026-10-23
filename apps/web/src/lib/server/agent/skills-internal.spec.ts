@@ -101,13 +101,13 @@ describe('schema', () => {
 		expect(() =>
 			db
 				.insert(userSkills)
-				.values({ userId: actor.id, skillId: id, level, setBy: actor.id, setAt: NOW })
+				.values({ userId: actor.id, skillId: id, level, setBy: actor.id, via: null, setAt: NOW })
 				.run()
 		).toThrow(/user_skills_level/);
 		expect(() =>
 			db
 				.insert(labourNeeds)
-				.values({ labourId: l.id, skillId: id, level, setBy: actor.id, setAt: NOW })
+				.values({ labourId: l.id, skillId: id, level, setBy: actor.id, via: null, setAt: NOW })
 				.run()
 		).toThrow(/labour_needs_level/);
 	});
@@ -115,8 +115,22 @@ describe('schema', () => {
 	it('keeps one row per User and Skill, and per Labour and Skill', () => {
 		const { id } = skill('vfx');
 		const l = labour();
-		const held = { userId: actor.id, skillId: id, level: 1, setBy: actor.id, setAt: NOW };
-		const needed = { labourId: l.id, skillId: id, level: 1, setBy: actor.id, setAt: NOW };
+		const held = {
+			userId: actor.id,
+			skillId: id,
+			level: 1,
+			setBy: actor.id,
+			via: null,
+			setAt: NOW
+		};
+		const needed = {
+			labourId: l.id,
+			skillId: id,
+			level: 1,
+			setBy: actor.id,
+			via: null,
+			setAt: NOW
+		};
 		db.insert(userSkills).values(held).run();
 		db.insert(labourNeeds).values(needed).run();
 		expect(() => db.insert(userSkills).values(held).run()).toThrow();
@@ -230,7 +244,9 @@ describe('needs', () => {
 		appraise(db, actor, [{ labourId: l.id, needs: { vfx: 2 } }], NOW);
 		const later = new Date(NOW.getTime() + 1000);
 		appraise(db, { id: other }, [{ labourId: l.id, needs: { vfx: 2 } }], later);
-		expect(readNeeds(db, l.id)).toEqual([{ key: 'vfx', level: 2, setBy: other, setAt: later }]);
+		expect(readNeeds(db, l.id)).toEqual([
+			{ key: 'vfx', level: 2, setBy: other, via: null, setAt: later }
+		]);
 	});
 
 	it('changes no Realm version, Event, Labour updatedAt or content hash', () => {

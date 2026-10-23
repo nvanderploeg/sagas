@@ -9,6 +9,8 @@ import { realmEvent } from './realm-view.ts';
 import { CLOSED_STATE, insertState, type StyleSpec } from './states.ts';
 import { formatLabourKey, normalizeRealmKey } from './keys.ts';
 import { recordLabourKey } from './labours.ts';
+import { requireRealmRole } from './access.ts';
+import { addOwner } from './memberships.ts';
 import { requireText } from './validate.ts';
 import { write, type Actor } from './write.ts';
 
@@ -39,6 +41,7 @@ export function createRealmWithStates(
 		assertKeyAvailable(tx, key, null);
 		const realm = tx.insert(realms).values({ name, key }).returning().get();
 		tx.insert(realmKeys).values({ key, realmId: realm.id }).run();
+		addOwner(tx, realm.id, actor.id);
 		insertState(tx, realm.id, CLOSED_STATE, { closed: true });
 		const initial = insertState(tx, realm.id, input.initialState);
 		for (const state of input.states) insertState(tx, realm.id, state);
@@ -55,6 +58,7 @@ export function createRealmWithStates(
 export function updateRealm(db: Db, actor: Actor, realmId: number, patch: { name: string }): Realm {
 	return write(db, actor, (tx) => {
 		const realm = getRealm(tx, realmId);
+		requireRealmRole(tx, actor, realmId, 'owner');
 		const name = requireText(patch.name, 'Realm name', 120);
 		if (name === realm.name) return { value: realm, events: [] };
 		const value = tx.update(realms).set({ name }).where(eq(realms.id, realmId)).returning().get();
@@ -65,6 +69,7 @@ export function updateRealm(db: Db, actor: Actor, realmId: number, patch: { name
 export function renameRealmKey(db: Db, actor: Actor, realmId: number, input: string): Realm {
 	return write(db, actor, (tx) => {
 		const realm = getRealm(tx, realmId);
+		requireRealmRole(tx, actor, realmId, 'owner');
 		const key = normalizeRealmKey(input);
 		if (key === realm.key) return { value: realm, events: [] };
 		assertKeyAvailable(tx, key, realmId);
@@ -94,6 +99,7 @@ export function renameRealmKey(db: Db, actor: Actor, realmId: number, input: str
 export function setInitialState(db: Db, actor: Actor, realmId: number, stateId: number): Realm {
 	return write(db, actor, (tx) => {
 		const realm = getRealm(tx, realmId);
+		requireRealmRole(tx, actor, realmId, 'owner');
 		const state = getState(tx, stateId);
 		if (state.realmId !== realmId) {
 			throw new DomainError('invalid', 'The Initial State must belong to the Realm');
@@ -113,6 +119,7 @@ export function setInitialState(db: Db, actor: Actor, realmId: number, stateId: 
 export function deleteRealm(db: Db, actor: Actor, realmId: number): void {
 	write(db, actor, (tx) => {
 		getRealm(tx, realmId);
+		requireRealmRole(tx, actor, realmId, 'owner');
 		const held = eq(labours.realmId, realmId);
 		const labourIds = tx
 			.select({ id: labours.id })

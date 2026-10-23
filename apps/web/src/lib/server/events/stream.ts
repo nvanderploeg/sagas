@@ -1,5 +1,6 @@
 import type { Db } from '../db/client.ts';
 import { subscribe } from './bus.ts';
+import { eventForViewer } from './visibility.ts';
 import { canReplayFrom, eventsSince, eventWindow } from './log.ts';
 import type { SagasEvent } from './types.ts';
 
@@ -17,6 +18,8 @@ export type StreamOptions = {
 	heartbeatMs: number;
 	maxBacklogBytes?: number;
 	guard?: StreamGuard;
+	// Deliver only what this User may see; an Event they may not see still advances the stream's seq.
+	viewer?: { id: number };
 };
 
 export const STREAM_HEADERS = {
@@ -43,7 +46,7 @@ export function eventFrame(event: SagasEvent): string {
 	return `id: ${event.seq}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
-export function controlFrame(type: 'ready' | 'reset', seq: number): string {
+export function controlFrame(type: 'ready' | 'reset' | 'seq', seq: number): string {
 	return `id: ${seq}\nevent: ${type}\ndata: ${JSON.stringify({ seq })}\n\n`;
 }
 
@@ -51,7 +54,8 @@ export function controlFrame(type: 'ready' | 'reset', seq: number): string {
 function openingFrames(
 	db: Db,
 	since: number | undefined,
-	maxBytes: number
+	maxBytes: number,
+	viewer: { id: number } | undefined
 ): { frames: Uint8Array[]; seq: number } {
 	return db.transaction((tx) => {
 		const { oldest, last } = eventWindow(tx);
@@ -65,7 +69,9 @@ function openingFrames(
 		for (let after = since; after < last;) {
 			const page = eventsSince(tx, after, REPLAY_PAGE);
 			if (page.length === 0) break;
-			for (const event of page) {
+			for (const sent of page) {
+				const event = viewer === undefined ? sent : eventForViewer(tx, sent, viewer);
+				if (event === null) continue;
 				const frame = encoder.encode(eventFrame(event));
 				bytes += frame.byteLength;
 				if (bytes > maxBytes) return reset;
@@ -117,14 +123,27 @@ export function openEventStream(db: Db, options: StreamOptions): ReadableStream<
 		}
 	}
 
+	// Set while Events the viewer may not see have passed: their seq still has to reach the client.
+	let unseen = false;
+
 	function emit(event: SagasEvent): void {
 		if (event.seq <= lastSeq) return;
 		lastSeq = event.seq;
-		send(encoder.encode(eventFrame(event)));
+		const shown = options.viewer === undefined ? event : eventForViewer(db, event, options.viewer);
+		if (shown === null) {
+			unseen = true;
+			return;
+		}
+		send(encoder.encode(eventFrame(shown)));
 	}
 
 	function heartbeat(): void {
 		if (options.guard && !options.guard.valid()) return close();
+		if (unseen) {
+			unseen = false;
+			send(encoder.encode(controlFrame('seq', lastSeq)));
+			return;
+		}
 		send(PING);
 	}
 
@@ -134,7 +153,7 @@ export function openEventStream(db: Db, options: StreamOptions): ReadableStream<
 				controller = c;
 				if (options.guard) hold(options.guard.watch(close));
 				// Read the log and subscribe in one synchronous turn: no write can commit between them.
-				const opening = openingFrames(db, options.since, maxBytes);
+				const opening = openingFrames(db, options.since, maxBytes, options.viewer);
 				lastSeq = opening.seq;
 				hold(subscribe(emit));
 				for (const frame of opening.frames) send(frame);

@@ -13,16 +13,18 @@ import {
 } from '#lib/server/domain/labours.ts';
 import { readAtSeq } from '#lib/server/events/log.ts';
 import { int, optionalInt, perform, signedIn, text } from '#lib/server/ui/form.ts';
+import { canSeeRealm } from '#lib/server/domain/access.ts';
 import { readLabourPage, toJson } from '#lib/server/ui/reads.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ params }) => {
+export const load: PageServerLoad = ({ params, locals }) => {
+	const viewer = signedIn(locals);
 	const db = getDb();
 	const found = resolveLabourKey(db, params.key);
-	if (!found) error(404, 'No Labour has that key');
+	if (!found || !canSeeRealm(db, viewer, found.realmId)) error(404, 'No Labour has that key');
 	if (found.key !== params.key) redirect(307, `/l/${found.key}`);
 	try {
-		const { seq, value } = readAtSeq(db, (tx) => readLabourPage(tx, found.id));
+		const { seq, value } = readAtSeq(db, (tx) => readLabourPage(tx, viewer, found.id));
 		return { seq, page: toJson(value) };
 	} catch (e) {
 		if (e instanceof DomainError && e.code === 'not_found') error(404, 'No Labour has that key');
@@ -122,7 +124,7 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const result = perform('delete', () => {
 			const db = getDb();
-			const page = readLabourPage(db, int(form, 'labourId'));
+			const page = readLabourPage(db, actor, int(form, 'labourId'));
 			deleteLabour(db, actor, page.labour.id);
 			const realm = page.realms.find((p) => p.id === page.labour.realmId);
 			return { board: realm?.key ?? '' };

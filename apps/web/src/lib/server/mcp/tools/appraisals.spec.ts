@@ -164,14 +164,33 @@ describe('appraise', () => {
 				{ href: 'src/a.ts', label: null }
 			],
 			setBy: 'bob',
+			via: null,
 			setAt: now,
 			contentHash: hash,
-			stamp: { contentHash: hash, appraisedBy: 'bob', appraisedAt: now },
+			stamp: { contentHash: hash, appraisedBy: 'bob', appraisedVia: null, appraisedAt: now },
 			unappraised: false,
 			stale: false,
-			values: [{ key: 'impact', kind: 'scale', value: 4, setBy: 'bob', setAt: now, stale: false }],
+			values: [
+				{
+					key: 'impact',
+					kind: 'scale',
+					value: 4,
+					setBy: 'bob',
+					via: null,
+					setAt: now,
+					stale: false
+				}
+			],
 			links: [
-				{ type: 'evidence', from: 'AM-1', to: 'BL-1', note: 'seen there', setBy: 'bob', setAt: now }
+				{
+					type: 'evidence',
+					from: 'AM-1',
+					to: 'BL-1',
+					note: 'seen there',
+					setBy: 'bob',
+					via: null,
+					setAt: now
+				}
 			],
 			mentions: [],
 			needs: []
@@ -306,6 +325,7 @@ describe('appraise', () => {
 				brief: '',
 				refs: [],
 				setBy: null,
+				via: null,
 				setAt: null,
 				stamp: null,
 				unappraised: true,
@@ -606,6 +626,7 @@ describe('get_appraisal', () => {
 			brief: '',
 			refs: [],
 			setBy: null,
+			via: null,
 			setAt: null,
 			contentHash: hash,
 			stamp: null,
@@ -656,6 +677,7 @@ describe('get_appraisal', () => {
 		expect(view.stamp).toEqual({
 			contentHash: view.contentHash,
 			appraisedBy: 'bob',
+			appraisedVia: null,
 			appraisedAt: now
 		});
 	});
@@ -783,6 +805,7 @@ describe('get_appraisal', () => {
 					kind: 'scale',
 					value: 3,
 					setBy: 'root',
+					via: null,
 					setAt: '2030-01-02T00:00:00.000Z',
 					stale: true
 				}

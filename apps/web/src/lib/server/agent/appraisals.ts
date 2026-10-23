@@ -1,4 +1,6 @@
-import { and, desc, eq, lt } from 'drizzle-orm';
+import { requireRealmRole } from '../domain/access.ts';
+import { currentVia } from '#lib/server/auth/via.ts';
+import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { appraisals, attributes, labourAttributes, labours, states } from '../db/schema.ts';
 import { DomainError } from '../domain/errors.ts';
@@ -46,9 +48,15 @@ export type AppraisalView = {
 	brief: string;
 	refs: Reference[];
 	setBy: number | null;
+	via: string | null;
 	setAt: Date | null;
 	contentHash: string;
-	stamp: { contentHash: string; appraisedBy: number; appraisedAt: Date } | null;
+	stamp: {
+		contentHash: string;
+		appraisedBy: number;
+		appraisedVia: string | null;
+		appraisedAt: Date;
+	} | null;
 	unappraised: boolean;
 	stale: boolean;
 	values: ValueView[];
@@ -85,6 +93,7 @@ export function readAppraisal(db: Handle, labourId: number): AppraisalView {
 			: {
 					contentHash: row.contentHash,
 					appraisedBy: row.appraisedBy!,
+					appraisedVia: row.appraisedVia,
 					appraisedAt: row.appraisedAt!
 				};
 	return {
@@ -92,6 +101,7 @@ export function readAppraisal(db: Handle, labourId: number): AppraisalView {
 		brief: row?.brief ?? '',
 		refs: (row?.refs ?? []) as Reference[],
 		setBy: row?.setBy ?? null,
+		via: row?.via ?? null,
 		setAt: row?.setAt ?? null,
 		contentHash: hash,
 		stamp,
@@ -145,7 +155,7 @@ function writeAppraisal(
 	rebriefed: Set<number>
 ): void {
 	const before = readRow(tx, labourId)?.brief ?? '';
-	const set = { ...patch, setBy: userId, setAt: now };
+	const set = { ...patch, setBy: userId, via: currentVia(), setAt: now };
 	tx.insert(appraisals)
 		.values({ labourId, ...set })
 		.onConflictDoUpdate({ target: appraisals.labourId, set })
@@ -157,7 +167,12 @@ function writeAppraisal(
 }
 
 function writeStamp(tx: Handle, userId: number, labourId: number, hash: string, now: Date): void {
-	const set = { contentHash: hash, appraisedBy: userId, appraisedAt: now };
+	const set = {
+		contentHash: hash,
+		appraisedBy: userId,
+		appraisedAt: now,
+		appraisedVia: currentVia()
+	};
 	tx.insert(appraisals)
 		.values({ labourId, ...set })
 		.onConflictDoUpdate({ target: appraisals.labourId, set })
@@ -189,7 +204,7 @@ function applyLinks(
 		}
 		const other = (input.to ?? input.from)!;
 		if (other === labourId) invalid('A Labour cannot be linked to itself');
-		getLabour(tx, other);
+		requireRealmRole(tx, { id: userId }, getLabour(tx, other).realmId, 'viewer');
 		writeLink(
 			tx,
 			userId,
@@ -251,6 +266,9 @@ export function appraise(
 			seen.add(item.labourId);
 		}
 		const touched = new Set<number>();
+		for (const item of items) {
+			requireRealmRole(tx, actor, getLabour(tx, item.labourId).realmId, 'editor');
+		}
 		const results = items.map((item) => ({
 			labourId: item.labourId,
 			stamped: applyItem(tx, actor.id, item, now, touched, rebriefed)
@@ -262,7 +280,7 @@ export function appraise(
 	return results;
 }
 
-export type UnappraisedFilter = { realmId?: number; includeClosed?: boolean };
+export type UnappraisedFilter = { realms?: number[]; realmId?: number; includeClosed?: boolean };
 
 export function listUnappraised(
 	db: Handle,
@@ -270,6 +288,7 @@ export function listUnappraised(
 	page: { offset: number; limit: number }
 ): { items: { labourId: number; reason: UnappraisedReason }[]; total: number } {
 	const where = [];
+	if (filter.realms !== undefined) where.push(inArray(labours.realmId, filter.realms));
 	if (filter.realmId !== undefined) where.push(eq(labours.realmId, filter.realmId));
 	if (filter.includeClosed !== true) where.push(eq(states.isClosed, false));
 

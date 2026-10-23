@@ -1,10 +1,12 @@
-import { and, asc, count, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
 import { questLabours, states, labours } from '../db/schema.ts';
 import { selectLabourViews, toLabourView, type LabourView } from './labour-view.ts';
 
 // `null` for assigneeId or parentId matches Labours without one.
 export type LabourFilter = {
+	// Only Labours in these Realms; an empty list matches none.
+	realms?: number[];
 	realmId?: number;
 	stateId?: number;
 	substateId?: number;
@@ -23,6 +25,9 @@ export type LabourPage = { labours: LabourView[]; total: number };
 
 function conditions(filter: LabourFilter): SQL | undefined {
 	const where: SQL[] = [];
+	if (filter.realms !== undefined) {
+		where.push(filter.realms.length === 0 ? sql`0` : inArray(labours.realmId, filter.realms));
+	}
 	if (filter.realmId !== undefined) where.push(eq(labours.realmId, filter.realmId));
 	if (filter.stateId !== undefined) where.push(eq(labours.stateId, filter.stateId));
 	if (filter.substateId !== undefined) where.push(eq(labours.substateId, filter.substateId));

@@ -1,3 +1,5 @@
+import { requireRealmRole } from '../domain/access.ts';
+import { currentVia } from '#lib/server/auth/via.ts';
 import { and, asc, eq, or, sql } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { links } from '../db/schema.ts';
@@ -15,6 +17,7 @@ export type LinkView = {
 	to: number;
 	note: string;
 	setBy: number;
+	via: string | null;
 	setAt: Date;
 };
 
@@ -35,6 +38,7 @@ export function readLinks(db: Handle, labourId: number): LinkView[] {
 			to: row.toId,
 			note: row.note,
 			setBy: row.setBy,
+			via: row.via,
 			setAt: row.setAt
 		}));
 }
@@ -89,10 +93,10 @@ export function writeLink(tx: Handle, userId: number, change: LinkChange, now: D
 	}
 	const note = change.note ?? existing?.note ?? '';
 	tx.insert(links)
-		.values({ fromId: from, toId: to, type, note, setBy: userId, setAt: now })
+		.values({ fromId: from, toId: to, type, note, setBy: userId, via: currentVia(), setAt: now })
 		.onConflictDoUpdate({
 			target: [links.fromId, links.toId, links.type],
-			set: { note, setBy: userId, setAt: now }
+			set: { note, setBy: userId, via: currentVia(), setAt: now }
 		})
 		.run();
 }
@@ -118,8 +122,8 @@ export function changeLinks(
 			if (note !== undefined && note.length > LINK_NOTE_MAX) {
 				throw new DomainError('invalid', `A Link note must be at most ${LINK_NOTE_MAX} characters`);
 			}
-			getLabour(tx, change.from);
-			getLabour(tx, change.to);
+			requireRealmRole(tx, actor, getLabour(tx, change.from).realmId, 'editor');
+			requireRealmRole(tx, actor, getLabour(tx, change.to).realmId, 'viewer');
 			writeLink(tx, actor.id, { ...change, note }, now);
 		}
 	});

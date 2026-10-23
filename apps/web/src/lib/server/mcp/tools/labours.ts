@@ -1,3 +1,4 @@
+import { canSeeLabour, visibleRealmIds } from '../../domain/access.ts';
 import { z } from 'zod';
 import { DomainError } from '../../domain/errors.ts';
 import { getRealm, getLabour } from '../../domain/lookup.ts';
@@ -56,7 +57,7 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 			input: { labour: labourRef }
 		},
 		(args, present) => {
-			const labour = present.labour(readLabour(db, refs.labourId(db, args.labour)));
+			const labour = present.labour(readLabour(db, refs.labourId(db, args.labour, actor)));
 			const given = typeof args.labour === 'string' ? args.labour.toUpperCase() : labour.key;
 			const alias = given !== labour.key;
 			const note = alias ? `${given} is an Alias of ` : '';
@@ -97,11 +98,12 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 			}
 		},
 		(args, present) => {
-			const realmId = args.realm === undefined ? undefined : refs.realmId(db, args.realm);
+			const realmId = args.realm === undefined ? undefined : refs.realmId(db, args.realm, actor);
 			const stateId = args.state === undefined ? undefined : refs.stateId(db, realmId, args.state);
 			const page = queryLabours(
 				db,
 				{
+					realms: visibleRealmIds(db, actor) ?? undefined,
 					realmId,
 					stateId,
 					substateId:
@@ -114,7 +116,7 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 					parentId:
 						args.parent == null
 							? (args.parent as null | undefined)
-							: refs.labourId(db, args.parent),
+							: refs.labourId(db, args.parent, actor),
 					closed: args.closed,
 					open: args.open,
 					labels: args.labels === undefined ? undefined : normalizeLabels(args.labels),
@@ -141,14 +143,16 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 			input: { labour: labourRef }
 		},
 		({ labour }, present) => {
-			const labourId = refs.labourId(db, labour);
+			const labourId = refs.labourId(db, labour, actor);
 			const detail = present.detail(readLabour(db, labourId));
-			const links = readLinks(db, labourId).map((link) => ({
-				type: link.type,
-				from: refs.labourKey(db, link.from),
-				to: refs.labourKey(db, link.to),
-				note: link.note
-			}));
+			const links = readLinks(db, labourId)
+				.filter((link) => canSeeLabour(db, actor, link.from) && canSeeLabour(db, actor, link.to))
+				.map((link) => ({
+					type: link.type,
+					from: refs.labourKey(db, link.from),
+					to: refs.labourKey(db, link.to),
+					note: link.note
+				}));
 			return reply({ labour: detail, links }, labourLine(detail));
 		}
 	);
@@ -175,7 +179,7 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 			}
 		},
 		(args, present) => {
-			const realmId = refs.realmId(db, args.realm);
+			const realmId = refs.realmId(db, args.realm, actor);
 			const stateId = args.state === undefined ? undefined : refs.stateId(db, realmId, args.state);
 			const created = createLabour(db, actor, {
 				realmId,
@@ -192,9 +196,9 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 								stateId ?? getRealm(db, realmId).initialStateId ?? undefined,
 								args.substate
 							),
-				parentId: args.parent === undefined ? null : refs.labourId(db, args.parent),
+				parentId: args.parent === undefined ? null : refs.labourId(db, args.parent, actor),
 				labels: args.labels,
-				placement: refs.placement(db, args)
+				placement: refs.placement(db, args, actor)
 			});
 			return labourReply(present, created.id);
 		}
@@ -224,7 +228,7 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 			}
 		},
 		(args, present) => {
-			const labourId = refs.labourId(db, args.labour);
+			const labourId = refs.labourId(db, args.labour, actor);
 			const current = getLabour(db, labourId);
 			const stateId =
 				args.state === undefined ? undefined : refs.stateId(db, current.realmId, args.state);
@@ -244,7 +248,7 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 				labels: args.labels,
 				addLabels: args.add_labels,
 				removeLabels: args.remove_labels,
-				placement: refs.placement(db, args)
+				placement: refs.placement(db, args, actor)
 			});
 			return labourReply(present, labourId);
 		}
@@ -265,8 +269,8 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 			}
 		},
 		(args, present) => {
-			const labourId = refs.labourId(db, args.labour);
-			const realmId = refs.realmId(db, args.realm);
+			const labourId = refs.labourId(db, args.labour, actor);
+			const realmId = refs.realmId(db, args.realm, actor);
 			const stateId = args.state === undefined ? undefined : refs.stateId(db, realmId, args.state);
 			const landing = () => {
 				if (readLabour(db, labourId).closed) {
@@ -281,7 +285,7 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 					args.substate === undefined
 						? undefined
 						: refs.substateId(db, stateId ?? landing(), args.substate),
-				placement: refs.placement(db, args)
+				placement: refs.placement(db, args, actor)
 			});
 			return labourReply(present, labourId);
 		}
@@ -296,8 +300,8 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 			input: { labour: labourRef, ...placementShape }
 		},
 		(args, present) => {
-			const labourId = refs.labourId(db, args.labour);
-			const placement = refs.placement(db, args);
+			const labourId = refs.labourId(db, args.labour, actor);
+			const placement = refs.placement(db, args, actor);
 			if (placement === undefined) {
 				throw new DomainError('invalid', 'Give one of position, before or after');
 			}
@@ -318,8 +322,13 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 			}
 		},
 		(args, present) => {
-			const labourId = refs.labourId(db, args.labour);
-			setParent(db, actor, labourId, args.parent === null ? null : refs.labourId(db, args.parent));
+			const labourId = refs.labourId(db, args.labour, actor);
+			setParent(
+				db,
+				actor,
+				labourId,
+				args.parent === null ? null : refs.labourId(db, args.parent, actor)
+			);
 			return labourReply(present, labourId);
 		}
 	);
@@ -333,7 +342,7 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 			input: { labour: labourRef, body: z.string().describe('Markdown, 1 to 20000 characters') }
 		},
 		(args, present) => {
-			const labourId = refs.labourId(db, args.labour);
+			const labourId = refs.labourId(db, args.labour, actor);
 			const comment = present.comment(addComment(db, actor, labourId, args.body));
 			return reply({ comment }, `Commented on ${comment.labour} as ${comment.author}`);
 		}
@@ -380,7 +389,7 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 			input: { labour: labourRef }
 		},
 		(args, present) => {
-			const labour = readLabour(db, refs.labourId(db, args.labour));
+			const labour = readLabour(db, refs.labourId(db, args.labour, actor));
 			const comments = listComments(db, labour.id).map((c) => present.comment(c));
 			return reply({ comments }, `${labour.key}: ${count(comments.length, 'Comment')}`);
 		}
@@ -395,7 +404,7 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 			input: { labour: labourRef }
 		},
 		(args) => {
-			const labour = readLabour(db, refs.labourId(db, args.labour));
+			const labour = readLabour(db, refs.labourId(db, args.labour, actor));
 			deleteLabour(db, actor, labour.id);
 			return reply({ deleted: { id: labour.id, key: labour.key } }, `Deleted ${labour.key}`);
 		}

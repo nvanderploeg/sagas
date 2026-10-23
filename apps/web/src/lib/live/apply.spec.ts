@@ -153,9 +153,9 @@ describe('the client views, fed by the Stream', () => {
 			...[am, bl, cc].map((p) =>
 				view(feed, `board ${p.key}`, (tx) => readBoard(tx, p.id), applyToBoard(p.id), boardOrder)
 			),
-			view(feed, 'quest page', (tx) => readQuestPage(tx, quest.id), applyToQuestPage),
-			view(feed, 'quest list', (tx) => readQuestList(tx), applyToQuestList),
-			view(feed, 'home', (tx) => readHome(tx, actor.id), applyToHome(actor.id)),
+			view(feed, 'quest page', (tx) => readQuestPage(tx, actor, quest.id), applyToQuestPage),
+			view(feed, 'quest list', (tx) => readQuestList(tx, actor), applyToQuestList),
+			view(feed, 'home', (tx) => readHome(tx, actor), applyToHome(actor.id)),
 			view(feed, 'settings AM', (tx) => ({ realm: readRealm(tx, am.id) }), applyToSettings)
 		];
 
@@ -180,7 +180,7 @@ describe('the client views, fed by the Stream', () => {
 				() => {
 					for (const id of [a, b, d, e]) {
 						probes.push(
-							view(feed, `labour ${id}`, (tx) => readLabourPage(tx, id), applyToLabourPage)
+							view(feed, `labour ${id}`, (tx) => readLabourPage(tx, actor, id), applyToLabourPage)
 						);
 					}
 				}
@@ -269,7 +269,7 @@ describe('applyToLabourPage', () => {
 		const labour = (title: string) =>
 			createLabour(db, actor, { realmId: am.id, title, ownerId: actor.id });
 		const [kid, a, b] = [labour('kid'), labour('a'), labour('b')];
-		const loaded = loadOrNull((tx) => readLabourPage(tx, kid.id))!;
+		const loaded = loadOrNull((tx) => readLabourPage(tx, actor, kid.id))!;
 		const page = loaded.value as unknown as LabourPageView;
 		setParent(db, actor, kid.id, a.id);
 		const [event] = toJson(eventsSince(db, loaded.seq)) as LiveEvent[];

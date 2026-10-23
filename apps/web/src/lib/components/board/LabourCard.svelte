@@ -92,7 +92,13 @@
 	{#if glow}
 		{#key glow.n}
 			<span class="glow" aria-hidden="true"></span>
-			<span class="by" data-testid="remote-editor" title="Changed by {glow.actor.displayName}">
+			<span
+				class="by"
+				data-testid="remote-editor"
+				title="Changed by {glow.actor.displayName}{glow.actor.via
+					? ` (${glow.actor.via.name})`
+					: ''}"
+			>
 				<Avatar person={glow.actor} size="xs" />
 			</span>
 		{/key}

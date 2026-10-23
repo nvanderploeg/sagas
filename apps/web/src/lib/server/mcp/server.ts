@@ -14,15 +14,16 @@ import { registerSurveyTools } from './tools/survey.ts';
 import { registerSentimentTools } from './tools/sentiment.ts';
 import { registerOutcomeTools } from './tools/outcomes.ts';
 import { registerSkillTools } from './tools/skills.ts';
+import { registerMemberTools } from './tools/members.ts';
 
 const INSTRUCTIONS = `sagas is a labour tracker. Vocabulary:
 - Labour: one unit of work, addressed by its Labour key (AM-123, any case). Moving a Labour or renaming its Realm key gives it a new key; old keys stay Aliases that still resolve.
-- Realm: a group of Labours with its own key and States. States are its board columns; Closed is built in and always last. A Labour is finished exactly when it is in Closed.
+- Realm: a group of Labours with its own key and States. A Realm is private to its members: Membership gives a role (owner, editor or viewer), and a Realm you are not in does not exist for you. An Owner offers a role by username; the invitee sees it in list_offers and accepts. States are its board columns; Closed is built in and always last. A Labour is finished exactly when it is in Closed.
 - Substate: an optional subdivision of a State. When a State has Substates, its Labours are always in one.
 - Rank: a Labour's position within its State's board column, top first: the order people set on the board. To decide what comes next, run a Survey.
 - Parent and Children: a Labour has at most one Parent.
 - Quest: a named, ordered set of Labours across Realms; progress is its Closed Labours over all.
-- Agent layer: data for agents, shown to people only in an Advanced view. Any User may change it; its writes record no Events.
+- Agent layer: data for agents, shown to people only in an Advanced view. Any member of a Realm may change its part of it; its writes record no Events.
 - Attribute: a field a Realm defines for agents to set on its Labours (a scale, tags or text), with a rubric saying what each value means.
 - Appraisal: an agent's Brief (one or two sentences summing up a Labour, returned with every Labour) and References for a Labour, stamped with the hash of the content it read; stale once that content changes.
 - Link: evidence, blocks, relates or duplicates between two Labours; separate from Parent. Change with link_labours, read with get_labour.
@@ -55,6 +56,7 @@ export function createMcpServer(db: Db, actor: AuthUser, origin: string): Server
 	registerOutcomeTools(registry.tools);
 	registerSentimentTools(registry.tools);
 	registerSkillTools(registry.tools);
+	registerMemberTools(registry.tools);
 	server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: registry.list() }));
 	server.setRequestHandler(CallToolRequestSchema, (request) =>
 		registry.call(request.params.name, request.params.arguments)

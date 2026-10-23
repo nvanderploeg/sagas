@@ -14,6 +14,8 @@ export function eventsSince(db: Handle, seq: number, limit = -1): SagasEvent[] {
 				username: users.username,
 				displayName: users.displayName
 			},
+			tokenId: events.tokenId,
+			tokenName: events.tokenName,
 			createdAt: events.createdAt,
 			data: events.data
 		})
@@ -22,7 +24,11 @@ export function eventsSince(db: Handle, seq: number, limit = -1): SagasEvent[] {
 		.where(gt(events.seq, seq))
 		.orderBy(asc(events.seq))
 		.limit(limit)
-		.all() as SagasEvent[];
+		.all()
+		.map(({ tokenId, tokenName, actor, ...rest }) => ({
+			...rest,
+			actor: { ...actor, via: tokenName === null ? null : { tokenId, name: tokenName } }
+		})) as SagasEvent[];
 }
 
 // Read the seq in the view's transaction: a client drops every Event at or below it.

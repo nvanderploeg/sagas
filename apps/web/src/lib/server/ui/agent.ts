@@ -1,3 +1,4 @@
+import { canSeeLabour, requireRealmRole } from '../domain/access.ts';
 import { eq, inArray } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
 import { attributes, labours, realms } from '../db/schema.ts';
@@ -25,8 +26,9 @@ export type LabourLayer = {
 	brief: string;
 	refs: { href: string; label: string | null }[];
 	setBy: number | null;
+	via: string | null;
 	setAt: Date | null;
-	stamp: { appraisedBy: number; appraisedAt: Date } | null;
+	stamp: { appraisedBy: number; appraisedVia: string | null; appraisedAt: Date } | null;
 	unappraised: boolean;
 	stale: boolean;
 	values: {
@@ -36,16 +38,25 @@ export type LabourLayer = {
 		value: Value;
 		display: string;
 		setBy: number;
+		via: string | null;
 		setAt: Date;
 		stale: boolean;
 	}[];
-	needs: { key: string; label: string; level: number; setBy: number; setAt: Date }[];
+	needs: {
+		key: string;
+		label: string;
+		level: number;
+		setBy: number;
+		via: string | null;
+		setAt: Date;
+	}[];
 	links: {
 		type: string;
 		direction: 'out' | 'in' | 'both';
 		other: LabourRef;
 		note: string;
 		setBy: number;
+		via: string | null;
 		setAt: Date;
 	}[];
 	moreLinks: number;
@@ -124,9 +135,16 @@ function labourRefs(db: Handle, ids: number[]): Map<number, LabourRef> {
 	);
 }
 
-export function readLabourLayer(db: Handle, labourId: number): LabourLayer {
+export function readLabourLayer(db: Handle, viewer: { id: number }, labourId: number): LabourLayer {
 	const labour = getLabour(db, labourId);
+	requireRealmRole(db, viewer, labour.realmId, 'viewer');
 	const appraisal = readAppraisal(db, labourId);
+	const visibleLinks = appraisal.links.filter(
+		(link) => canSeeLabour(db, viewer, link.from) && canSeeLabour(db, viewer, link.to)
+	);
+	const visibleMentions = appraisal.mentions.filter((mention) =>
+		canSeeLabour(db, viewer, mention.sourceLabourId)
+	);
 
 	const realmAttributes = new Map<string, Labelled>(
 		db
@@ -143,10 +161,10 @@ export function readLabourLayer(db: Handle, labourId: number): LabourLayer {
 	);
 	const skillLabels = new Map(listSkills(db).map((skill) => [skill.key, skill.label]));
 
-	const shownLinks = appraisal.links.slice(0, LINKS_SHOWN);
+	const shownLinks = visibleLinks.slice(0, LINKS_SHOWN);
 	const others = labourRefs(db, [
 		...shownLinks.map((link) => (link.from === labourId ? link.to : link.from)),
-		...appraisal.mentions.map((mention) => mention.sourceLabourId)
+		...visibleMentions.map((mention) => mention.sourceLabourId)
 	]);
 	const ref = (id: number): LabourRef => others.get(id) ?? { id, key: `Labour ${id}`, title: '' };
 
@@ -154,11 +172,16 @@ export function readLabourLayer(db: Handle, labourId: number): LabourLayer {
 		brief: appraisal.brief,
 		refs: appraisal.refs,
 		setBy: appraisal.setBy,
+		via: appraisal.via,
 		setAt: appraisal.setAt,
 		stamp:
 			appraisal.stamp === null
 				? null
-				: { appraisedBy: appraisal.stamp.appraisedBy, appraisedAt: appraisal.stamp.appraisedAt },
+				: {
+						appraisedBy: appraisal.stamp.appraisedBy,
+						appraisedVia: appraisal.stamp.appraisedVia,
+						appraisedAt: appraisal.stamp.appraisedAt
+					},
 		unappraised: appraisal.unappraised,
 		stale: appraisal.stale,
 		values: appraisal.values.map((value: ValueView) => {
@@ -170,6 +193,7 @@ export function readLabourLayer(db: Handle, labourId: number): LabourLayer {
 				value: value.value,
 				display: displayOf(attribute, value.value),
 				setBy: value.setBy,
+				via: value.via,
 				setAt: value.setAt,
 				stale: value.stale
 			};
@@ -179,6 +203,7 @@ export function readLabourLayer(db: Handle, labourId: number): LabourLayer {
 			label: skillLabels.get(need.key) ?? need.key,
 			level: need.level,
 			setBy: need.setBy,
+			via: need.via,
 			setAt: need.setAt
 		})),
 		links: shownLinks.map((link) => ({
@@ -187,10 +212,11 @@ export function readLabourLayer(db: Handle, labourId: number): LabourLayer {
 			other: ref(link.from === labourId ? link.to : link.from),
 			note: link.note,
 			setBy: link.setBy,
+			via: link.via,
 			setAt: link.setAt
 		})),
-		moreLinks: Math.max(0, appraisal.links.length - LINKS_SHOWN),
-		mentions: appraisal.mentions.map((mention) => ({
+		moreLinks: Math.max(0, visibleLinks.length - LINKS_SHOWN),
+		mentions: visibleMentions.map((mention) => ({
 			source: ref(mention.sourceLabourId),
 			commentId: mention.commentId,
 			authorId: mention.authorId,
@@ -199,8 +225,14 @@ export function readLabourLayer(db: Handle, labourId: number): LabourLayer {
 	};
 }
 
-export function readRealmLayer(db: Handle, realmId: number, now: Date = new Date()): RealmLayer {
+export function readRealmLayer(
+	db: Handle,
+	viewer: { id: number },
+	realmId: number,
+	now: Date = new Date()
+): RealmLayer {
 	getRealm(db, realmId);
+	requireRealmRole(db, viewer, realmId, 'viewer');
 	const agent = readRealmAgent(db, realmId);
 	const held = readAttributes(db, realmId);
 	const byKey = new Map<string, Labelled>(held.map((attribute) => [attribute.key, attribute]));

@@ -331,6 +331,72 @@
 			</ol>
 		</section>
 
+		<section
+			class="grid gap-3 rounded-2xl border border-line p-5"
+			aria-labelledby="members-heading"
+		>
+			<h2 id="members-heading" class="font-bold tracking-tight">Members</h2>
+			<ul class="divide-y divide-line" data-testid="members">
+				{#each data.members as member (member.userId)}
+					<li class="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+						<span>
+							<span class="font-semibold">{member.displayName}</span>
+							<span class="text-muted">@{member.username}</span>
+							{#if member.status === 'pending'}<span class="text-muted">· Offer sent</span>{/if}
+						</span>
+						<span class="flex items-center gap-2">
+							{#if data.role === 'owner' && member.status === 'active'}
+								<form method="POST" action="?/setRole" use:enhance={keep} class="flex gap-2">
+									<input type="hidden" name="userId" value={member.userId} />
+									<select class="field" name="role" aria-label="Role of {member.displayName}">
+										{#each ['owner', 'editor', 'viewer'] as role (role)}
+											<option value={role} selected={member.role === role}>{role}</option>
+										{/each}
+									</select>
+									<button class="btn btn-quiet" type="submit">Set</button>
+								</form>
+							{:else}
+								<span class="text-muted">{member.role}</span>
+							{/if}
+							{#if data.role === 'owner' || member.userId === data.me}
+								<form method="POST" action="?/removeMember" use:enhance={keep}>
+									<input type="hidden" name="userId" value={member.userId} />
+									<input type="hidden" name="pending" value={member.status === 'pending'} />
+									<ConfirmButton
+										type="submit"
+										label={member.status === 'pending'
+											? 'Withdraw'
+											: member.userId === data.me
+												? 'Leave'
+												: 'Remove'}
+										confirm="Remove {member.displayName} from {realm.name}"
+									/>
+								</form>
+							{/if}
+						</span>
+					</li>
+				{/each}
+			</ul>
+			{#if data.role === 'owner'}
+				<form method="POST" action="?/offer" use:enhance={keep} class="flex flex-wrap gap-2">
+					<input
+						class="field"
+						name="username"
+						placeholder="username"
+						aria-label="Username"
+						required
+					/>
+					<select class="field" name="role" aria-label="Role to offer">
+						<option value="editor">editor</option>
+						<option value="viewer">viewer</option>
+						<option value="owner">owner</option>
+					</select>
+					<button class="btn btn-primary" type="submit">Offer</button>
+				</form>
+			{/if}
+			{@render error('members')}
+		</section>
+
 		{#key realm.id}
 			<RealmLayer realmId={realm.id} />
 		{/key}

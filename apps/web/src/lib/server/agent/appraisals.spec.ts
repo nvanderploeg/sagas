@@ -358,6 +358,7 @@ describe('appraise: batch shape', () => {
 			brief: '',
 			refs: [],
 			setBy: null,
+			via: null,
 			setAt: null,
 			stamp: null,
 			unappraised: true,
@@ -692,7 +693,11 @@ describe('appraise: setBy and setAt', () => {
 
 		appraise(db, other, [{ labourId: labour.id, brief: 'hi' }], day(2));
 
-		expect(readAppraisal(db, labour.id)).toMatchObject({ setBy: other.id, setAt: day(2) });
+		expect(readAppraisal(db, labour.id)).toMatchObject({
+			setBy: other.id,
+			via: null,
+			setAt: day(2)
+		});
 	});
 
 	it('records who last wrote the References and when', () => {
@@ -701,7 +706,11 @@ describe('appraise: setBy and setAt', () => {
 
 		appraise(db, other, [{ labourId: labour.id, refs: [{ href: 'a' }] }], day(2));
 
-		expect(readAppraisal(db, labour.id)).toMatchObject({ setBy: other.id, setAt: day(2) });
+		expect(readAppraisal(db, labour.id)).toMatchObject({
+			setBy: other.id,
+			via: null,
+			setAt: day(2)
+		});
 	});
 
 	it('rewrites them on each later Brief or References write, clearing included', () => {
@@ -710,10 +719,18 @@ describe('appraise: setBy and setAt', () => {
 		appraise(db, actor, [{ labourId: labour.id, brief: 'one' }], day(2));
 
 		appraise(db, other, [{ labourId: labour.id, refs: [] }], day(3));
-		expect(readAppraisal(db, labour.id)).toMatchObject({ setBy: other.id, setAt: day(3) });
+		expect(readAppraisal(db, labour.id)).toMatchObject({
+			setBy: other.id,
+			via: null,
+			setAt: day(3)
+		});
 
 		appraise(db, actor, [{ labourId: labour.id, brief: '' }], day(4));
-		expect(readAppraisal(db, labour.id)).toMatchObject({ setBy: actor.id, setAt: day(4) });
+		expect(readAppraisal(db, labour.id)).toMatchObject({
+			setBy: actor.id,
+			via: null,
+			setAt: day(4)
+		});
 	});
 
 	it('leaves them null when only values, links or a stamp are written', () => {
@@ -736,7 +753,7 @@ describe('appraise: setBy and setAt', () => {
 			day(2)
 		);
 
-		expect(readAppraisal(db, labour.id)).toMatchObject({ setBy: null, setAt: null });
+		expect(readAppraisal(db, labour.id)).toMatchObject({ setBy: null, via: null, setAt: null });
 	});
 
 	it('leaves them unchanged when only values, links or a stamp are written later', () => {
@@ -760,7 +777,11 @@ describe('appraise: setBy and setAt', () => {
 			day(3)
 		);
 
-		expect(readAppraisal(db, labour.id)).toMatchObject({ setBy: actor.id, setAt: day(2) });
+		expect(readAppraisal(db, labour.id)).toMatchObject({
+			setBy: actor.id,
+			via: null,
+			setAt: day(2)
+		});
 	});
 });
 
@@ -781,13 +802,30 @@ describe('appraise: values', () => {
 
 		expect(readAppraisal(db, labour.id).values).toEqual(readValues(db, labour.id));
 		expect(readValues(db, labour.id)).toEqual([
-			{ key: 'impact', kind: 'scale', value: 4, setBy: other.id, setAt: day(2), stale: false },
-			{ key: 'notes', kind: 'text', value: 'wide', setBy: other.id, setAt: day(2), stale: false },
+			{
+				key: 'impact',
+				kind: 'scale',
+				value: 4,
+				setBy: other.id,
+				via: null,
+				setAt: day(2),
+				stale: false
+			},
+			{
+				key: 'notes',
+				kind: 'text',
+				value: 'wide',
+				setBy: other.id,
+				via: null,
+				setAt: day(2),
+				stale: false
+			},
 			{
 				key: 'areas',
 				kind: 'tags',
 				value: ['api', 'ui'],
 				setBy: other.id,
+				via: null,
 				setAt: day(2),
 				stale: false
 			}
@@ -816,7 +854,15 @@ describe('appraise: values', () => {
 		appraise(db, other, [{ labourId: labour.id, values: { impact: 3 } }], day(4));
 
 		expect(readValues(db, labour.id)).toEqual([
-			{ key: 'impact', kind: 'scale', value: 3, setBy: other.id, setAt: day(4), stale: false }
+			{
+				key: 'impact',
+				kind: 'scale',
+				value: 3,
+				setBy: other.id,
+				via: null,
+				setAt: day(4),
+				stale: false
+			}
 		]);
 	});
 
@@ -862,7 +908,15 @@ describe('appraise: values', () => {
 		appraise(db, other, [{ labourId: labour.id, brief: 'x' }], day(3));
 
 		expect(readValues(db, labour.id)).toEqual([
-			{ key: 'impact', kind: 'scale', value: 3, setBy: actor.id, setAt: day(2), stale: false }
+			{
+				key: 'impact',
+				kind: 'scale',
+				value: 3,
+				setBy: actor.id,
+				via: null,
+				setAt: day(2),
+				stale: false
+			}
 		]);
 	});
 });
@@ -1062,6 +1116,7 @@ describe('appraise: all or nothing', () => {
 			brief: '',
 			refs: [],
 			setBy: null,
+			via: null,
 			setAt: null,
 			stamp: null,
 			unappraised: true,
@@ -1109,7 +1164,7 @@ describe('appraise: stamp', () => {
 
 		expect(result).toEqual({ labourId: labour.id, stamped: true });
 		expect(readAppraisal(db, labour.id)).toMatchObject({
-			stamp: { contentHash: hash, appraisedBy: other.id, appraisedAt: day(2) },
+			stamp: { contentHash: hash, appraisedBy: other.id, appraisedVia: null, appraisedAt: day(2) },
 			unappraised: false,
 			stale: false
 		});
@@ -1229,7 +1284,12 @@ describe('appraise: stamp', () => {
 
 		expect(result.stamped).toBe(true);
 		expect(readAppraisal(db, labour.id)).toMatchObject({
-			stamp: { contentHash: expectedHash(labour.id), appraisedBy: other.id, appraisedAt: day(3) },
+			stamp: {
+				contentHash: expectedHash(labour.id),
+				appraisedBy: other.id,
+				appraisedVia: null,
+				appraisedAt: day(3)
+			},
 			stale: false
 		});
 	});
@@ -1244,6 +1304,7 @@ describe('appraise: stamp', () => {
 		expect(readAppraisal(db, labour.id).stamp).toEqual({
 			contentHash: expectedHash(labour.id),
 			appraisedBy: other.id,
+			appraisedVia: null,
 			appraisedAt: day(5)
 		});
 	});
@@ -1259,6 +1320,7 @@ describe('readAppraisal', () => {
 			brief: '',
 			refs: [],
 			setBy: null,
+			via: null,
 			setAt: null,
 			contentHash: expectedHash(labour.id),
 			stamp: null,
@@ -1302,9 +1364,15 @@ describe('readAppraisal', () => {
 			brief: 'Summary',
 			refs: [{ href: 'https://a.test', label: 'A' }],
 			setBy: actor.id,
+			via: null,
 			setAt: day(2),
 			contentHash: expectedHash(labour.id),
-			stamp: { contentHash: expectedHash(labour.id), appraisedBy: actor.id, appraisedAt: day(2) },
+			stamp: {
+				contentHash: expectedHash(labour.id),
+				appraisedBy: actor.id,
+				appraisedVia: null,
+				appraisedAt: day(2)
+			},
 			unappraised: false,
 			stale: false
 		});

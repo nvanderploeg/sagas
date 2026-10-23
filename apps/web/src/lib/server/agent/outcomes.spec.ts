@@ -253,6 +253,7 @@ describe('reportOutcomes recording', () => {
 				labourId: rich.id,
 				verdict: 'picked',
 				authorId: carol,
+				via: null,
 				createdAt: daysAgo(2)
 			}
 		]);

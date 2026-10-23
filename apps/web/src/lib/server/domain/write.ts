@@ -4,7 +4,7 @@ import { events, users } from '../db/schema.ts';
 import { publish } from '../events/bus.ts';
 import type { EventActor, EventSpec, SagasEvent } from '../events/types.ts';
 
-export type Actor = { id: number };
+export type Actor = { id: number; via?: { tokenId: number; name: string } };
 
 // Build the Events after the write's last change, so each carries the state as of the commit.
 // List the write's own Event first, then one per side effect a client can see.
@@ -22,11 +22,17 @@ export function write<T>(db: Db, actor: Actor, body: (tx: Handle) => Outcome<T>)
 
 function recordEvents(tx: Handle, actor: Actor, specs: EventSpec[]): SagasEvent[] {
 	if (specs.length === 0) return [];
-	const by = eventActor(tx, actor.id);
+	const by = eventActor(tx, actor);
 	return specs.map((spec) => {
 		const row = tx
 			.insert(events)
-			.values({ type: spec.type, actorId: by.id, data: spec.data })
+			.values({
+				type: spec.type,
+				actorId: by.id,
+				tokenId: actor.via?.tokenId ?? null,
+				tokenName: actor.via?.name ?? null,
+				data: spec.data
+			})
 			.returning()
 			.get();
 		return {
@@ -39,7 +45,7 @@ function recordEvents(tx: Handle, actor: Actor, specs: EventSpec[]): SagasEvent[
 	});
 }
 
-function eventActor(db: Handle, id: number): EventActor {
+function eventActor(db: Handle, actor: Actor): EventActor {
 	const row = db
 		.select({
 			id: users.id,
@@ -48,8 +54,8 @@ function eventActor(db: Handle, id: number): EventActor {
 			displayName: users.displayName
 		})
 		.from(users)
-		.where(eq(users.id, id))
+		.where(eq(users.id, actor.id))
 		.get();
-	if (row === undefined) throw new Error(`Actor ${id} does not exist`);
-	return row;
+	if (row === undefined) throw new Error(`Actor ${actor.id} does not exist`);
+	return { ...row, via: actor.via ?? null };
 }

@@ -5,7 +5,7 @@ import type { LiveEvent } from './types.ts';
 
 type View = { title: string; seen: number[] };
 
-const actor = { id: 1, kind: 'human' as const, username: 'ada', displayName: 'Ada' };
+const actor = { id: 1, kind: 'human' as const, username: 'ada', displayName: 'Ada', via: null };
 
 // A stand-in Event: the views below only read its seq and a title.
 function event(seq: number, title = `t${seq}`): LiveEvent {

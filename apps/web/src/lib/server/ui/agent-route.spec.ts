@@ -44,7 +44,7 @@ describe('answerSession', () => {
 	});
 
 	it('answers an unknown id with 404', async () => {
-		const response = answerSession(asSession, () => readLabourLayer(db, 999));
+		const response = answerSession(asSession, () => readLabourLayer(db, { id: 1 }, 999));
 		expect(response.status).toBe(404);
 		expect(await response.json()).toEqual({ error: 'not found' });
 	});

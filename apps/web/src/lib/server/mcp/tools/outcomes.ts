@@ -31,7 +31,7 @@ export function registerOutcomeTools({ db, actor, define }: Tools): void {
 				actor,
 				args.survey,
 				args.outcomes.map((item) => ({
-					labourId: refs.labourId(db, item.labour),
+					labourId: refs.labourId(db, item.labour, actor),
 					verdict: item.verdict
 				}))
 			);

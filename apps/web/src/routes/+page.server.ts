@@ -8,8 +8,8 @@ import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals }) => {
 	if (!locals.user) redirect(303, '/login');
-	const userId = locals.user.id;
-	const { seq, value } = readAtSeq(getDb(), (tx) => readHome(tx, userId));
+	const viewer = locals.user;
+	const { seq, value } = readAtSeq(getDb(), (tx) => readHome(tx, viewer));
 	return { seq, home: toJson(value) };
 };
 

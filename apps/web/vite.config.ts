@@ -35,6 +35,7 @@ export default defineConfig({
 	test: {
 		expect: { requireAssertions: true },
 		environment: 'node',
+		setupFiles: ['src/lib/server/test/setup.ts'],
 		include: ['src/**/*.{test,spec}.{js,ts}', 'server/**/*.{test,spec}.js']
 	}
 });

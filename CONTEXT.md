@@ -28,6 +28,13 @@ One User's consent to one OAuth client: an access token that is an API token, pl
 **Realm**:
 A group of Labours with its own Realm key and State set.
 
+**Membership**:
+One User's role in one Realm: `owner`, `editor` or `viewer`. A Realm is private to its active members, Admins included. The contract is `docs/realm-access.md`.
+
+**Offer**:
+A pending Membership an Owner makes to a User by username. Grants nothing until the invitee accepts; declining or withdrawing deletes it.
+_Avoid_: Invite, which is the Admin's link for a new person.
+
 **Realm key**:
 2–6 letters or digits starting with a letter, unique across the instance, stored uppercase. Renaming one keeps the old key as an Alias for every Labour in the Realm.
 
@@ -87,7 +94,7 @@ A Labour's position within its State's board column, set by dragging: the order 
 A named, ordered set of Labours that may span Realms, with a description and an Owner. A Labour can be in any number of Quests. Membership is explicit: adding a Labour never adds its Children. A Quest has no State; its progress is its Closed Labours over all its Labours.
 
 **Agent layer**:
-What sagas holds for agents rather than people: Attributes, Appraisals, Links, Mentions, Skills, Sentiment, Affinity, Surveys and Outcomes. Any User may change any of it, whoever set it; each value keeps who set it and when. The contract is `docs/agent-layer.md`.
+What sagas holds for agents rather than people: Attributes, Appraisals, Links, Mentions, Skills, Sentiment, Affinity, Surveys and Outcomes. Any member of a Realm may change its part of it, whoever set it; each value keeps who set it, through which API token, and when. The contract is `docs/agent-layer.md`.
 
 **Advanced view**:
 The switch that shows the agent layer beside what it describes. Off by default; the agent layer shows nowhere else.

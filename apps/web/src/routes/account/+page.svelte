@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import AdvancedToggle from '#lib/components/AdvancedToggle.svelte';
 	import UserLayer from '#lib/components/agent/UserLayer.svelte';
@@ -29,6 +30,36 @@
 			<button type="submit" class="btn">Sign out</button>
 		</form>
 	</div>
+
+	{#if data.offers.length > 0}
+		<section class="panel grid gap-3 p-5" aria-labelledby="offers-heading" data-testid="offers">
+			<h2 id="offers-heading" class="text-lg font-bold tracking-tight">Offers</h2>
+			<ul class="divide-y divide-line">
+				{#each data.offers as offer (offer.realmId)}
+					<li class="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+						<span>
+							<span class="font-semibold">{offer.realmName}</span>
+							<span class="key">{offer.realmKey}</span>
+							<span class="text-muted">
+								as {offer.role}{offer.invitedByName ? `, from ${offer.invitedByName}` : ''}
+							</span>
+						</span>
+						<span class="flex gap-2">
+							<form method="POST" action="?/acceptOffer" use:enhance>
+								<input type="hidden" name="realmId" value={offer.realmId} />
+								<button class="btn btn-primary" type="submit">Accept</button>
+							</form>
+							<form method="POST" action="?/declineOffer" use:enhance>
+								<input type="hidden" name="realmId" value={offer.realmId} />
+								<button class="btn" type="submit">Decline</button>
+							</form>
+						</span>
+					</li>
+				{/each}
+			</ul>
+			{#if failure('offers')}<p role="alert" class="error">{failure('offers')}</p>{/if}
+		</section>
+	{/if}
 
 	<section class="panel grid gap-3 p-5" aria-labelledby="tokens-heading">
 		<h2 id="tokens-heading" class="text-lg font-bold tracking-tight">Your API tokens</h2>

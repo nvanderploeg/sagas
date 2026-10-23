@@ -870,7 +870,13 @@ describe('performance', () => {
 			const held: (typeof labourAttributes.$inferInsert)[] = [];
 			for (const row of rows) {
 				const ids = attributeIds[realmIds.indexOf(row.realmId)];
-				const base = { realmId: row.realmId, labourId: row.id!, setBy: admin.id, setAt: NOW };
+				const base = {
+					realmId: row.realmId,
+					labourId: row.id!,
+					setBy: admin.id,
+					via: null,
+					setAt: NOW
+				};
 				if (row.id! % 4 !== 0) held.push({ ...base, attributeId: ids.impact, value: row.id! % 11 });
 				if (row.id! % 3 !== 0) {
 					const value = row.id! % 2 === 0 ? ['audio', 'boss'] : ['ui'];
@@ -886,6 +892,7 @@ describe('performance', () => {
 						skillId,
 						level: 1 + ((w + s) % 5),
 						setBy: admin.id,
+						via: null,
 						setAt: NOW
 					}))
 				),
@@ -901,6 +908,7 @@ describe('performance', () => {
 						skillId,
 						level: 1 + ((row.id! + skillId) % 5),
 						setBy: admin.id,
+						via: null,
 						setAt: NOW
 					});
 				}
@@ -965,6 +973,7 @@ describe('performance', () => {
 						toId: to,
 						type,
 						setBy: admin.id,
+						via: null,
 						setAt: NOW
 					});
 			}
@@ -1001,7 +1010,12 @@ describe('performance', () => {
 					labourId: i,
 					brief: `Brief ${i}`,
 					...(i % 3 === 0
-						? { contentHash: 'a'.repeat(64), appraisedBy: admin.id, appraisedAt: NOW }
+						? {
+								contentHash: 'a'.repeat(64),
+								appraisedBy: admin.id,
+								appraisedVia: null,
+								appraisedAt: NOW
+							}
 						: {})
 				});
 			}
@@ -1116,6 +1130,7 @@ describe('performance', () => {
 						attributeId: fat.get(row.realmId)!,
 						value: ['m0', 'm1'],
 						setBy: bench.admin.id,
+						via: null,
 						setAt: NOW
 					})),
 					(part) => perf.insert(labourAttributes).values(part).run()

@@ -1,3 +1,4 @@
+import { canSeeRealm } from '../../domain/access.ts';
 import { inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import {
@@ -96,14 +97,14 @@ export function registerSentimentTools({ db, actor, define }: Tools): void {
 			}
 		},
 		(args) => {
-			const realmId = refs.realmId(db, args.realm);
+			const realmId = refs.realmId(db, args.realm, actor);
 			const items = args.pulses.map((item): PulseInput => ({
 				key: item.key,
 				amount: item.amount,
 				mood: item.mood,
 				note: item.note,
 				evidence: item.evidence?.map((entry) =>
-					'labour' in entry ? { labour: refs.labourId(db, entry.labour) } : entry
+					'labour' in entry ? { labour: refs.labourId(db, entry.labour, actor) } : entry
 				),
 				halfLifeDays: item.half_life_days,
 				ref: item.ref
@@ -153,7 +154,7 @@ export function registerSentimentTools({ db, actor, define }: Tools): void {
 			});
 
 			if (args.realm !== undefined) {
-				const realmId = refs.realmId(db, args.realm);
+				const realmId = refs.realmId(db, args.realm, actor);
 				const view = readSentiment(db, realmId, { limit: args.limit });
 				const realm = getRealm(db, realmId).key;
 				const data = listed(view, () => realm);
@@ -163,7 +164,12 @@ export function registerSentimentTools({ db, actor, define }: Tools): void {
 				);
 			}
 			const userId = refs.userId(db, args.user!, actor);
-			const view = readAffinity(db, userId, { limit: args.limit });
+			const affinity = readAffinity(db, userId, { limit: args.limit });
+			// Another User's Affinity names only Realms you can see.
+			const view = {
+				...affinity,
+				keys: affinity.keys.filter((entry) => canSeeRealm(db, actor, entry.realmId))
+			};
 			const realmKeys = new Map(
 				db
 					.select({ id: realms.id, key: realms.key })
@@ -193,7 +199,7 @@ export function registerSentimentTools({ db, actor, define }: Tools): void {
 			}
 		},
 		(args) => {
-			const realmId = refs.realmId(db, args.realm);
+			const realmId = refs.realmId(db, args.realm, actor);
 			const filed = filePulses(db, actor, realmId, args.raw_key, args.key);
 			return reply({ filed }, `Filed ${count(filed, 'Pulse')}`);
 		}

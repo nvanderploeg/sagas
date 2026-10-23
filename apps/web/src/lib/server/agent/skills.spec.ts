@@ -317,6 +317,7 @@ describe('setSkills', () => {
 				key: skills.key,
 				level: userSkills.level,
 				setBy: userSkills.setBy,
+				via: userSkills.via,
 				setAt: userSkills.setAt
 			})
 			.from(userSkills)
@@ -347,8 +348,8 @@ describe('setSkills', () => {
 
 		expect(result).toEqual({ vfx: 4, audio: 2 });
 		expect(rowsOf(actor.id)).toEqual([
-			{ key: 'audio', level: 2, setBy: actor.id, setAt: day(3) },
-			{ key: 'vfx', level: 4, setBy: other.id, setAt: day(2) }
+			{ key: 'audio', level: 2, setBy: actor.id, via: null, setAt: day(3) },
+			{ key: 'vfx', level: 4, setBy: other.id, via: null, setAt: day(2) }
 		]);
 	});
 
@@ -358,15 +359,17 @@ describe('setSkills', () => {
 		const result = setSkills(db, other, actor.id, { vfx: 5 }, day(4));
 
 		expect(result).toEqual({ vfx: 5 });
-		expect(rowsOf(actor.id)).toEqual([{ key: 'vfx', level: 5, setBy: other.id, setAt: day(4) }]);
+		expect(rowsOf(actor.id)).toEqual([
+			{ key: 'vfx', level: 5, setBy: other.id, via: null, setAt: day(4) }
+		]);
 	});
 
 	it('records the actor as setBy and now as setAt on each written row', () => {
 		setSkills(db, actor, other.id, { vfx: 3, audio: 1 }, day(7));
 
 		expect(rowsOf(other.id)).toEqual([
-			{ key: 'audio', level: 1, setBy: actor.id, setAt: day(7) },
-			{ key: 'vfx', level: 3, setBy: actor.id, setAt: day(7) }
+			{ key: 'audio', level: 1, setBy: actor.id, via: null, setAt: day(7) },
+			{ key: 'vfx', level: 3, setBy: actor.id, via: null, setAt: day(7) }
 		]);
 	});
 
@@ -474,8 +477,8 @@ describe('setSkills', () => {
 			);
 
 			expect(rowsOf(actor.id)).toEqual([
-				{ key: 'audio', level: 4, setBy: other.id, setAt: day(2) },
-				{ key: 'vfx', level: 2, setBy: other.id, setAt: day(2) }
+				{ key: 'audio', level: 4, setBy: other.id, via: null, setAt: day(2) },
+				{ key: 'vfx', level: 2, setBy: other.id, via: null, setAt: day(2) }
 			]);
 		});
 	});
@@ -502,6 +505,7 @@ describe('needs through appraise', () => {
 				key: skills.key,
 				level: labourNeeds.level,
 				setBy: labourNeeds.setBy,
+				via: labourNeeds.via,
 				setAt: labourNeeds.setAt
 			})
 			.from(labourNeeds)
@@ -531,8 +535,8 @@ describe('needs through appraise', () => {
 		need({ vfx: 3, 'combat-design': 4 }, labourId, actor, day(2));
 
 		expect(needsOf()).toEqual([
-			{ key: 'combat-design', level: 4, setBy: actor.id, setAt: day(2) },
-			{ key: 'vfx', level: 3, setBy: actor.id, setAt: day(2) }
+			{ key: 'combat-design', level: 4, setBy: actor.id, via: null, setAt: day(2) },
+			{ key: 'vfx', level: 3, setBy: actor.id, via: null, setAt: day(2) }
 		]);
 	});
 
@@ -550,8 +554,8 @@ describe('needs through appraise', () => {
 		need({ audio: 2 }, labourId, actor, day(3));
 
 		expect(needsOf()).toEqual([
-			{ key: 'audio', level: 2, setBy: actor.id, setAt: day(3) },
-			{ key: 'vfx', level: 3, setBy: other.id, setAt: day(2) }
+			{ key: 'audio', level: 2, setBy: actor.id, via: null, setAt: day(3) },
+			{ key: 'vfx', level: 3, setBy: other.id, via: null, setAt: day(2) }
 		]);
 	});
 
@@ -560,7 +564,9 @@ describe('needs through appraise', () => {
 
 		need({ vfx: 5 }, labourId, other, day(4));
 
-		expect(needsOf()).toEqual([{ key: 'vfx', level: 5, setBy: other.id, setAt: day(4) }]);
+		expect(needsOf()).toEqual([
+			{ key: 'vfx', level: 5, setBy: other.id, via: null, setAt: day(4) }
+		]);
 	});
 
 	it('clears a need with null and leaves the others', () => {
@@ -618,7 +624,9 @@ describe('needs through appraise', () => {
 
 		need({ vfx: 2 }, elsewhere);
 
-		expect(needsOf(elsewhere)).toEqual([{ key: 'vfx', level: 2, setBy: actor.id, setAt: day(2) }]);
+		expect(needsOf(elsewhere)).toEqual([
+			{ key: 'vfx', level: 2, setBy: actor.id, via: null, setAt: day(2) }
+		]);
 	});
 
 	describe('the cap of 8 Skills per Labour', () => {
@@ -809,8 +817,8 @@ describe('needs through appraise', () => {
 			);
 
 			expect(needsOf()).toEqual([
-				{ key: 'audio', level: 2, setBy: other.id, setAt: day(2) },
-				{ key: 'vfx', level: 3, setBy: other.id, setAt: day(2) }
+				{ key: 'audio', level: 2, setBy: other.id, via: null, setAt: day(2) },
+				{ key: 'vfx', level: 3, setBy: other.id, via: null, setAt: day(2) }
 			]);
 		});
 	});
@@ -901,7 +909,7 @@ describe('needs through appraise', () => {
 			need({ vfx: 3 }, labourId, actor, day(3));
 
 			expect(readAppraisal(db, labourId).values).toMatchObject([
-				{ key: 'impact', value: 2, setBy: other.id, setAt: day(2) }
+				{ key: 'impact', value: 2, setBy: other.id, via: null, setAt: day(2) }
 			]);
 		});
 	});

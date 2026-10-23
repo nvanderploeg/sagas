@@ -1,3 +1,4 @@
+import { currentVia } from '#lib/server/auth/via.ts';
 import { eq, sql } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { labours, outcomes, pulses, realms, surveys } from '../db/schema.ts';
@@ -68,7 +69,14 @@ export function reportOutcomes(
 		const results = items.map(({ labourId, verdict }): Recorded => {
 			const stored = tx
 				.insert(outcomes)
-				.values({ surveyId, labourId, verdict, authorId: actor.id, createdAt: now })
+				.values({
+					surveyId,
+					labourId,
+					verdict,
+					authorId: actor.id,
+					via: currentVia(),
+					createdAt: now
+				})
 				.onConflictDoNothing()
 				.returning({ labourId: outcomes.labourId })
 				.get();
@@ -115,6 +123,7 @@ function postAffinity(
 					note: `${verdict} ${target.keys.get(labourId)} in Survey ${target.surveyId}`,
 					evidence: [{ labour: labourId }],
 					authorId: actor.id,
+					via: currentVia(),
 					createdAt: now
 				})
 				.run();

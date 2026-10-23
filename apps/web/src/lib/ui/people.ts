@@ -8,6 +8,7 @@ export type Person = {
 	kind: 'human' | 'agent';
 	username: string;
 	displayName: string;
+	via?: { name: string } | null;
 };
 
 export function initials(name: string): string {

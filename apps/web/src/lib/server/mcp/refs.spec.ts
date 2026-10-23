@@ -10,6 +10,7 @@ import { seedActor, seedRealm, seedLabour, seedUser } from '#lib/server/test/fix
 import * as refs from './refs.ts';
 
 let db: Db;
+const viewer = { id: 1 };
 
 beforeEach(() => {
 	db = testDb();
@@ -36,9 +37,9 @@ describe('labourId', () => {
 		const realm = seedRealm(db, 'AM');
 		const labour = seedLabour(db, { realmId: realm.id });
 
-		expect(refs.labourId(db, 'AM-1')).toBe(labour.id);
-		expect(refs.labourId(db, ' am-1 ')).toBe(labour.id);
-		expect(refs.labourId(db, labour.id)).toBe(labour.id);
+		expect(refs.labourId(db, 'AM-1', viewer)).toBe(labour.id);
+		expect(refs.labourId(db, ' am-1 ', viewer)).toBe(labour.id);
+		expect(refs.labourId(db, labour.id, viewer)).toBe(labour.id);
 	});
 
 	it('never reads a string as an id', () => {
@@ -46,8 +47,8 @@ describe('labourId', () => {
 		const labour = seedLabour(db, { realmId: realm.id });
 
 		for (const action of [
-			() => refs.labourId(db, String(labour.id)),
-			() => refs.realmId(db, String(realm.id)),
+			() => refs.labourId(db, String(labour.id), viewer),
+			() => refs.realmId(db, String(realm.id), viewer),
 			() => refs.userId(db, String(seedUser(db)), { id: 0 }),
 			() => refs.stateId(db, realm.id, String(realm.initialStateId))
 		]) {
@@ -65,21 +66,22 @@ describe('labourId', () => {
 		moveLabour(db, seedActor(db), labour.id, { realmId: ops.id });
 		renameRealmKey(db, seedActor(db), ops.id, 'OP');
 
-		for (const key of ['am-1', 'OPS-1', 'op-1']) expect(refs.labourId(db, key)).toBe(labour.id);
+		for (const key of ['am-1', 'OPS-1', 'op-1'])
+			expect(refs.labourId(db, key, viewer)).toBe(labour.id);
 	});
 
 	it('tells a malformed reference from a missing Labour', () => {
 		seedRealm(db, 'AM');
 
-		expect(failure(() => refs.labourId(db, 'not a key'))).toMatchObject({
+		expect(failure(() => refs.labourId(db, 'not a key', viewer))).toMatchObject({
 			code: 'invalid',
 			message: '"not a key" is not a Labour key, e.g. "AM-12"'
 		});
-		expect(failure(() => refs.labourId(db, 'am-9'))).toMatchObject({
+		expect(failure(() => refs.labourId(db, 'am-9', viewer))).toMatchObject({
 			code: 'not_found',
 			message: 'No Labour has the key AM-9'
 		});
-		expect(failure(() => refs.labourId(db, 999))).toMatchObject({
+		expect(failure(() => refs.labourId(db, 999, viewer))).toMatchObject({
 			code: 'not_found',
 			message: 'No Labour has the id 999'
 		});
@@ -91,10 +93,10 @@ describe('realmId and userId', () => {
 		const realm = seedRealm(db, 'AM');
 		renameRealmKey(db, seedActor(db), realm.id, 'AX');
 
-		expect(refs.realmId(db, 'ax')).toBe(realm.id);
-		expect(refs.realmId(db, 'am')).toBe(realm.id);
-		expect(refs.realmId(db, realm.id)).toBe(realm.id);
-		expect(failure(() => refs.realmId(db, 'ZZ'))).toMatchObject({ code: 'not_found' });
+		expect(refs.realmId(db, 'ax', viewer)).toBe(realm.id);
+		expect(refs.realmId(db, 'am', viewer)).toBe(realm.id);
+		expect(refs.realmId(db, realm.id, viewer)).toBe(realm.id);
+		expect(failure(() => refs.realmId(db, 'ZZ', viewer))).toMatchObject({ code: 'not_found' });
 	});
 
 	it('resolves a User by username in any case, by id, or as "me"', () => {
@@ -165,11 +167,13 @@ describe('placement', () => {
 		const realm = seedRealm(db, 'AM');
 		const labour = seedLabour(db, { realmId: realm.id });
 
-		expect(refs.placement(db, {})).toBeUndefined();
-		expect(refs.placement(db, { position: 'top' })).toBe('top');
-		expect(refs.placement(db, { before: 'am-1' })).toEqual({ before: labour.id });
-		expect(refs.placement(db, { after: labour.id })).toEqual({ after: labour.id });
-		expect(failure(() => refs.placement(db, { position: 'top', after: 'AM-1' }))).toMatchObject({
+		expect(refs.placement(db, {}, viewer)).toBeUndefined();
+		expect(refs.placement(db, { position: 'top' }, viewer)).toBe('top');
+		expect(refs.placement(db, { before: 'am-1' }, viewer)).toEqual({ before: labour.id });
+		expect(refs.placement(db, { after: labour.id }, viewer)).toEqual({ after: labour.id });
+		expect(
+			failure(() => refs.placement(db, { position: 'top', after: 'AM-1' }, viewer))
+		).toMatchObject({
 			code: 'invalid'
 		});
 	});

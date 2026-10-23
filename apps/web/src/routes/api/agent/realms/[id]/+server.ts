@@ -4,4 +4,4 @@ import { readRealmLayer } from '#lib/server/ui/agent.ts';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = ({ locals, params }) =>
-	answerSession(locals, () => readRealmLayer(getDb(), idParam(params.id)));
+	answerSession(locals, () => readRealmLayer(getDb(), locals.user!, idParam(params.id)));

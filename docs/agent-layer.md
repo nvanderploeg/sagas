@@ -4,7 +4,7 @@ What sagas holds for agents rather than people, and how a Survey scores Labours 
 
 ## Decisions
 
-- **Authority**: any User may set, change or clear anything in the agent layer, whoever set it before. Each value keeps who set it and when, for the Advanced view.
+- **Authority**: any editor or Owner of a Realm may set, change or clear its part of the agent layer, whoever set it before. Defining Attributes and tuning the Realm take an Owner. Each value keeps who set it and when, for the Advanced view.
 - **Visibility**: people see the agent layer only in the Advanced view. Its writes record no Events and leave a Labour's `updatedAt` alone, so a board never reacts to them. Clients read it when they need it. The Advanced view reads it from session-only `GET /api/agent/` endpoints (`labours/<id>`, `realms/<id>`, `me`), only while its switch is on; an API token gets `401` there.
 - **Variety**: a Survey's order is a sample at a temperature; temperature 0 sorts by Score.
 - **Embeddings** run in the server: `Xenova/bge-small-en-v1.5`, 8-bit, 384 dimensions, on `@huggingface/transformers` and `onnxruntime-node`. The model ships in the image; the server never downloads one. Without the model files the server still starts, logs one warning and keeps no vectors, so every Survey counts `similarity` as missing.

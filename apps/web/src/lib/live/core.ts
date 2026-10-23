@@ -5,6 +5,7 @@ import type { LiveEvent } from './types.ts';
 
 export interface Sink {
 	receive(event: LiveEvent): void;
+	advance(seq: number): void;
 	// The Stream cannot give this view every Event after its seq: load it again.
 	reset(): void;
 }
@@ -80,6 +81,13 @@ export class FeedCore implements Feed {
 		for (const sink of [...this.#sinks]) sink.receive(event);
 	}
 
+	// Events up to `seq` concerned nothing this viewer sees: let every view treat them as applied.
+	advance(seq: number): void {
+		if (this.#last !== null && seq <= this.#last) return;
+		this.#last = seq;
+		for (const sink of [...this.#sinks]) sink.advance(seq);
+	}
+
 	reset(seq: number): void {
 		this.#buffer = [];
 		this.#bytes = 0;
@@ -148,6 +156,13 @@ export class LiveCore<T> implements Sink {
 			detach();
 			if (this.#feed === feed) this.#feed = null;
 		};
+	}
+
+	advance(seq: number): void {
+		if (seq <= this.#seq) return;
+		this.#seq = seq;
+		this.#settle();
+		this.#changed();
 	}
 
 	receive(event: LiveEvent): void {

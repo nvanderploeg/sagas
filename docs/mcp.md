@@ -238,6 +238,25 @@ Pulses are agent layer writes: they record no Events, never change a Realm's `ve
 - `file_pulses` files every Pulse unfiled under `raw_key`, and every one filed with `raw_key` as its current key, under `key`, and answers how many moved (0 is fine). `key` must file in the Realm, else `invalid`. Pulses keep their `raw_key`. Deleting an Attribute, or removing a `tags` member, unfiles its Pulses and deletes its Affinity Pulses; defining the key afresh does not refile them.
 - Pulses with a half-life are deleted once their weight falls below 1% of their `amount`.
 
+### Members and Offers
+
+Realm access is in `docs/realm-access.md`. A Realm you are not a member of is `not_found`, worded as for a key that does not exist. A role too low for the tool is `forbidden`.
+
+| Tool               | Input                            | Output                                                      | Who                                         |
+| ------------------ | -------------------------------- | ----------------------------------------------------------- | ------------------------------------------- |
+| `list_members`     | `realm`                          | `{ members: [{ user, role, status, invitedBy, … }] }`       | a member; only an Owner sees pending Offers |
+| `offer_membership` | `realm, user, role`              | `{ member }`, `status` `pending`                            | Owner                                       |
+| `withdraw_offer`   | `realm, user`                    | `{}`                                                        | Owner                                       |
+| `set_member_role`  | `realm, user, role`              | `{ member }`                                                | Owner                                       |
+| `remove_member`    | `realm, user` (`me` leaves)      | `{}`                                                        | Owner, or the member themselves             |
+| `list_offers`      |                                  | `{ offers: [{ realm, name, role, invitedBy, createdAt }] }` | you                                         |
+| `accept_offer`     | `realm` (key from `list_offers`) | `{ member }`                                                | the invitee                                 |
+| `decline_offer`    | `realm`                          | `{}`                                                        | the invitee                                 |
+
+`remove_member` and a role change refuse to leave a Realm without an Owner (`conflict`). Removing a member clears their Assignee on the Realm's Labours and passes their Owner to the Realm's earliest Owner.
+
+Writes through a token record its name: Events carry `actor.via`, and Comments and agent-layer rows carry `via` (`setBy` and `via` in tool results).
+
 ### Users, Invites and API tokens
 
 | Tool                | Input                   | Output                                                                           | Who                                     |
