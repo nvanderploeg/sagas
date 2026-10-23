@@ -2,8 +2,10 @@ import tailwindcss from '@tailwindcss/vite';
 import adapter from '@sveltejs/adapter-node';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vitest/config';
+import { buildInfo } from './build-info.ts';
 
 export default defineConfig({
+	define: buildInfo(),
 	plugins: [
 		tailwindcss(),
 		sveltekit({

@@ -14,6 +14,7 @@ RUN pnpm install --frozen-lockfile
 COPY apps/web/scripts apps/web/scripts
 RUN EMBEDDING_MODEL_DIR=/models pnpm --filter web models:fetch
 COPY . .
+ARG GIT_COMMIT
 RUN pnpm --filter web build && pnpm --filter web deploy --prod --legacy /deploy
 RUN arch="$(node -p process.arch)" \
 	&& for ort in /deploy/node_modules/.pnpm/onnxruntime-node@*/node_modules/onnxruntime-node; do \

@@ -2,6 +2,7 @@
 	import './layout.css';
 	import AppHeader from '#lib/components/AppHeader.svelte';
 	import Notices from '#lib/components/Notices.svelte';
+	import SiteFooter from '#lib/components/SiteFooter.svelte';
 	import { advanced } from '#lib/ui/advanced.svelte.ts';
 	import type { LayoutData } from './$types';
 
@@ -21,4 +22,5 @@
 <div id="main" class="min-w-0">
 	{@render children()}
 </div>
+<SiteFooter />
 <Notices />
