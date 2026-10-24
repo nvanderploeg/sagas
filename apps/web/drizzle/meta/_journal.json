@@ -141,6 +141,13 @@
       "when": 1792730270096,
       "tag": "0019_quest_realm",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1792882477436,
+      "tag": "0020_scrolls",
+      "breakpoints": true
     }
   ]
 }

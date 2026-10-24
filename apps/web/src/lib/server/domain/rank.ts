@@ -14,7 +14,7 @@ export function rankAt(
 	column: Entry[],
 	subject: { id: number | null; rank?: string },
 	placement: Placement,
-	scope: 'State' | 'Quest',
+	scope: 'State' | 'Quest' | 'Scroll',
 	name: NameLabour = byId
 ): string {
 	const others = column.filter((entry) => entry.id !== subject.id);
@@ -32,7 +32,7 @@ export function rankAt(
 export function ranksAt(
 	column: Entry[],
 	placement: Placement,
-	scope: 'State' | 'Quest',
+	scope: 'State' | 'Quest' | 'Scroll',
 	count: number,
 	name: NameLabour = byId
 ): string[] {

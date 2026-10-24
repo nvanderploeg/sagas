@@ -64,7 +64,11 @@ const TYPES: { [K in EventType]: true } = {
 	'quest.deleted': true,
 	'quest.labours_added': true,
 	'quest.labours_removed': true,
-	'quest.labour_ranked': true
+	'quest.labour_ranked': true,
+	'scroll.created': true,
+	'scroll.updated': true,
+	'scroll.moved': true,
+	'scroll.deleted': true
 };
 
 export const EVENT_TYPES = Object.keys(TYPES) as EventType[];

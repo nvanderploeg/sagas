@@ -6,6 +6,12 @@ import { createLabour, moveLabour } from '#lib/server/domain/labours.ts';
 import { acceptOffer, offerMembership } from '#lib/server/domain/memberships.ts';
 import { addQuestLabour, createQuest } from '#lib/server/domain/quests.ts';
 import { createRealm } from '#lib/server/domain/realms.ts';
+import {
+	createScroll,
+	deleteScroll,
+	moveScroll,
+	updateScroll
+} from '#lib/server/domain/scrolls.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { seedUser, TODO } from '#lib/server/test/fixtures.ts';
 import { eventsSince } from './log.ts';
@@ -38,6 +44,28 @@ beforeEach(() => {
 afterEach(() => setAccessEnforced(false));
 
 describe('eventForViewer', () => {
+	it("sends a Realm's Scroll Events only to its members", () => {
+		for (const realmId of [secret, shared]) {
+			const scroll = createScroll(db, ada, { realmId, title: 'Home' });
+			updateScroll(db, ada, scroll.id, { body: 'x' });
+			const other = createScroll(db, ada, { realmId, title: 'Other' });
+			moveScroll(db, ada, other.id, { parentId: scroll.id });
+			deleteScroll(db, ada, scroll.id, new Map([[other.id, 'delete']]));
+		}
+		const scrollTypes = (viewer: { id: number }) =>
+			seen(viewer).filter((t) => t.startsWith('scroll.'));
+		const once = [
+			'scroll.created',
+			'scroll.updated',
+			'scroll.created',
+			'scroll.moved',
+			'scroll.deleted'
+		];
+
+		expect(scrollTypes(bob)).toEqual(once);
+		expect(scrollTypes(ada)).toEqual([...once, ...once]);
+	});
+
 	it("hides a private Realm's Events, its Labours and Comments from a non-member", () => {
 		const labour = createLabour(db, ada, { realmId: secret, title: 'Hidden', ownerId: ada.id });
 		addComment(db, ada, labour.id, 'private note');

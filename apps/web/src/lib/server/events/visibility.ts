@@ -81,6 +81,12 @@ export function eventForViewer(
 		case 'quest.deleted':
 			// A Realm's deletion takes its Memberships with it, so its Quests go to every Stream.
 			return sees(event.data.realmId) || !realmExists(db, event.data.realmId) ? event : null;
+		case 'scroll.created':
+		case 'scroll.updated':
+		case 'scroll.moved':
+			return sees(event.data.scroll.realmId) ? event : null;
+		case 'scroll.deleted':
+			return sees(event.data.realmId) ? event : null;
 		case 'quest.labours_added':
 		case 'quest.labours_removed': {
 			if (!sees(event.data.quest.realmId)) return null;

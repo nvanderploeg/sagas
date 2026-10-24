@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renderMarkdown } from './markdown.ts';
+import { renderMarkdown, renderScroll, scrollLinks } from './markdown.ts';
 
 describe('renderMarkdown', () => {
 	it('renders Markdown', () => {
@@ -34,5 +34,45 @@ describe('renderMarkdown', () => {
 		expect(renderMarkdown('<https://example.com>')).toContain(
 			'<a href="https://example.com" rel="noopener noreferrer nofollow" target="_blank">'
 		);
+	});
+});
+
+describe('renderScroll', () => {
+	const resolve = (target: string) =>
+		target === 'ops/release'
+			? { href: '/r/AM/s/ops/release', title: 'Release <process>', missing: false }
+			: { href: `/r/AM/s/${target}`, title: target, missing: true };
+
+	it('links a Scroll by its title, or by the label given', () => {
+		expect(renderScroll('See [[Ops/Release]] and [[ops/release|the steps]].', resolve)).toBe(
+			'<p>See <a href="/r/AM/s/ops/release">Release &lt;process&gt;</a> and ' +
+				'<a href="/r/AM/s/ops/release">the steps</a>.</p>\n'
+		);
+	});
+
+	it('marks a link to no Scroll as one that creates it', () => {
+		expect(renderScroll('[[New page]]', resolve)).toContain(
+			'<a href="/r/AM/s/new-page" class="scroll-missing" data-missing>new-page</a>'
+		);
+	});
+
+	it('leaves Scroll links in code alone', () => {
+		const html = renderScroll('`[[ops/release]]`\n\n    [[ops/release]]', resolve);
+		expect(html).not.toContain('<a');
+	});
+
+	it('keeps raw HTML escaped', () => {
+		expect(renderScroll('<b>x</b> [[a|<i>y</i>]]', resolve)).not.toMatch(/<(b|i)>/);
+	});
+});
+
+describe('scrollLinks', () => {
+	it('lists each normalized target once, outside code', () => {
+		expect(
+			scrollLinks('[[Ops/Release]] [[ops/release|again]] `[[skipped]]` [[ /a//b/ |B]] [[]] [[ |x]]')
+		).toEqual([
+			{ target: 'ops/release', label: null },
+			{ target: 'a/b', label: 'B' }
+		]);
 	});
 });

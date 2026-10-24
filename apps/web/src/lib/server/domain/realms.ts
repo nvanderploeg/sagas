@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import type { EventSpec } from '../events/types.ts';
 import { realmKeys, realms, labours, quests } from '../db/schema.ts';
@@ -138,6 +138,9 @@ export function deleteRealm(db: Db, actor: Actor, realmId: number): void {
 			.all()
 			.map((row) => row.id);
 		for (const questId of ownQuests) fallout.quests.delete(questId);
+		tx.run(
+			sql`DELETE FROM scroll_text WHERE rowid IN (SELECT id FROM scrolls WHERE realm_id = ${realmId})`
+		);
 		tx.delete(realms).where(eq(realms.id, realmId)).run();
 		return {
 			value: undefined,

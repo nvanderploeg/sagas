@@ -447,6 +447,103 @@ export const questLabours = sqliteTable(
 	]
 );
 
+// A page of a Realm's wiki, per docs/scrolls.md.
+export const scrolls = sqliteTable(
+	'scrolls',
+	{
+		id: id(),
+		realmId: integer('realm_id')
+			.notNull()
+			.references(() => realms.id, { onDelete: 'cascade' }),
+		parentId: integer('parent_id').references((): AnySQLiteColumn => scrolls.id, {
+			onDelete: 'cascade'
+		}),
+		slug: text('slug').notNull(),
+		// The current Path; scroll_paths holds it and every earlier one.
+		path: text('path').notNull(),
+		title: text('title').notNull(),
+		body: text('body').notNull().default(''),
+		// A fractional index ordering the siblings; keep the default BINARY collation.
+		rank: text('rank').notNull(),
+		version: integer('version').notNull().default(1),
+		createdById: integer('created_by_id')
+			.notNull()
+			.references(() => users.id),
+		updatedById: integer('updated_by_id')
+			.notNull()
+			.references(() => users.id),
+		createdAt: now(),
+		updatedAt: now('updated_at')
+	},
+	(t) => [
+		uniqueIndex('scrolls_realm_path_uq').on(t.realmId, t.path),
+		uniqueIndex('scrolls_sibling_rank_uq').on(
+			t.realmId,
+			sql`(CASE WHEN ${t.parentId} IS NULL THEN 0 ELSE ${t.parentId} END)`,
+			t.rank
+		),
+		index('scrolls_parent_idx').on(t.parentId),
+		check(
+			'scrolls_slug_format',
+			sql.raw(
+				`length("slug") BETWEEN 1 AND 64 AND "slug" NOT GLOB '*[^a-z0-9-]*' AND "slug" GLOB '[a-z0-9]*' AND "slug" GLOB '*[a-z0-9]'`
+			)
+		),
+		check('scrolls_version_positive', sql.raw(`"version" >= 1`))
+	]
+);
+
+// Every Path a Scroll has held, its current one included.
+export const scrollPaths = sqliteTable(
+	'scroll_paths',
+	{
+		realmId: integer('realm_id')
+			.notNull()
+			.references(() => realms.id, { onDelete: 'cascade' }),
+		path: text('path').notNull(),
+		scrollId: integer('scroll_id')
+			.notNull()
+			.references(() => scrolls.id, { onDelete: 'cascade' }),
+		createdAt: now()
+	},
+	(t) => [
+		primaryKey({ columns: [t.realmId, t.path] }),
+		index('scroll_paths_scroll_idx').on(t.scrollId)
+	]
+);
+
+// What a Scroll's body names, per docs/scrolls.md: one of a Scroll link's target, a Labour or a User.
+export const scrollRefs = sqliteTable(
+	'scroll_refs',
+	{
+		id: id(),
+		scrollId: integer('scroll_id')
+			.notNull()
+			.references(() => scrolls.id, { onDelete: 'cascade' }),
+		// A normalized Path in the source Scroll's Realm, which may name no Scroll yet.
+		targetPath: text('target_path'),
+		labourId: integer('labour_id').references(() => labours.id, { onDelete: 'cascade' }),
+		userId: integer('user_id').references(() => users.id, { onDelete: 'cascade' }),
+		firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull()
+	},
+	(t) => [
+		uniqueIndex('scroll_refs_target_uq').on(
+			t.scrollId,
+			sql`(CASE WHEN ${t.targetPath} IS NULL THEN '' ELSE ${t.targetPath} END)`,
+			sql`(CASE WHEN ${t.labourId} IS NULL THEN 0 ELSE ${t.labourId} END)`,
+			sql`(CASE WHEN ${t.userId} IS NULL THEN 0 ELSE ${t.userId} END)`
+		),
+		index('scroll_refs_path_idx').on(t.targetPath),
+		index('scroll_refs_labour_idx').on(t.labourId),
+		check(
+			'scroll_refs_one_target',
+			sql.raw(
+				`("target_path" IS NOT NULL) + ("labour_id" IS NOT NULL) + ("user_id" IS NOT NULL) = 1`
+			)
+		)
+	]
+);
+
 export const events = sqliteTable(
 	'events',
 	{

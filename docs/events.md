@@ -85,6 +85,7 @@ Views, with dates as ISO strings:
 - **RealmView**: `{ id, name, key, initialStateId, states }`. Each State carries its `substates`. Both are in position order.
 - **LabourView**: the Labour's fields, plus `key`, its current Labour key, and `closed`, which is true when its State is Closed.
 - **CommentView**: the Comment's fields: `{ id, labourId, authorId, body, createdAt, updatedAt }`, `updatedAt` null until edited.
+- **ScrollView**: the Scroll's fields, body included; see `docs/scrolls.md`.
 - **QuestView**: the Quest's fields, plus `labours`, its members as LabourViews in Quest order, and `progress: { closed, total }`.
 
 | Type                     | `data`                                             | Recorded when                                                       |
@@ -114,6 +115,10 @@ Views, with dates as ISO strings:
 | `quest.labours_added`    | `{ quest, labourIds }`                             | Labours are added to it.                                            |
 | `quest.labours_removed`  | `{ quest, labourIds }`                             | Labours leave it, whether removed or deleted.                       |
 | `quest.labour_ranked`    | `{ quest, labourId }`                              | A member is reordered.                                              |
+| `scroll.created`         | `{ scroll }`                                       | A Scroll is created. Scroll Events are in `docs/scrolls.md`.        |
+| `scroll.updated`         | `{ scroll }`                                       | Its title or body changes.                                          |
+| `scroll.moved`           | `{ scroll, paths }`                                | Its slug, parent or rank changes.                                   |
+| `scroll.deleted`         | `{ realmId, ids, moved }`                          | A Scroll is deleted, with the children deleted or moved up.         |
 
 ## Applying Events
 
@@ -131,5 +136,7 @@ A Quest view of Quest `Q` (`readQuest`):
 - Recompute `progress` from the members' `closed` after any member changes. A member's change does not record a Quest Event.
 
 A Labour page (`readLabourPage`) holds the Labour's `comments`, oldest first. `labour.commented` for that Labour appends its `comment` unless one with that `id` is already there. `labour.comment_edited` replaces the Comment with that `id`; `labour.comment_deleted` removes it. No other view shows Comments, and they go with their Labour.
+
+A view of a Realm's Scrolls reloads on any `scroll.*` Event of that Realm, as in `docs/scrolls.md`.
 
 A list of a Labour's Children follows each Child's `parentId`. A new Parent named by `labour.reparented` is not in its data; load it.

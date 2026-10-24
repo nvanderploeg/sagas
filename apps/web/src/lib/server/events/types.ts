@@ -2,6 +2,7 @@ import type { RealmView } from '../domain/realm-view.ts';
 import type { QuestView } from '../domain/quest-view.ts';
 import type { CommentView } from '../domain/comments.ts';
 import type { LabourView } from '../domain/labour-view.ts';
+import type { PathChange, ScrollView } from '../domain/scroll-view.ts';
 
 // The contract is docs/events.md: change both together.
 //
@@ -36,6 +37,14 @@ export type EventData = {
 	'quest.labours_added': { quest: QuestView; labourIds: number[] };
 	'quest.labours_removed': { quest: QuestView; labourIds: number[] };
 	'quest.labour_ranked': { quest: QuestView; labourId: number };
+	'scroll.created': { scroll: ScrollView };
+	'scroll.updated': { scroll: ScrollView };
+	'scroll.moved': { scroll: ScrollView; paths: PathChange[] };
+	'scroll.deleted': {
+		realmId: number;
+		ids: number[];
+		moved: (PathChange & { parentId: number | null })[];
+	};
 };
 
 export type EventType = keyof EventData;
@@ -65,7 +74,11 @@ const TYPES: { [K in EventType]: true } = {
 	'quest.deleted': true,
 	'quest.labours_added': true,
 	'quest.labours_removed': true,
-	'quest.labour_ranked': true
+	'quest.labour_ranked': true,
+	'scroll.created': true,
+	'scroll.updated': true,
+	'scroll.moved': true,
+	'scroll.deleted': true
 };
 
 export const EVENT_TYPES = Object.keys(TYPES) as [EventType, ...EventType[]];

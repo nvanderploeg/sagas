@@ -133,6 +133,9 @@ const BOARD_TABLES = new Set([
 	'comments',
 	'quests',
 	'quest_labours',
+	'scrolls',
+	'scroll_paths',
+	'scroll_refs',
 	'events'
 ]);
 
@@ -140,7 +143,7 @@ const BOARD_TABLES = new Set([
 function agentRows(): number {
 	const names = db.$client
 		.prepare(
-			"select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like '%drizzle%' and name not like 'labour_text%' and name <> 'derived_builds'"
+			"select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like '%drizzle%' and name not like 'labour_text%' and name not like 'scroll_text%' and name <> 'derived_builds'"
 		)
 		.all() as { name: string }[];
 	return names

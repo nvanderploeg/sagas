@@ -24,7 +24,7 @@ export type MentionText = {
 	firstSeenAt: Date;
 };
 
-type Targets = { labourIds: Set<number>; userIds: Set<number> };
+export type MentionTargets = { labourIds: Set<number>; userIds: Set<number> };
 
 function scan(text: string): { keys: string[]; names: { exact: string; trimmed: string }[] } {
 	const keys = new Set<string>();
@@ -39,7 +39,8 @@ function scan(text: string): { keys: string[]; names: { exact: string; trimmed: 
 	return { keys: [...keys], names: [...names.values()] };
 }
 
-function resolve(tx: Handle, text: string, sourceLabourId: number): Targets {
+// The Labours and Users a text names, by Labour key, Alias or username.
+export function mentionTargets(tx: Handle, text: string): MentionTargets {
 	const found = scan(text);
 	const labourIds = new Set<number>();
 	if (found.keys.length > 0) {
@@ -49,7 +50,6 @@ function resolve(tx: Handle, text: string, sourceLabourId: number): Targets {
 			.where(inArray(labourKeys.key, found.keys))
 			.all();
 		for (const row of rows) labourIds.add(row.labourId);
-		labourIds.delete(sourceLabourId);
 	}
 
 	const userIds = new Set<number>();
@@ -73,7 +73,8 @@ function resolve(tx: Handle, text: string, sourceLabourId: number): Targets {
 
 // Leave kept rows untouched: their firstSeenAt and authorId must survive edits.
 export function refreshMentions(tx: Handle, input: MentionText): void {
-	const targets = resolve(tx, input.text, input.sourceLabourId);
+	const targets = mentionTargets(tx, input.text);
+	targets.labourIds.delete(input.sourceLabourId);
 	const held = tx
 		.select()
 		.from(mentions)
