@@ -31,7 +31,7 @@ export function encodePlacement(placement: Placement): string {
 }
 
 // The placement that puts a card at `index` among the cards a person sees in a column.
-export function placementAt(shown: Labour[], index: number): Placement {
+export function placementAt(shown: { id: number }[], index: number): Placement {
 	return index <= 0 || shown.length === 0
 		? 'top'
 		: { after: shown[Math.min(index, shown.length) - 1].id };

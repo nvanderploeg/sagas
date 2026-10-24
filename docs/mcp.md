@@ -52,10 +52,11 @@ An OAuth client such as claude.ai connects to `/mcp` by authorization code with 
 | Substate  | Substate key within its State, or id                                                                                         |
 | User      | Username in any case, `"me"` for the token's User, or id                                                                     |
 | Quest     | Id                                                                                                                           |
+| Scroll    | Path within the tool's Realm, a former Path included, or id                                                                  |
 | Placement | Of a Labour in its column or in a Quest: at most one of `position: "top" \| "bottom"`, `before: <Labour>`, `after: <Labour>` |
 | Index     | Of a State or Substate: `index`, 0-based                                                                                     |
 
-- An id is a JSON number. A string is always a key or a username; a string of digits is `invalid`.
+- An id is a JSON number. A string is always a key, a username or a Path; a string of digits is `invalid`, except as a Path.
 - `"me"` always means the token's User; reach a User named `me` by id.
 - Unknown arguments are `invalid`, and the message names them.
 - An argument shown with `?` is optional; `| null` clears.
@@ -140,6 +141,22 @@ The Realm's `state` and `substate` arguments resolve within `realm`. Every write
 | `rank_quest_labour`    | `quest, labour, placement` (required)         | `{ quest: Quest }`                                                           |
 
 `add_quest_labours` and `remove_quest_labours` are one write each, recording one `quest.labours_added` or `quest.labours_removed` that names only the Labours that changed. `added`, `removed` and `skipped` are Labour keys. A Labour already as asked is skipped, never an error, so a repeated call is safe; a Labour listed twice counts once; an unknown Labour fails the whole call. Labours are added in the order given, and never with their Children.
+
+### Scrolls
+
+Semantics, the Scroll result and `placement` among siblings are in `docs/scrolls.md` § MCP. A Path needs `realm`; once `scroll` is found, `parent`, `before`, `after`, `move` and `delete` resolve in its Realm. A Scroll's `path` is its Path, not its page; `url` is its page.
+
+| Tool             | Input                                                                               | Output                                                               |
+| ---------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `list_scrolls`   | `realm`                                                                             | `{ scrolls: [{ id, path, url, title, depth }] }`, depth 0 at the top |
+| `get_scroll`     | `realm?, scroll`                                                                    | `{ scroll: Scroll }`                                                 |
+| `create_scroll`  | `realm, title, parent?, slug?, body?, placement`                                    | `{ scroll: Scroll }`                                                 |
+| `update_scroll`  | `realm?, scroll, version?, title?, slug?, body?`                                    | `{ scroll: Scroll }`                                                 |
+| `move_scroll`    | `realm?, scroll, parent? \| null, placement`                                        | `{ scroll: Scroll }`                                                 |
+| `delete_scroll`  | `realm?, scroll, children?: "move" \| "delete", move?: Scroll[], delete?: Scroll[]` | `{ deleted: [path], moved: [{ from, to }] }`                         |
+| `search_scrolls` | `realm, query, limit? (20, max 100)`                                                | `{ scrolls: [{ id, path, url, title, snippet }] }`                   |
+
+A stale `version` is `conflict`, naming who saved since. `labours` lists only Labours in Realms you can see.
 
 ### Attributes
 

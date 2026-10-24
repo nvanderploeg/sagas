@@ -4,6 +4,7 @@ import { realmKeys, realms, quests, states, labours } from '../db/schema.ts';
 import { canSeeRealm, requireRealmRole, visibleRealmIds } from '../domain/access.ts';
 import { restrictQuest } from '../domain/quest-view.ts';
 import { listComments } from '../domain/comments.ts';
+import { listLabourScrolls } from '../domain/scrolls.ts';
 import { getRealm } from '../domain/lookup.ts';
 import { listRealms, readRealm, type Realm, type RealmView } from '../domain/realms.ts';
 import { listQuests, listLabourQuests, readQuest, type QuestView } from '../domain/quests.ts';
@@ -98,7 +99,8 @@ export function readLabourPage(db: Handle, viewer: Viewer, labourId: number) {
 			.orderBy(asc(quests.id))
 			.all(),
 		memberOf: listLabourQuests(db, labourId).map((q) => q.id),
-		comments: listComments(db, labourId)
+		comments: listComments(db, labourId),
+		scrolls: listLabourScrolls(db, labourId, visible === null ? null : [...visible])
 	};
 }
 

@@ -53,7 +53,6 @@ export type ScrollDeletion = {
 	moved: (PathChange & { parentId: number | null })[];
 };
 
-// A Scroll in the tree, without its body.
 export type ScrollNode = Pick<Scroll, 'id' | 'parentId' | 'slug' | 'path' | 'title' | 'rank'> & {
 	depth: number;
 };
@@ -501,7 +500,6 @@ export function listScrollChildren(db: Handle, scrollId: number): ScrollNode[] {
 		.map((row) => ({ ...row, depth }));
 }
 
-// How many Scrolls sit under each of the given ones.
 export function countDescendants(db: Handle, scrollIds: number[]): Map<number, number> {
 	return new Map(scrollIds.map((id) => [id, subtree(db, id).length - 1]));
 }
@@ -585,7 +583,6 @@ export function listLabourScrolls(
 
 export type ScrollHit = ScrollLinkTarget & { snippet: string };
 
-// Title matches weigh four times body matches.
 export function searchScrolls(db: Handle, realmId: number, query: string, limit = 20): ScrollHit[] {
 	const expression = matchExpression(query);
 	if (expression === null) return [];

@@ -33,6 +33,16 @@ export const questRef = z
 	.positive()
 	.describe('Quest id');
 
+export const scrollRef = ref('a Path').describe(
+	'Path within the Realm, e.g. "ops/release-process", a former Path included; or the id as a JSON number'
+);
+
+export const scrollPlacementShape = {
+	position: z.enum(['top', 'bottom']).optional().describe('Place first or last among siblings'),
+	before: scrollRef.optional().describe('Place just before this sibling Scroll'),
+	after: scrollRef.optional().describe('Place just after this sibling Scroll')
+};
+
 export const placementShape = {
 	position: z.enum(['top', 'bottom']).optional().describe('Place at the top or the bottom'),
 	before: labourRef.optional().describe('Place just before this Labour'),

@@ -727,6 +727,26 @@
 					{#if errors.get('quests')}<p role="alert" class="error">{errors.get('quests')}</p>{/if}
 				</div>
 
+				{#if view.scrolls.length > 0}
+					<div class="grid gap-1.5">
+						<span class="label">In Scrolls</span>
+						<ul class="grid gap-1 text-sm" data-testid="labour-scrolls">
+							{#each view.scrolls as scroll (scroll.id)}
+								{@const realmKey = view.realms.find((r) => r.id === scroll.realmId)?.key}
+								{#if realmKey}
+									<li>
+										<a
+											class="hover:underline"
+											href={resolve('/r/[key]/s/[...path]', { key: realmKey, path: scroll.path })}
+											>{scroll.title}</a
+										>
+									</li>
+								{/if}
+							{/each}
+						</ul>
+					</div>
+				{/if}
+
 				<details class="group grid gap-2" bind:open={moveOpen}>
 					<summary class="label cursor-pointer select-none">Move to another Realm</summary>
 					<div class="mt-2 grid gap-2">

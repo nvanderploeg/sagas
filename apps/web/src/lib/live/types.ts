@@ -26,6 +26,7 @@ export type QuestPageView = { quest: Quest; realms: Realm[] };
 export type QuestListView = { quests: Quest[]; realms: Realm[] };
 
 // `memberOf` lists the ids of the Quests holding the Labour, ascending. `comments` are oldest first.
+// `scrolls` name the Labour in their body, by Realm then Path.
 export type LabourPageView = {
 	labour: Labour;
 	parent: Labour | null;
@@ -34,6 +35,7 @@ export type LabourPageView = {
 	quests: QuestOption[];
 	memberOf: number[];
 	comments: Comment[];
+	scrolls: { id: number; realmId: number; path: string; title: string }[];
 };
 
 export type SettingsView = { realm: Realm };

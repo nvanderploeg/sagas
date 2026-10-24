@@ -130,3 +130,8 @@ body {
 	background: var(--color-panel-2);
 	font-size: 0.86em;
 }
+
+.prose.prose-sagas a.scroll-missing {
+	color: var(--color-danger);
+	text-decoration-style: dashed;
+}

@@ -378,7 +378,10 @@
 					{board.labours.length === 1 ? 'Labour' : 'Labours'}
 				</p>
 			</div>
-			<a class="btn" href={resolve('/r/[key]/settings', { key: board.realm.key })}>Settings</a>
+			<div class="flex gap-2">
+				<a class="btn" href={resolve('/r/[key]/s', { key: board.realm.key })}>Scrolls</a>
+				<a class="btn" href={resolve('/r/[key]/settings', { key: board.realm.key })}>Settings</a>
+			</div>
 		</header>
 
 		<div class="tools" role="group" aria-label="Filter">

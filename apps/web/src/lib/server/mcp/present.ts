@@ -1,6 +1,6 @@
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
-import { appraisals, realmAgent, realmKeys, labourKeys, users } from '../db/schema.ts';
+import { appraisals, realmAgent, realmKeys, labourKeys, scrollRefs, users } from '../db/schema.ts';
 import { getRealm, getState, getSubstate } from '../domain/lookup.ts';
 import { readRealm } from '../domain/realm-view.ts';
 import {
@@ -15,6 +15,8 @@ import { readLabour, type LabourView } from '../domain/labour-view.ts';
 import type { CommentView } from '../domain/comments.ts';
 import { listChildren } from '../domain/labours.ts';
 import type { AuthUser } from '../auth/users.ts';
+import { listBacklinks, listScrollChildren, type Scroll } from '../domain/scrolls.ts';
+import { parentPath } from '../../ui/scroll-path.ts';
 
 export type Label = { key: string; label: string };
 
@@ -274,6 +276,44 @@ export class Presenter {
 		};
 	}
 
+	scrollUrl(realmId: number, path: string): string {
+		return this.url(`/r/${this.realmKey(realmId)}/s/${path}`);
+	}
+
+	private scrollLabours(scrollId: number): string[] {
+		const rows = this.db
+			.select({ labourId: scrollRefs.labourId })
+			.from(scrollRefs)
+			.where(and(eq(scrollRefs.scrollId, scrollId), isNotNull(scrollRefs.labourId)))
+			.orderBy(asc(scrollRefs.firstSeenAt), asc(scrollRefs.id))
+			.all();
+		return rows
+			.map((row) => readLabour(this.db, row.labourId!))
+			.filter((labour) => canSeeRealm(this.db, this.viewer, labour.realmId))
+			.map((labour) => labour.key);
+	}
+
+	scroll(view: Scroll) {
+		const link = ({ path, title }: { path: string; title: string }) => ({ path, title });
+		return {
+			id: view.id,
+			realm: this.realmKey(view.realmId),
+			path: view.path,
+			url: this.scrollUrl(view.realmId, view.path),
+			title: view.title,
+			body: view.body,
+			version: view.version,
+			parent: parentPath(view.path),
+			children: listScrollChildren(this.db, view.id).map(link),
+			backlinks: listBacklinks(this.db, view.id).map(link),
+			labours: this.scrollLabours(view.id),
+			createdBy: this.username(view.createdById),
+			updatedBy: this.username(view.updatedById),
+			createdAt: view.createdAt.toISOString(),
+			updatedAt: view.updatedAt.toISOString()
+		};
+	}
+
 	quest(view: QuestView) {
 		const shown = this.restricted(view);
 		return { ...this.questSummary(shown), labours: this.labours(shown.labours) };
@@ -309,6 +349,10 @@ export function realmLine(p: RealmSummary): string {
 
 export function questLine(q: { id: number; name: string; progress: QuestProgress }) {
 	return `Quest ${q.id} ${q.name}: ${q.progress.closed}/${q.progress.total} closed`;
+}
+
+export function scrollLine(s: { realm: string; path: string; version: number; title: string }) {
+	return `Scroll ${s.path} in ${s.realm} (v${s.version}): ${s.title}`;
 }
 
 export function count(n: number, one: string, many = `${one}s`): string {

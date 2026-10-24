@@ -1,4 +1,4 @@
-// Slug and Path rules from docs/scrolls.md, shared by the server and the browser.
+// Slug and Path rules from docs/scrolls.md. The browser runs this too: import nothing server-only.
 
 export const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 export const SLUG_MAX = 64;

@@ -26,6 +26,11 @@ import {
 } from '../../apps/web/src/lib/server/domain/quests.ts';
 import { createState, createSubstate } from '../../apps/web/src/lib/server/domain/states.ts';
 import {
+	createScroll,
+	readScroll,
+	updateScroll
+} from '../../apps/web/src/lib/server/domain/scrolls.ts';
+import {
 	createLabour,
 	readLabour,
 	updateLabour
@@ -126,6 +131,14 @@ export function createUiSeed(db: Db, actorId: number) {
 		addToQuest(questId: number, labourId: number) {
 			return addQuestLabour(db, actor, questId, labourId);
 		},
+
+		scroll(realmId: number, title: string, spec: { parentId?: number; body?: string } = {}) {
+			return createScroll(db, actor, { realmId, title, ...spec });
+		},
+
+		readScroll: (scrollId: number) => readScroll(db, scrollId),
+
+		updateScroll: (scrollId: number, body: string) => updateScroll(db, actor, scrollId, { body }),
 
 		comment: (labourId: number, body: string) => addComment(db, actor, labourId, body),
 

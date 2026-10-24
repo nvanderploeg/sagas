@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
-import { realmKeys, states, substates, users } from '../db/schema.ts';
+import { realmKeys, scrolls, states, substates, users } from '../db/schema.ts';
 import { canSeeRealm } from '../domain/access.ts';
 import { DomainError } from '../domain/errors.ts';
 import { parseLabourKey } from '../domain/keys.ts';
@@ -9,6 +9,8 @@ import { getQuest } from '../domain/quest-view.ts';
 import type { Placement } from '../domain/rank.ts';
 import { listStates, listSubstates } from '../domain/states.ts';
 import { readLabour, resolveLabourKey } from '../domain/labours.ts';
+import { resolveScrollPath } from '../domain/scrolls.ts';
+import { normalizePath } from '../../ui/scroll-path.ts';
 
 // A number is an id; a string is a key or a username, never an id.
 export type Ref = string | number;
@@ -151,13 +153,57 @@ export function substateId(db: Handle, state: number | undefined, ref: Ref): num
 
 export type PlacementArgs = { position?: 'top' | 'bottom'; before?: Ref; after?: Ref };
 
-export function placement(db: Handle, args: PlacementArgs, viewer: Viewer): Placement | undefined {
+function placementWith(args: PlacementArgs, resolve: (ref: Ref) => number): Placement | undefined {
 	const given = [args.position, args.before, args.after].filter((v) => v !== undefined);
 	if (given.length > 1) {
 		throw new DomainError('invalid', 'Give at most one of position, before and after');
 	}
 	if (args.position !== undefined) return args.position;
-	if (args.before !== undefined) return { before: labourId(db, args.before, viewer) };
-	if (args.after !== undefined) return { after: labourId(db, args.after, viewer) };
+	if (args.before !== undefined) return { before: resolve(args.before) };
+	if (args.after !== undefined) return { after: resolve(args.after) };
 	return undefined;
+}
+
+export function placement(db: Handle, args: PlacementArgs, viewer: Viewer): Placement | undefined {
+	return placementWith(args, (ref) => labourId(db, ref, viewer));
+}
+
+// A Scroll in a Realm the viewer cannot see is not found, worded as for one that doesn't exist.
+// A string is always a Path, digits included: a Slug may be all digits.
+export function scrollId(db: Handle, realm: number | undefined, ref: Ref, viewer: Viewer): number {
+	if (typeof ref === 'number') {
+		const row = db
+			.select({ id: scrolls.id, realmId: scrolls.realmId })
+			.from(scrolls)
+			.where(eq(scrolls.id, ref))
+			.get();
+		if (row === undefined || !canSeeRealm(db, viewer, row.realmId)) {
+			return notFound(`No Scroll has the id ${ref}`);
+		}
+		if (realm !== undefined && row.realmId !== realm) {
+			throw new DomainError('invalid', `Scroll ${ref} belongs to another Realm`);
+		}
+		return row.id;
+	}
+	const path = ref.trim();
+	if (realm === undefined) {
+		throw new DomainError(
+			'invalid',
+			`Name the Realm to look up Scroll "${path}", or give the Scroll's id as a JSON number`
+		);
+	}
+	const found = resolveScrollPath(db, realm, path);
+	return (
+		found?.scroll.id ??
+		notFound(`No Scroll has the Path ${normalizePath(path) ?? path} in ${getRealm(db, realm).key}`)
+	);
+}
+
+export function scrollPlacement(
+	db: Handle,
+	realm: number,
+	args: PlacementArgs,
+	viewer: Viewer
+): Placement | undefined {
+	return placementWith(args, (ref) => scrollId(db, realm, ref, viewer));
 }

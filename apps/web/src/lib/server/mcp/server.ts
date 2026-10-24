@@ -15,6 +15,7 @@ import { registerSentimentTools } from './tools/sentiment.ts';
 import { registerOutcomeTools } from './tools/outcomes.ts';
 import { registerSkillTools } from './tools/skills.ts';
 import { registerMemberTools } from './tools/members.ts';
+import { registerScrollTools } from './tools/scrolls.ts';
 
 const INSTRUCTIONS = `sagas is a labour tracker. Vocabulary:
 - Labour: one unit of work, addressed by its Labour key (AM-123, any case). Moving a Labour or renaming its Realm key gives it a new key; old keys stay Aliases that still resolve.
@@ -34,7 +35,8 @@ const INSTRUCTIONS = `sagas is a labour tracker. Vocabulary:
 - Pulse: one report into a Sentiment: an amount and a mood about one key, with a note and evidence. Its weight halves every half-life. A Pulse for a key its Realm lacks stays unfiled until an agent files it.
 - Affinity: a User's own Sentiment: what they tend to pick or skip, built from the Pulses sagas posts for their Outcomes. Read it with get_sentiment's user; the affinity feature scores Labours by it.
 - Outcome: what became of a Labour a Survey returned: picked, skipped or done. report_outcomes records it.
-Arguments: an id is a JSON number; a string is always a key or a username. "me" names you wherever a User is asked for.
+- Scroll: a Markdown page in a Realm's wiki, addressed within its Realm by its Path (ops/release-process): its ancestors' Slugs and its own. Former Paths still resolve. [[path]] in a body links another Scroll; the Scrolls linking to one are its Backlinks.
+Arguments: an id is a JSON number; a string is always a key, a username or a Path. "me" names you wherever a User is asked for.
 Every tool acts as the User of your API token (see whoami).
 Telling a person about a Labour: name it by its key linked to its url, and sum it up with its brief, or one sentence of your own when it has none. Say it once, and offer the description and the rest instead of reciting them.`;
 
@@ -57,6 +59,7 @@ export function createMcpServer(db: Db, actor: AuthUser, origin: string): Server
 	registerSentimentTools(registry.tools);
 	registerSkillTools(registry.tools);
 	registerMemberTools(registry.tools);
+	registerScrollTools(registry.tools);
 	server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: registry.list() }));
 	server.setRequestHandler(CallToolRequestSchema, (request) =>
 		registry.call(request.params.name, request.params.arguments)
