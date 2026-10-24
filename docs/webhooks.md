@@ -36,6 +36,7 @@ An Event does not list its Realms (`docs/events.md`). The log keeps them beside 
 | Any other `labour.*`, comments included        | The Labour's Realm when the Event is recorded.                   |
 | `quest.labours_added`, `quest.labours_removed` | The Realms the named Labours were in when the Event is recorded. |
 | Any other `quest.*`                            | None. Only a Webhook with `realmIds: null` gets it.              |
+| `scroll.*`                                     | The Scroll's Realm.                                              |
 
 ## Delivery
 

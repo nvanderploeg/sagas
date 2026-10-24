@@ -93,6 +93,22 @@ A Labour's position within its State's board column, set by dragging: the order 
 **Quest**:
 A named, ordered set of Labours with a description and an Owner. It belongs to one Realm, which decides who sees and edits it, and its Labours may be in any Realm. Its Owner is a member of that Realm. A Labour can be in any number of Quests. Membership is explicit: adding a Labour never adds its Children. A Quest has no State; its progress is its Closed Labours over all its Labours.
 
+**Scroll**:
+A Markdown page in a Realm's wiki. Scrolls form a tree: a Scroll has at most one parent Scroll in the same Realm, and siblings are ordered by drag. The Realm's roles decide who reads and edits them. The contract is `docs/scrolls.md`.
+_Avoid_: page, doc, wiki entry
+
+**Slug**:
+A Scroll's own lowercase name in its path, unique among its siblings (`release-process`).
+
+**Path**:
+A Scroll's address within its Realm: its ancestors' Slugs and its own, joined by `/` (`ops/release-process`). Every Path a Scroll has held keeps resolving to it; a current Path wins over an old one.
+
+**Scroll link**:
+`[[path]]` or `[[path|label]]` in a Scroll's body, naming another Scroll of the same Realm by Path.
+
+**Backlink**:
+A Scroll that names a Scroll by Scroll link, or a Labour by its key, listed on the page it names. Unlike Mentions, people see Backlinks.
+
 **Agent layer**:
 What sagas holds for agents rather than people: Attributes, Appraisals, Links, Mentions, Skills, Sentiment, Affinity, Surveys and Outcomes. Any member of a Realm may change its part of it, whoever set it; each value keeps who set it, through which API token, and when. The contract is `docs/agent-layer.md`.
 
