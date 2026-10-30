@@ -366,7 +366,7 @@
 
 		<div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
 			<div class="grid min-w-0 gap-6">
-				<section class="panel p-5" aria-labelledby="description-heading">
+				<section class="panel min-w-0 p-5" aria-labelledby="description-heading">
 					<div class="mb-3 flex items-center justify-between gap-2">
 						<h2 id="description-heading" class="font-bold tracking-tight">Description</h2>
 						{#if !editingBody}

@@ -131,6 +131,11 @@ body {
 	font-size: 0.86em;
 }
 
+.prose.prose-sagas :where(pre) {
+	max-width: 100%;
+	overflow-x: auto;
+}
+
 .prose.prose-sagas a.scroll-missing {
 	color: var(--color-danger);
 	text-decoration-style: dashed;

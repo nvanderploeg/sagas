@@ -1,6 +1,22 @@
 import { expect, holdAction, holdLoads, live, recordText, test } from './fixtures/ui.ts';
 
 test.describe('labour page', () => {
+	test('a long line in a code block scrolls inside the page', async ({ page, ui }) => {
+		const p = ui.realm();
+		const t = ui.labour(p.id, {
+			title: 'Wide code',
+			description: '```\n' + 'x'.repeat(3000) + '\n```'
+		});
+		await page.goto(`/l/${t.key}`);
+		await live(page);
+
+		const widths = await page.evaluate(() => ({
+			page: document.documentElement.scrollWidth,
+			view: document.documentElement.clientWidth
+		}));
+		expect(widths.page).toBeLessThanOrEqual(widths.view);
+	});
+
 	test('edits the title and the Markdown description, rendered without raw HTML', async ({
 		page,
 		ui

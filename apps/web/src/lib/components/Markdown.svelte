@@ -9,7 +9,7 @@
 {#if source.trim() === ''}
 	<p class="text-sm text-muted italic">{empty}</p>
 {:else}
-	<div class="prose-sagas prose max-w-none" data-testid="markdown">
+	<div class="prose-sagas prose min-w-0 max-w-none" data-testid="markdown">
 		<!-- eslint-disable-next-line svelte/no-at-html-tags -- renderMarkdown escapes raw HTML -->
 		{@html html}
 	</div>
