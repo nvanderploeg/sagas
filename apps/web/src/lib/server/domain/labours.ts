@@ -327,7 +327,7 @@ export type MoveTarget = {
 	placement?: Placement;
 };
 
-// Moving follows the Moving a Labour decision in docs/mvp.md.
+// Moving follows the Moving a Labour decision in the product/mvp Scroll.
 export function moveLabour(db: Db, actor: Actor, labourId: number, input: MoveTarget): LabourView {
 	return write(db, actor, (tx) => {
 		const labour = getLabour(tx, labourId);
@@ -372,7 +372,7 @@ export function moveLabour(db: Db, actor: Actor, labourId: number, input: MoveTa
 	});
 }
 
-// Rank follows the Rank decision in docs/mvp.md: write only this Labour's row.
+// Rank follows the Rank decision in the product/mvp Scroll: write only this Labour's row.
 export function rankLabour(
 	db: Db,
 	actor: Actor,

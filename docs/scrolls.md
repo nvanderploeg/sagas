@@ -1,6 +1,6 @@
 # Scrolls
 
-A Realm's wiki: Markdown pages in a tree. Vocabulary is in `CONTEXT.md`; access follows `docs/realm-access.md`; Events follow `docs/events.md`. Attachments are not part of this contract.
+A Realm's wiki: Markdown pages in a tree. Vocabulary is in `CONTEXT.md`; access follows the `product/realm-access` Scroll; Events follow `docs/events.md`. Attachments are not part of this contract.
 
 ## Model
 

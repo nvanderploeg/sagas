@@ -17,7 +17,7 @@ function realmOfLabour(db: Handle, id: number): number | null {
 }
 
 // The Event as one viewer may see it, or null when it concerns nothing they can see. Per
-// docs/realm-access.md, membership is read now, not when the Event happened.
+// the product/realm-access Scroll, membership is read now, not when the Event happened.
 export function eventForViewer(
 	db: Handle,
 	event: SagasEvent,

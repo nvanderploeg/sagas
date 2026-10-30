@@ -1,6 +1,6 @@
 # MCP
 
-The MCP server at `/mcp`, for agents. Vocabulary is in `CONTEXT.md`; the decision is in `docs/mvp.md`.
+The MCP server at `/mcp`, for agents. Vocabulary is in `CONTEXT.md`; the decision is in the `product/mvp` Scroll.
 
 ## Connecting
 
@@ -160,7 +160,7 @@ A stale `version` is `conflict`, naming who saved since. `labours` lists only La
 
 ### Attributes
 
-An agent layer write records no Events (`docs/agent-layer.md`). A Realm's `version` is 0 until its first change and rises by 1 with each call that changes its Attributes, values, notes or settings.
+An agent layer write records no Events (the `product/agent-layer` Scroll). A Realm's `version` is 0 until its first change and rises by 1 with each call that changes its Attributes, values, notes or settings.
 
 | Tool               | Input                                              | Output                                                                                     |
 | ------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -173,7 +173,7 @@ An agent layer write records no Events (`docs/agent-layer.md`). A Realm's `versi
 
 ### Appraisals and Links
 
-An agent layer write records no Events and never changes a Labour's `updatedAt` (`docs/agent-layer.md`). Only `values` change a Realm's `version`; `needs` do not.
+An agent layer write records no Events and never changes a Labour's `updatedAt` (the `product/agent-layer` Scroll). Only `values` change a Realm's `version`; `needs` do not.
 
 | Tool               | Input                                                                          | Output                                                                        |
 | ------------------ | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
@@ -190,7 +190,7 @@ An agent layer write records no Events and never changes a Labour's `updatedAt` 
 
 ### Surveys
 
-A Survey stores its request and results, kept for `SURVEY_RETENTION_DAYS` (30 by default). It records no Event and never changes a Labour's `updatedAt` (`docs/agent-layer.md`).
+A Survey stores its request and results, kept for `SURVEY_RETENTION_DAYS` (30 by default). It records no Event and never changes a Labour's `updatedAt` (the `product/agent-layer` Scroll).
 
 | Tool     | Input                                                                                        | Output          |
 | -------- | -------------------------------------------------------------------------------------------- | --------------- |
@@ -215,7 +215,7 @@ A Survey stores its request and results, kept for `SURVEY_RETENTION_DAYS` (30 by
 
 ### Outcomes
 
-An Outcome is what became of a Labour a Survey returned. It is an agent layer write: it records no Event and never changes a Labour's `updatedAt` or a Realm's `version`, and any User may report one (`docs/agent-layer.md`). Outcomes are kept with their Survey.
+An Outcome is what became of a Labour a Survey returned. It is an agent layer write: it records no Event and never changes a Labour's `updatedAt` or a Realm's `version`, and any User may report one (the `product/agent-layer` Scroll). Outcomes are kept with their Survey.
 
 | Tool              | Input                                                   | Output                                          | Kind  |
 | ----------------- | ------------------------------------------------------- | ----------------------------------------------- | ----- |
@@ -227,7 +227,7 @@ An Outcome is what became of a Labour a Survey returned. It is an agent layer wr
 
 ### Skills
 
-A Skill is named once for the whole instance; Users hold Skills at levels 1 to 5, and Labours need them at levels (`appraise`). These are agent layer writes: they record no Events, never change a Realm's `version` or a Labour's `updatedAt`, and any User may set any User's Skills (`docs/agent-layer.md`).
+A Skill is named once for the whole instance; Users hold Skills at levels 1 to 5, and Labours need them at levels (`appraise`). These are agent layer writes: they record no Events, never change a Realm's `version` or a Labour's `updatedAt`, and any User may set any User's Skills (the `product/agent-layer` Scroll).
 
 | Tool           | Input                                  | Output                                             | Kind  |
 | -------------- | -------------------------------------- | -------------------------------------------------- | ----- |
@@ -240,7 +240,7 @@ A Skill is named once for the whole instance; Users hold Skills at levels 1 to 5
 
 ### Sentiment
 
-Pulses are agent layer writes: they record no Events, never change a Realm's `version` or a Labour's `updatedAt`, and any User may delete any Pulse (`docs/agent-layer.md`).
+Pulses are agent layer writes: they record no Events, never change a Realm's `version` or a Labour's `updatedAt`, and any User may delete any Pulse (the `product/agent-layer` Scroll).
 
 | Tool            | Input                                                                                    | Output                                                                                                                           | Kind    |
 | --------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------- |
@@ -257,7 +257,7 @@ Pulses are agent layer writes: they record no Events, never change a Realm's `ve
 
 ### Members and Offers
 
-Realm access is in `docs/realm-access.md`. A Realm you are not a member of is `not_found`, worded as for a key that does not exist. A role too low for the tool is `forbidden`.
+Realm access is in the `product/realm-access` Scroll. A Realm you are not a member of is `not_found`, worded as for a key that does not exist. A role too low for the tool is `forbidden`.
 
 | Tool               | Input                            | Output                                                      | Who                                         |
 | ------------------ | -------------------------------- | ----------------------------------------------------------- | ------------------------------------------- |

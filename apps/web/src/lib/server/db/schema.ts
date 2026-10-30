@@ -203,7 +203,7 @@ export const realms = sqliteTable(
 	]
 );
 
-// One User's role in one Realm, per docs/realm-access.md. `pending` is an Offer: it grants nothing.
+// One User's role in one Realm, per the product/realm-access Scroll. `pending` is an Offer: it grants nothing.
 export const realmMembers = sqliteTable(
 	'realm_members',
 	{

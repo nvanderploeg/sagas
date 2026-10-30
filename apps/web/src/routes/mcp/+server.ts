@@ -5,7 +5,7 @@ import { readMessage, refuseForeignOrigin } from '#lib/server/mcp/http.ts';
 import { handleMcpRequest } from '#lib/server/mcp/server.ts';
 import type { RequestHandler } from './$types';
 
-// Accept an API token only, never a session cookie: the MCP decision in docs/mvp.md.
+// Accept an API token only, never a session cookie: the MCP decision in the product/mvp Scroll.
 export const POST: RequestHandler = async ({ request, locals, url }) => {
 	const refused = refuseForeignOrigin(request, url.origin);
 	if (refused) return refused;

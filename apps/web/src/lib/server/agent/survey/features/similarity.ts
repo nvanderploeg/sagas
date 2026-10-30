@@ -2,7 +2,7 @@ import { MODEL_ID } from '../../vectors/embedder.ts';
 import { currentVectors } from '../../vectors/vectors.ts';
 import type { Feature, FeatureContext } from './types.ts';
 
-// Where unrelated text lands for bge-small; docs/agent-layer.md, Weights.
+// Where unrelated text lands for bge-small; the product/agent-layer Scroll, Weights.
 const FLOOR = 0.45;
 
 const cache = new WeakMap<FeatureContext, Map<number, Float32Array>>();

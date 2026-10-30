@@ -29,7 +29,7 @@ One User's consent to one OAuth client: an access token that is an API token, pl
 A group of Labours with its own Realm key and State set.
 
 **Membership**:
-One User's role in one Realm: `owner`, `editor` or `viewer`. A Realm is private to its active members, Admins included. The contract is `docs/realm-access.md`.
+One User's role in one Realm: `owner`, `editor` or `viewer`. A Realm is private to its active members, Admins included. The contract is the `product/realm-access` Scroll.
 
 **Offer**:
 A pending Membership an Owner makes to a User by username. Grants nothing until the invitee accepts; declining or withdrawing deletes it.
@@ -110,7 +110,7 @@ A Scroll's address within its Realm: its ancestors' Slugs and its own, joined by
 A Scroll that names a Scroll by Scroll link, or a Labour by its key, listed on the page it names. Unlike Mentions, people see Backlinks.
 
 **Agent layer**:
-What sagas holds for agents rather than people: Attributes, Appraisals, Links, Mentions, Skills, Sentiment, Affinity, Surveys and Outcomes. Any member of a Realm may change its part of it, whoever set it; each value keeps who set it, through which API token, and when. The contract is `docs/agent-layer.md`.
+What sagas holds for agents rather than people: Attributes, Appraisals, Links, Mentions, Skills, Sentiment, Affinity, Surveys and Outcomes. Any member of a Realm may change its part of it, whoever set it; each value keeps who set it, through which API token, and when. The contract is the `product/agent-layer` Scroll.
 
 **Advanced view**:
 The switch that shows the agent layer beside what it describes. Off by default; the agent layer shows nowhere else.
@@ -159,7 +159,7 @@ What became of a Labour a Survey returned: `picked`, `skipped` or `done`.
 An Agent user that posts Pulses from what it watches, such as a Discord server or a forum.
 
 **Librarian**:
-The Agent user that keeps the agent layer current: it appraises Labours, turns reports into Pulses, files unfiled Pulses and tends each Realm's Attributes. It is the feeder for a Realm's own tickets. Its role is `docs/librarian.md`.
+The Agent user that keeps the agent layer current: it appraises Labours, turns reports into Pulses, files unfiled Pulses and tends each Realm's Attributes. It is the feeder for a Realm's own tickets. Its role is the `product/librarian` Scroll.
 
 **Webhook**:
 A URL a User registers so sagas POSTs it the Events it subscribes to, by Event type and Realm. Its Owner or an Admin manages it. The contract is `docs/webhooks.md`.

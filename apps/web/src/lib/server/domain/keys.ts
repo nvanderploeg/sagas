@@ -24,6 +24,6 @@ export function formatLabourKey(realmKey: string, number: number): string {
 	return `${realmKey}-${number}`;
 }
 
-// For prose; the boundaries are the Mentions rules in docs/agent-layer.md.
+// For prose; the boundaries are the Mentions rules in the product/agent-layer Scroll.
 export const LABOUR_KEY_IN_TEXT =
 	/(?<![A-Za-z0-9_-])([A-Za-z][A-Za-z0-9]{1,5})-([1-9][0-9]*)(?![A-Za-z0-9_])/g;

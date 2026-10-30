@@ -39,13 +39,13 @@ The server prunes Events older than `EVENT_RETENTION_DAYS` (7 by default). The r
 
 ## Who receives an Event
 
-A Stream carries an Event only when its User is an active member of the Event's Realm when it is sent, as in `docs/realm-access.md`; replay filters the same way, so a `seq` can be skipped. A Quest Event goes by the Quest's Realm, and lists only the Labours in Realms the User can see, with progress recounted over them. A `labour.moved` into a Realm the User cannot see, out of one they can, arrives as `labour.deleted`. `realm.deleted` goes to every Stream: its Memberships are gone, and it carries only ids.
+A Stream carries an Event only when its User is an active member of the Event's Realm when it is sent, as in the `product/realm-access` Scroll; replay filters the same way, so a `seq` can be skipped. A Quest Event goes by the Quest's Realm, and lists only the Labours in Realms the User can see, with progress recounted over them. A `labour.moved` into a Realm the User cannot see, out of one they can, arrives as `labour.deleted`. `realm.deleted` goes to every Stream: its Memberships are gone, and it carries only ids.
 
 Webhooks deliver the same Events to outside services by POST: `docs/webhooks.md`.
 
 ## Writes and Events
 
-- A write records one or more Events with consecutive seqs, in one transaction. They are published in seq order after the commit. A write that changes nothing records none. Agent layer writes (`docs/agent-layer.md`) record none either.
+- A write records one or more Events with consecutive seqs, in one transaction. They are published in seq order after the commit. A write that changes nothing records none. Agent layer writes (the `product/agent-layer` Scroll) record none either.
 - The first Event is the write's own. Each one after it is a side effect another client can see.
 - Every Event of a write carries state as of the end of that write.
 - A view's `L` always falls between writes, never within one.

@@ -1,6 +1,6 @@
 # Agent layer data
 
-The storage behind `docs/agent-layer.md`: every table, column, constraint and index, the JSON in each JSON column, and the structures sagas derives from the rest. `apps/web/src/lib/server/db/schema.ts` implements it; change both together.
+The storage behind the `product/agent-layer` Scroll: every table, column, constraint and index, the JSON in each JSON column, and the structures sagas derives from the rest. `apps/web/src/lib/server/db/schema.ts` implements it; change both together.
 
 ## Conventions
 
