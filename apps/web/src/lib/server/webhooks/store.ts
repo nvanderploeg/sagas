@@ -16,6 +16,7 @@ import {
 	WrongKeyError
 } from '#lib/server/auth/webhook-secrets.ts';
 import type { AuthUser } from '#lib/server/auth/users.ts';
+import { nudgeWebhook } from './registry.ts';
 import { checkTargetUrl } from './safe-fetch.ts';
 
 export type WebhookEnv = {
@@ -224,13 +225,18 @@ export function updateWebhook(
 	env: WebhookEnv
 ): WebhookInfo {
 	const key = requireKey(env);
-	return db.transaction((tx) => {
+	let resumed = false;
+	const info = db.transaction((tx) => {
 		const row = requireWebhook(tx, actor, id);
 		const set: Partial<typeof webhooks.$inferInsert> = { updatedAt: new Date(env.now) };
 		if (patch.name !== undefined) set.name = requireText(patch.name, 'Webhook name', 100);
-		if (patch.url !== undefined) set.url = checkUrl(patch.url, env);
+		if (patch.url !== undefined) {
+			set.url = checkUrl(patch.url, env);
+			if (row.status === 'active' && patch.url !== row.url) resumed = true;
+		}
 		if (patch.eventTypes !== undefined) set.eventTypes = encodeEventTypes(patch.eventTypes);
-		if (patch.realmIds !== undefined) set.realmIds = encodeRealmIds(
+		if (patch.realmIds !== undefined)
+			set.realmIds = encodeRealmIds(
 				tx,
 				row.ownerId,
 				patch.realmIds,
@@ -251,9 +257,12 @@ export function updateWebhook(
 			set.failingSince = null;
 			set.attempts = 0;
 			set.nextAttemptAt = new Date(env.now);
+			resumed = true;
 		}
 		return toInfo(tx.update(webhooks).set(set).where(eq(webhooks.id, id)).returning().get());
 	});
+	if (resumed) nudgeWebhook(id);
+	return info;
 }
 
 export function rotateWebhookSecret(

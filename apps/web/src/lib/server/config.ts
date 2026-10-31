@@ -2,7 +2,8 @@ import { resolve } from 'node:path';
 
 export const databasePath = process.env.DATABASE_PATH || '/data/sagas.db';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 
 function positiveNumber(name: string, raw: string | undefined, fallback: number): number {
 	if (raw === undefined || raw.trim() === '') return fallback;
@@ -68,3 +69,13 @@ export const webhookMaxPerUser = positiveInteger(
 export const webhookMax = positiveInteger('WEBHOOK_MAX', process.env.WEBHOOK_MAX, 50);
 
 export const webhookAllowPrivate = process.env.WEBHOOK_ALLOW_PRIVATE === 'true';
+
+export const webhookConcurrency = positiveInteger(
+	'WEBHOOK_CONCURRENCY',
+	process.env.WEBHOOK_CONCURRENCY,
+	4
+);
+
+export const webhookDisableAfterMs =
+	positiveNumber('WEBHOOK_DISABLE_AFTER_HOURS', process.env.WEBHOOK_DISABLE_AFTER_HOURS, 72) *
+	HOUR_MS;

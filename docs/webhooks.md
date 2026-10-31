@@ -8,7 +8,7 @@ The contract for Webhooks: sagas POSTs Events to an outside service, so it gets 
 - Only its Owner or an Admin sees or changes it. Anyone else gets `not_found`.
 - Deleting a User deletes their Webhooks.
 - Creating, changing or deleting a Webhook records no Events, as API tokens record none.
-- A Webhook sends every Event that matches it, whoever made it. Every User can already read every Event on the Stream, so nothing is filtered by who is reading.
+- A Webhook sends what its Owner's Stream would carry: each Event that matches it, whoever made it, as the Owner may see it (`docs/events.md`, "Who receives an Event"). An Event the Owner may not see moves the cursor without a Delivery.
 
 ## Subscribing
 
@@ -20,7 +20,8 @@ The contract for Webhooks: sagas POSTs Events to an outside service, so it gets 
 | `realmIds`   | Realms to send Events for. `null` sends every Event, whatever Realms it touches.  |
 | `status`     | `active`, `paused` or `disabled`. See "Retries and disabling".                    |
 
-- An Event matches when its type is in `eventTypes` and it touches a Realm in `realmIds`, each test passing when its list is `null`.
+- An Event matches when the type its Owner is shown is in `eventTypes` and it touches a Realm in `realmIds`, each test passing when its list is `null`. A `labour.moved` the Owner is shown as `labour.deleted` matches `labour.deleted`.
+- `realmIds` names only Realms the Owner can see. `null` still sends only what the Owner's Stream would carry.
 - A Webhook starts at the last seq assigned when it is created. It never sends Events from before then.
 - Changing `eventTypes` or `realmIds` applies from the Webhook's cursor onward. Events already sent are not sent again.
 - Deleting a Realm leaves its id in `realmIds`: it matches that Realm's `realm.deleted`, then nothing.
@@ -70,11 +71,11 @@ The log keeps Events for `EVENT_RETENTION_DAYS`. When a Webhook's cursor falls b
 
 ## Retries and disabling
 
-- A failed Delivery is retried with the same Events and the same `webhook-id`.
+- A failed Delivery is retried with the same Events and the same `webhook-id`, unless the Webhook's filters or its Owner's access changed since.
 - The wait before retry `n` (from 0) is a random time between 0 and `min(1 h, 30 s × 2ⁿ)`.
 - A Webhook failing without a success for `WEBHOOK_DISABLE_AFTER_HOURS` becomes `disabled` and stops. Its cursor stays where it was.
 - `paused` is a person's choice; `disabled` is sagas'. Either way, nothing is sent until someone resumes it, which sets it `active` and retries at once. It carries on from its cursor, or with `reset` if that fell past retention.
-- Keep `WEBHOOK_DISABLE_AFTER_HOURS` shorter than `EVENT_RETENTION_DAYS`, so a Webhook resumed soon after it disables has lost nothing.
+- `WEBHOOK_DISABLE_AFTER_HOURS` must be shorter than `EVENT_RETENTION_DAYS`, so a Webhook resumed soon after it disables has lost nothing. With `WEBHOOK_KEY` set, startup fails otherwise. Changing a failing Webhook's `url` retries at once.
 
 ## Signing
 
@@ -103,7 +104,7 @@ Deliveries follow [Standard Webhooks](https://www.standardwebhooks.com/). Any of
 Checked when a Webhook is created or its `url` changes, and again before every Delivery:
 
 - `https` only, with no user or password in it.
-- Its host resolves only to public addresses. Refused: loopback, private (RFC 1918), link-local, CGNAT (100.64/10), unique local (fc00::/7), multicast, unspecified, and IPv4-mapped forms of each.
+- Its host resolves only to public addresses. Refused: loopback, private (RFC 1918), link-local, CGNAT (100.64/10), unique local (fc00::/7), multicast, unspecified, and every address that reaches one of those by embedding an IPv4 address (IPv4-mapped, NAT64, 6to4, IPv4-compatible, Teredo), plus site-local, the discard prefix, `192.0.0.0/24` and `198.18.0.0/15`.
 - The Delivery connects to the address that passed the check, never to a second lookup, so a name can't switch to a private address in between.
 - `WEBHOOK_ALLOW_PRIVATE=true` lifts both rules, for development and receivers on the same network.
 

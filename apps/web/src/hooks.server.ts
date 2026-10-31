@@ -14,7 +14,13 @@ import {
 	eventRetentionMs,
 	seedAdminPassword,
 	seedAdminUsername,
-	surveyRetentionMs
+	surveyRetentionMs,
+	webhookAllowPrivate,
+	webhookConcurrency,
+	webhookDisableAfterMs,
+	webhookKey,
+	webhookMax,
+	webhookMaxPerUser
 } from '#lib/server/config.ts';
 import { rebuildDerived } from '#lib/server/agent/derived.ts';
 import { scheduleAgentPruning } from '#lib/server/agent/prune.ts';
@@ -27,6 +33,10 @@ import {
 import type { Db } from '#lib/server/db/client.ts';
 import { getDb } from '#lib/server/db/index.ts';
 import { schedulePruning } from '#lib/server/events/log.ts';
+import { assertDisableBeforeRetention, createDispatcher } from '#lib/server/webhooks/dispatcher.ts';
+import { setDispatcher } from '#lib/server/webhooks/registry.ts';
+import { safeFetch } from '#lib/server/webhooks/safe-fetch.ts';
+import { pauseKeyChanged } from '#lib/server/webhooks/store.ts';
 
 export const init: ServerInit = async () => {
 	if (building) return;
@@ -38,8 +48,30 @@ export const init: ServerInit = async () => {
 	schedulePruning(db, eventRetentionMs);
 	scheduleAgentPruning(db, surveyRetentionMs);
 	scheduleOAuthPruning(db);
+	if (webhookKey) startWebhooks(db, webhookKey);
 	void startEmbeddings(db);
 };
+
+function startWebhooks(db: Db, key: Buffer): void {
+	assertDisableBeforeRetention(webhookDisableAfterMs, eventRetentionMs);
+	pauseKeyChanged(db, {
+		key,
+		maxPerUser: webhookMaxPerUser,
+		max: webhookMax,
+		allowPrivate: webhookAllowPrivate,
+		now: Date.now()
+	});
+	const dispatcher = createDispatcher(db, {
+		env: { key, allowPrivate: webhookAllowPrivate },
+		concurrency: webhookConcurrency,
+		disableAfterMs: webhookDisableAfterMs,
+		now: Date.now,
+		random: Math.random,
+		fetch: (input, allowPrivate) => safeFetch(input, { allowPrivate })
+	});
+	setDispatcher(dispatcher);
+	dispatcher.start();
+}
 
 async function startEmbeddings(db: Db): Promise<void> {
 	try {
