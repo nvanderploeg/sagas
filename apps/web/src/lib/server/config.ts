@@ -58,3 +58,13 @@ export function parseWebhookKey(raw: string | undefined): Buffer | undefined {
 }
 
 export const webhookKey = parseWebhookKey(process.env.WEBHOOK_KEY);
+
+export const webhookMaxPerUser = positiveInteger(
+	'WEBHOOK_MAX_PER_USER',
+	process.env.WEBHOOK_MAX_PER_USER,
+	10
+);
+
+export const webhookMax = positiveInteger('WEBHOOK_MAX', process.env.WEBHOOK_MAX, 50);
+
+export const webhookAllowPrivate = process.env.WEBHOOK_ALLOW_PRIVATE === 'true';

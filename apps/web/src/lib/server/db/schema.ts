@@ -940,3 +940,31 @@ export const labourInputs = sqliteTable('labour_inputs', {
 		.references(() => labours.id, { onDelete: 'cascade' }),
 	inputHash: text('input_hash').notNull()
 });
+
+export const webhooks = sqliteTable(
+	'webhooks',
+	{
+		id: id(),
+		ownerId: integer('owner_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		url: text('url').notNull(),
+		eventTypes: text('event_types'),
+		realmIds: text('realm_ids'),
+		status: text('status', { enum: ['active', 'paused', 'disabled'] })
+			.notNull()
+			.default('active'),
+		statusReason: text('status_reason', { enum: ['key_changed', 'failing'] }),
+		cursor: integer('cursor').notNull(),
+		secret: text('secret').notNull(),
+		previousSecret: text('previous_secret'),
+		previousSecretExpiresAt: timestamp('previous_secret_expires_at'),
+		failingSince: timestamp('failing_since'),
+		attempts: integer('attempts').notNull().default(0),
+		nextAttemptAt: timestamp('next_attempt_at'),
+		createdAt: now(),
+		updatedAt: now('updated_at')
+	},
+	(t) => [index('webhooks_owner_idx').on(t.ownerId)]
+);
