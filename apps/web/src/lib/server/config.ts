@@ -46,3 +46,15 @@ export const embeddingThreads = positiveInteger(
 	process.env.EMBEDDING_THREADS,
 	2
 );
+
+export function parseWebhookKey(raw: string | undefined): Buffer | undefined {
+	if (raw === undefined || raw.trim() === '') return undefined;
+	const text = raw.trim();
+	const key = Buffer.from(text, 'base64');
+	if (!/^[A-Za-z0-9+/]+={0,2}$/.test(text) || key.length !== 32) {
+		throw new Error('WEBHOOK_KEY must be 32 bytes in base64');
+	}
+	return key;
+}
+
+export const webhookKey = parseWebhookKey(process.env.WEBHOOK_KEY);
