@@ -564,6 +564,22 @@ export const events = sqliteTable(
 	(t) => [index('events_created_idx').on(t.createdAt)]
 );
 
+// The Realms an Event touches, per docs/webhooks.md. realmId has no foreign key: a deleted
+// Realm's id stays for the Events that touched it.
+export const eventRealms = sqliteTable(
+	'event_realms',
+	{
+		seq: integer('seq')
+			.notNull()
+			.references(() => events.seq, { onDelete: 'cascade' }),
+		realmId: integer('realm_id').notNull()
+	},
+	(t) => [
+		primaryKey({ columns: [t.seq, t.realmId] }),
+		index('event_realms_realm_idx').on(t.realmId)
+	]
+);
+
 // A Realm's settings for agents, per docs/agent-layer-data.md. No row reads as version 0.
 export const realmAgent = sqliteTable(
 	'realm_agent',

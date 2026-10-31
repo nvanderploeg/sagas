@@ -102,7 +102,11 @@ export type Json<T> = T extends Date
 			? { [K in keyof T]: Json<T[K]> }
 			: T;
 
-export type EventSpec = { [K in EventType]: { type: K; data: EventData[K] } }[EventType];
+// `realms` overrides the Realms the Event touches (docs/webhooks.md). Supply it when a Labour
+// the data names is gone by the time the Event is recorded.
+export type EventSpec = {
+	[K in EventType]: { type: K; data: EventData[K]; realms?: number[] };
+}[EventType];
 
 export type SagasEvent = {
 	[K in EventType]: {

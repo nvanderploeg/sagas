@@ -1,11 +1,15 @@
-import { and, asc, inArray, not, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, inArray, not, sql, type SQL } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
 import { questLabours, labours } from '../db/schema.ts';
 import type { EventSpec } from '../events/types.ts';
 import { readQuest, touchQuest } from './quest-view.ts';
 import { readLabour } from './labour-view.ts';
 
-export type Fallout = { orphans: number[]; quests: Map<number, number[]> };
+export type Fallout = {
+	orphans: number[];
+	quests: Map<number, number[]>;
+	questRealms: Map<number, number[]>;
+};
 
 // Call before the delete. Detach Children here, not by the foreign key, so their updatedAt moves.
 export function prepareLabourDelete(tx: Handle, doomed: SQL): Fallout {
@@ -23,15 +27,23 @@ export function prepareLabourDelete(tx: Handle, doomed: SQL): Fallout {
 
 	const quests = new Map<number, number[]>();
 	const memberships = tx
-		.select({ questId: questLabours.questId, labourId: questLabours.labourId })
+		.select({
+			questId: questLabours.questId,
+			labourId: questLabours.labourId,
+			realmId: labours.realmId
+		})
 		.from(questLabours)
+		.innerJoin(labours, eq(labours.id, questLabours.labourId))
 		.where(inArray(questLabours.labourId, doomedIds))
 		.orderBy(asc(questLabours.questId), asc(questLabours.rank))
 		.all();
-	for (const { questId, labourId } of memberships) {
+	const questRealms = new Map<number, number[]>();
+	for (const { questId, labourId, realmId } of memberships) {
 		quests.set(questId, [...(quests.get(questId) ?? []), labourId]);
+		const realms = questRealms.get(questId) ?? [];
+		if (!realms.includes(realmId)) questRealms.set(questId, [...realms, realmId]);
 	}
-	return { orphans, quests };
+	return { orphans, quests, questRealms };
 }
 
 // Call after the delete.
@@ -44,7 +56,8 @@ export function falloutEvents(tx: Handle, fallout: Fallout): EventSpec[] {
 		})),
 		...[...fallout.quests].map(([questId, labourIds]): EventSpec => ({
 			type: 'quest.labours_removed',
-			data: { quest: readQuest(tx, questId), labourIds }
+			data: { quest: readQuest(tx, questId), labourIds },
+			realms: fallout.questRealms.get(questId)
 		}))
 	];
 }
