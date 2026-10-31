@@ -2,6 +2,7 @@ import { asc, eq, gt, lt, lte, max, min, sql } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { eventRealms, events, users } from '../db/schema.ts';
 import type { SagasEvent } from './types.ts';
+import { pruneDeliveries } from '../webhooks/deliveries.ts';
 
 export function eventsSince(db: Handle, seq: number, limit = -1): SagasEvent[] {
 	return db
@@ -84,6 +85,11 @@ export function schedulePruning(
 			pruneEvents(db, retentionMs);
 		} catch (error) {
 			console.error('sagas event pruning failed', error);
+		}
+		try {
+			pruneDeliveries(db, retentionMs);
+		} catch (error) {
+			console.error('sagas delivery pruning failed', error);
 		}
 	};
 	prune();

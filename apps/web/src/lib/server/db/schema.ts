@@ -968,3 +968,26 @@ export const webhooks = sqliteTable(
 	},
 	(t) => [index('webhooks_owner_idx').on(t.ownerId)]
 );
+
+export const webhookDeliveries = sqliteTable(
+	'webhook_deliveries',
+	{
+		id: id(),
+		webhookId: integer('webhook_id')
+			.notNull()
+			.references(() => webhooks.id, { onDelete: 'cascade' }),
+		attemptedAt: integer('attempted_at', { mode: 'timestamp_ms' }).notNull(),
+		messageId: text('message_id').notNull(),
+		kind: text('kind', { enum: ['events', 'reset', 'ping'] }).notNull(),
+		firstSeq: integer('first_seq'),
+		lastSeq: integer('last_seq'),
+		status: integer('status'),
+		error: text('error'),
+		durationMs: integer('duration_ms').notNull(),
+		responseBody: text('response_body')
+	},
+	(t) => [
+		index('webhook_deliveries_webhook_idx').on(t.webhookId, t.id),
+		index('webhook_deliveries_attempted_idx').on(t.attemptedAt)
+	]
+);
