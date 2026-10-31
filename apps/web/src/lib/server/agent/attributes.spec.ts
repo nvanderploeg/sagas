@@ -136,7 +136,10 @@ const BOARD_TABLES = new Set([
 	'scrolls',
 	'scroll_paths',
 	'scroll_refs',
-	'events'
+	'events',
+	'event_realms',
+	'webhooks',
+	'webhook_deliveries'
 ]);
 
 // Rows in every table that is not a board table: the agent layer's own storage.
