@@ -103,7 +103,7 @@ function seed() {
 			]
 		}
 	]);
-	addComment(db, actor, b.id, `see ${a.key}`, NOW);
+	addComment(db, actor, b.id, `see ${a.key}`);
 	const quest = createQuest(db, actor, { realmId: realm.id, name: 'Q', ownerId: actor.id });
 	addQuestLabours(db, actor, quest.id, [a.id, b.id, c.id]);
 }
