@@ -29,7 +29,11 @@ const defaultResolve: Resolve = async (host) =>
 
 const defaultConnect: Connect = ({ address, port, secure, servername }) =>
 	secure
-		? tls.connect({ host: address, port, servername: net.isIP(servername) ? undefined : servername })
+		? tls.connect({
+				host: address,
+				port,
+				servername: net.isIP(servername) ? undefined : servername
+			})
 		: net.connect({ host: address, port });
 
 export function checkTargetUrl(
@@ -78,16 +82,22 @@ function parseIPv6(address: string): number[] | null {
 	return nums.length === 8 && nums.every((n) => !Number.isNaN(n)) ? nums : null;
 }
 
-function isPublicIPv4([a, b]: number[]): boolean {
+function isPublicIPv4([a, b, c]: number[]): boolean {
 	if (a === 0 || a === 10 || a === 127) return false;
 	if (a === 100 && b >= 64 && b <= 127) return false;
 	if (a === 169 && b === 254) return false;
 	if (a === 172 && b >= 16 && b <= 31) return false;
+	if (a === 192 && b === 0 && c === 0) return false;
 	if (a === 192 && b === 168) return false;
+	if (a === 198 && (b === 18 || b === 19)) return false;
 	if (a >= 224) return false;
 	return true;
 }
 
+const ipv4Of = (hi: number, lo: number) => [hi >> 8, hi & 255, lo >> 8, lo & 255];
+const zero = (groups: number[]) => groups.every((n) => n === 0);
+
+// Unwrap or refuse every IPv6 form that carries an IPv4 address: one left public reaches private IPv4.
 export function isPublicAddress(address: string): boolean {
 	const family = net.isIP(address);
 	if (family === 4) {
@@ -97,16 +107,39 @@ export function isPublicAddress(address: string): boolean {
 	if (family !== 6) return false;
 	const g = parseIPv6(address);
 	if (!g) return false;
-	if (g.slice(0, 5).every((n) => n === 0) && g[5] === 0xffff) {
-		return isPublicIPv4([g[6] >> 8, g[6] & 255, g[7] >> 8, g[7] & 255]);
+	if (zero(g.slice(0, 5)) && g[5] === 0xffff) return isPublicIPv4(ipv4Of(g[6], g[7]));
+	if (zero(g.slice(0, 4)) && g[4] === 0xffff && g[5] === 0) return isPublicIPv4(ipv4Of(g[6], g[7]));
+	if (zero(g.slice(0, 6))) return false;
+	if (g[0] === 0x64 && g[1] === 0xff9b) {
+		return zero(g.slice(2, 6)) && isPublicIPv4(ipv4Of(g[6], g[7]));
 	}
-	if (g.every((n) => n === 0)) return false;
-	if (g.slice(0, 7).every((n) => n === 0) && g[7] === 1) return false;
+	if (g[0] === 0x2002) return isPublicIPv4(ipv4Of(g[1], g[2]));
+	if (g[0] === 0x2001 && g[1] === 0) return false;
+	if (g[0] === 0x100 && zero(g.slice(1, 4))) return false;
 	if ((g[0] & 0xfe00) === 0xfc00) return false;
 	if ((g[0] & 0xffc0) === 0xfe80) return false;
+	if ((g[0] & 0xffc0) === 0xfec0) return false;
 	if ((g[0] & 0xff00) === 0xff00) return false;
 	return true;
 }
+
+const reservedHeaders = new Set([
+	'host',
+	'content-length',
+	'transfer-encoding',
+	'connection',
+	'keep-alive',
+	'proxy-connection',
+	'te',
+	'trailer',
+	'upgrade',
+	'expect'
+]);
+
+const callerHeaders = (headers: Record<string, string>) =>
+	Object.fromEntries(
+		Object.entries(headers).filter(([name]) => !reservedHeaders.has(name.toLowerCase()))
+	);
 
 export async function safeFetch(
 	input: SafeFetchInput,
@@ -181,7 +214,11 @@ export async function safeFetch(
 					port,
 					path: url.pathname + url.search,
 					agent,
-					headers: { ...input.headers, host: url.host, 'content-length': Buffer.byteLength(input.body) },
+					headers: {
+						...callerHeaders(input.headers),
+						host: url.host,
+						'content-length': Buffer.byteLength(input.body)
+					},
 					signal: controller.signal
 				},
 				(res) => {

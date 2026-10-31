@@ -1,7 +1,10 @@
+import { readFileSync } from 'node:fs';
 import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 import type { AddressInfo } from 'node:net';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import tls from 'node:tls';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkTargetUrl, isPublicAddress, safeFetch, type Connect } from './safe-fetch.ts';
 
 describe('checkTargetUrl', () => {
@@ -52,6 +55,31 @@ describe('isPublicAddress', () => {
 		'::ffff:a00:1',
 		'::ffff:0.0.0.0',
 		'::ffff:224.0.0.1',
+		'192.0.0.192',
+		'192.0.0.1',
+		'198.18.0.1',
+		'198.19.255.255',
+		'64:ff9b::7f00:1',
+		'64:ff9b::a9fe:a9fe',
+		'64:ff9b::127.0.0.1',
+		'64:ff9b::a00:1',
+		'64:ff9b:1::808:808',
+		'64:ff9b:0:0:1::808:808',
+		'2002:7f00:1::',
+		'2002:a9fe:a9fe::',
+		'2002:c0a8:101::1',
+		'::127.0.0.1',
+		'::7f00:1',
+		'::8.8.8.8',
+		'::ffff:0:a9fe:a9fe',
+		'::ffff:0:7f00:1',
+		'::ffff:0:127.0.0.1',
+		'fec0::1',
+		'feff::1',
+		'100::',
+		'100::1',
+		'100::ffff:ffff:ffff:ffff',
+		'2001:0:4136:e378:8000:63bf:3fff:fdd2',
 		'not an address'
 	])('refuses %s', (address) => {
 		expect(isPublicAddress(address)).toBe(false);
@@ -67,7 +95,15 @@ describe('isPublicAddress', () => {
 		'2606:2800:220:1:248:1893:25c8:1946',
 		'2001:4860:4860::8888',
 		'::ffff:8.8.8.8',
-		'::ffff:808:808'
+		'::ffff:808:808',
+		'192.0.1.1',
+		'198.17.255.255',
+		'198.20.0.1',
+		'64:ff9b::808:808',
+		'64:ff9b::8.8.8.8',
+		'2002:808:808::1',
+		'2001:4860:4860::8844',
+		'100:0:0:1::1'
 	])('accepts %s', (address) => {
 		expect(isPublicAddress(address)).toBe(true);
 	});
@@ -137,6 +173,54 @@ describe('safeFetch', () => {
 		});
 	});
 
+	it('keeps framing and hop-by-hop headers its own, whatever the caller passes', async () => {
+		let seen: http.IncomingHttpHeaders = {};
+		let body = '';
+		handler = (req, res) => {
+			seen = req.headers;
+			req.on('data', (c) => (body += c));
+			req.on('end', () => res.end('ok'));
+		};
+		const { connect } = connector();
+		const result = await safeFetch(
+			{
+				url: 'https://hooks.example.com/in',
+				headers: {
+					Host: 'internal.example',
+					'Content-Length': '1',
+					'TRANSFER-ENCODING': 'chunked',
+					Connection: 'keep-alive, x-smuggle',
+					'Keep-Alive': 'timeout=600',
+					Upgrade: 'websocket',
+					TE: 'trailers',
+					Trailer: 'x-late',
+					Expect: '100-continue',
+					'Proxy-Connection': 'keep-alive',
+					'X-Signature': 'sig'
+				},
+				body: '{"a":1}'
+			},
+			{ allowPrivate: false, resolve: async () => ['93.184.216.34'], connect }
+		);
+		expect(result).toMatchObject({ ok: true, status: 200 });
+		expect(body).toBe('{"a":1}');
+		expect(seen.host).toBe('hooks.example.com');
+		expect(seen['content-length']).toBe('7');
+		expect(seen['x-signature']).toBe('sig');
+		expect(seen.connection).toBe('close');
+		for (const name of [
+			'transfer-encoding',
+			'keep-alive',
+			'upgrade',
+			'te',
+			'trailer',
+			'expect',
+			'proxy-connection'
+		]) {
+			expect(seen[name]).toBeUndefined();
+		}
+	});
+
 	it('measures duration with the injected clock', async () => {
 		const ticks = [1000, 1250];
 		const { connect } = connector();
@@ -155,6 +239,9 @@ describe('safeFetch', () => {
 		['cgnat', '100.64.0.1'],
 		['unique-local', 'fd00::1'],
 		['mapped', '::ffff:127.0.0.1'],
+		['nat64 metadata', '64:ff9b::a9fe:a9fe'],
+		['6to4 loopback', '2002:7f00:1::'],
+		['ipv4-compatible', '::127.0.0.1'],
 		['unspecified', '0.0.0.0'],
 		['multicast', 'ff02::1']
 	])('refuses a name resolving to %s', async (_n, address) => {
@@ -192,7 +279,10 @@ describe('safeFetch', () => {
 
 	it('allows a literal public IP and connects to it', async () => {
 		const { connect, targets } = connector();
-		const result = await safeFetch(input('https://93.184.216.34/'), { allowPrivate: false, connect });
+		const result = await safeFetch(input('https://93.184.216.34/'), {
+			allowPrivate: false,
+			connect
+		});
 		expect(result.ok).toBe(true);
 		expect(targets[0].address).toBe('93.184.216.34');
 	});
@@ -326,5 +416,81 @@ describe('safeFetch', () => {
 		handler = (_req, res) => res.end('é'.repeat(1000));
 		const result = await safeFetch(input(`http://127.0.0.1:${port}/`), { allowPrivate: true });
 		expect(result.body).toBe('é'.repeat(256));
+	});
+});
+
+describe('safeFetch default connector', () => {
+	// Self-signed for DNS:hook.test only, valid to 2126.
+	const key = readFileSync(new URL('./fixtures/hook-test.key.pem', import.meta.url));
+	const cert = readFileSync(new URL('./fixtures/hook-test.cert.pem', import.meta.url));
+	let server: https.Server;
+	let port: number;
+	let realConnect: typeof tls.connect;
+
+	beforeAll(async () => {
+		server = https.createServer({ key, cert }, (_req, res) => res.end('secure'));
+		await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+		port = (server.address() as AddressInfo).port;
+		realConnect = tls.connect;
+	});
+
+	afterAll(async () => {
+		server.closeAllConnections();
+		await new Promise((r) => server.close(r));
+	});
+
+	afterEach(() => vi.restoreAllMocks());
+
+	// Adds only the trust anchor; host, servername and verification stay the connector's own.
+	function trustFixture() {
+		const spy = vi
+			.spyOn(tls, 'connect')
+			.mockImplementation(((options: tls.ConnectionOptions) =>
+				realConnect({ ...options, ca: cert })) as typeof tls.connect);
+		return spy;
+	}
+
+	const fetchAt = (url: string) =>
+		safeFetch(
+			{ url, headers: {}, body: '' },
+			{ allowPrivate: true, resolve: async () => ['127.0.0.1'], timeoutMs: 2000 }
+		);
+
+	it('connects over TLS to the vetted address and verifies the certificate for the URL host', async () => {
+		const spy = trustFixture();
+		const result = await fetchAt(`https://hook.test:${port}/`);
+		expect(result).toMatchObject({ ok: true, status: 200, body: 'secure' });
+		expect(spy).toHaveBeenCalledWith(
+			expect.objectContaining({ host: '127.0.0.1', port, servername: 'hook.test' })
+		);
+	});
+
+	it('fails when the certificate does not name the URL host', async () => {
+		trustFixture();
+		const result = await fetchAt(`https://other.test:${port}/`);
+		expect(result).toMatchObject({
+			ok: false,
+			status: null,
+			error: expect.stringMatching(/altnames|does not match/i)
+		});
+	});
+
+	it('fails for a literal-IP URL the certificate does not name', async () => {
+		trustFixture();
+		const result = await fetchAt(`https://127.0.0.1:${port}/`);
+		expect(result).toMatchObject({
+			ok: false,
+			status: null,
+			error: expect.stringMatching(/altnames|not in the cert/i)
+		});
+	});
+
+	it('fails when the certificate is not trusted', async () => {
+		const result = await fetchAt(`https://hook.test:${port}/`);
+		expect(result).toMatchObject({
+			ok: false,
+			status: null,
+			error: expect.stringMatching(/self[- ]signed/i)
+		});
 	});
 });
