@@ -1,7 +1,8 @@
 import { asc, eq, gt, lt, lte, max, min, sql } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
-import { events, users } from '../db/schema.ts';
+import { eventRealms, events, users } from '../db/schema.ts';
 import type { SagasEvent } from './types.ts';
+import { pruneDeliveries } from '../webhooks/deliveries.ts';
 
 export function eventsSince(db: Handle, seq: number, limit = -1): SagasEvent[] {
 	return db
@@ -29,6 +30,16 @@ export function eventsSince(db: Handle, seq: number, limit = -1): SagasEvent[] {
 			...rest,
 			actor: { ...actor, via: tokenName === null ? null : { tokenId, name: tokenName } }
 		})) as SagasEvent[];
+}
+
+export function eventRealmIds(db: Handle, seq: number): number[] {
+	return db
+		.select({ realmId: eventRealms.realmId })
+		.from(eventRealms)
+		.where(eq(eventRealms.seq, seq))
+		.orderBy(asc(eventRealms.realmId))
+		.all()
+		.map((row) => row.realmId);
 }
 
 // Read the seq in the view's transaction: a client drops every Event at or below it.
@@ -74,6 +85,11 @@ export function schedulePruning(
 			pruneEvents(db, retentionMs);
 		} catch (error) {
 			console.error('sagas event pruning failed', error);
+		}
+		try {
+			pruneDeliveries(db, retentionMs);
+		} catch (error) {
+			console.error('sagas delivery pruning failed', error);
 		}
 	};
 	prune();

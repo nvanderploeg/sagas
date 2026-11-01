@@ -2,7 +2,8 @@ import { resolve } from 'node:path';
 
 export const databasePath = process.env.DATABASE_PATH || '/data/sagas.db';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 
 function positiveNumber(name: string, raw: string | undefined, fallback: number): number {
 	if (raw === undefined || raw.trim() === '') return fallback;
@@ -46,3 +47,35 @@ export const embeddingThreads = positiveInteger(
 	process.env.EMBEDDING_THREADS,
 	2
 );
+
+export function parseWebhookKey(raw: string | undefined): Buffer | undefined {
+	if (raw === undefined || raw.trim() === '') return undefined;
+	const text = raw.trim();
+	const key = Buffer.from(text, 'base64');
+	if (!/^[A-Za-z0-9+/]+={0,2}$/.test(text) || key.length !== 32) {
+		throw new Error('WEBHOOK_KEY must be 32 bytes in base64');
+	}
+	return key;
+}
+
+export const webhookKey = parseWebhookKey(process.env.WEBHOOK_KEY);
+
+export const webhookMaxPerUser = positiveInteger(
+	'WEBHOOK_MAX_PER_USER',
+	process.env.WEBHOOK_MAX_PER_USER,
+	10
+);
+
+export const webhookMax = positiveInteger('WEBHOOK_MAX', process.env.WEBHOOK_MAX, 50);
+
+export const webhookAllowPrivate = process.env.WEBHOOK_ALLOW_PRIVATE === 'true';
+
+export const webhookConcurrency = positiveInteger(
+	'WEBHOOK_CONCURRENCY',
+	process.env.WEBHOOK_CONCURRENCY,
+	4
+);
+
+export const webhookDisableAfterMs =
+	positiveNumber('WEBHOOK_DISABLE_AFTER_HOURS', process.env.WEBHOOK_DISABLE_AFTER_HOURS, 72) *
+	HOUR_MS;

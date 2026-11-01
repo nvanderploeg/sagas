@@ -564,6 +564,22 @@ export const events = sqliteTable(
 	(t) => [index('events_created_idx').on(t.createdAt)]
 );
 
+// The Realms an Event touches, per docs/webhooks.md. realmId has no foreign key: a deleted
+// Realm's id stays for the Events that touched it.
+export const eventRealms = sqliteTable(
+	'event_realms',
+	{
+		seq: integer('seq')
+			.notNull()
+			.references(() => events.seq, { onDelete: 'cascade' }),
+		realmId: integer('realm_id').notNull()
+	},
+	(t) => [
+		primaryKey({ columns: [t.seq, t.realmId] }),
+		index('event_realms_realm_idx').on(t.realmId)
+	]
+);
+
 // A Realm's settings for agents, per docs/agent-layer-data.md. No row reads as version 0.
 export const realmAgent = sqliteTable(
 	'realm_agent',
@@ -924,3 +940,54 @@ export const labourInputs = sqliteTable('labour_inputs', {
 		.references(() => labours.id, { onDelete: 'cascade' }),
 	inputHash: text('input_hash').notNull()
 });
+
+export const webhooks = sqliteTable(
+	'webhooks',
+	{
+		id: id(),
+		ownerId: integer('owner_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		url: text('url').notNull(),
+		eventTypes: text('event_types'),
+		realmIds: text('realm_ids'),
+		status: text('status', { enum: ['active', 'paused', 'disabled'] })
+			.notNull()
+			.default('active'),
+		statusReason: text('status_reason', { enum: ['key_changed', 'failing'] }),
+		cursor: integer('cursor').notNull(),
+		secret: text('secret').notNull(),
+		previousSecret: text('previous_secret'),
+		previousSecretExpiresAt: timestamp('previous_secret_expires_at'),
+		failingSince: timestamp('failing_since'),
+		attempts: integer('attempts').notNull().default(0),
+		nextAttemptAt: timestamp('next_attempt_at'),
+		createdAt: now(),
+		updatedAt: now('updated_at')
+	},
+	(t) => [index('webhooks_owner_idx').on(t.ownerId)]
+);
+
+export const webhookDeliveries = sqliteTable(
+	'webhook_deliveries',
+	{
+		id: id(),
+		webhookId: integer('webhook_id')
+			.notNull()
+			.references(() => webhooks.id, { onDelete: 'cascade' }),
+		attemptedAt: integer('attempted_at', { mode: 'timestamp_ms' }).notNull(),
+		messageId: text('message_id').notNull(),
+		kind: text('kind', { enum: ['events', 'reset', 'ping'] }).notNull(),
+		firstSeq: integer('first_seq'),
+		lastSeq: integer('last_seq'),
+		status: integer('status'),
+		error: text('error'),
+		durationMs: integer('duration_ms').notNull(),
+		responseBody: text('response_body')
+	},
+	(t) => [
+		index('webhook_deliveries_webhook_idx').on(t.webhookId, t.id),
+		index('webhook_deliveries_attempted_idx').on(t.attemptedAt)
+	]
+);
