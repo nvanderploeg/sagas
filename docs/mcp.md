@@ -288,3 +288,19 @@ Writes through a token record its name: Events carry `actor.via`, and Comments a
 | `revoke_api_token`  | `token` (id)            | `{ revoked }`                                                                    | the User, or an Admin for an Agent user |
 
 `expiresAt` is null for a token that never expires; `oauth` is true for a connection's access token (see "OAuth"). Revoking a token closes its event streams at once. A call revoking its own token finishes; the next request with it gets 401.
+
+### Webhooks
+
+Every Webhook tool fails with `invalid` (`webhooks need WEBHOOK_KEY`) when the server has no `WEBHOOK_KEY`. A Webhook you do not own is `not_found`, unless you are an Admin. See `docs/webhooks.md`.
+
+| Tool                      | Input                                                        | Output                                                      | Who            |
+| ------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------- | -------------- |
+| `create_webhook`          | `name, url, eventTypes? (null), realms? (null)`              | `{ webhook, secret }`; the secret is shown only here        | anyone         |
+| `list_webhooks`           | `user? (you)`                                                | `{ webhooks: Webhook[] }`                                   | Owner or Admin |
+| `update_webhook`          | `webhook` (id), `name?, url?, eventTypes?, realms?, status?` | `{ webhook }`; `status` is `active` (resumes) or `paused`   | Owner or Admin |
+| `rotate_webhook_secret`   | `webhook` (id)                                               | `{ secret }`; shown only here                               | Owner or Admin |
+| `test_webhook`            | `webhook` (id)                                               | `{ attempt: { ok, status, error, durationMs } }`; no cursor | Owner or Admin |
+| `delete_webhook`          | `webhook` (id)                                               | `{ deleted }`                                               | Owner or Admin |
+| `list_webhook_deliveries` | `webhook` (id), `before?` (delivery id), `limit?` (1 to 200) | `{ deliveries: Delivery[], nextBefore }`, newest first      | Owner or Admin |
+
+A `Webhook` is `{ id, owner, name, url, eventTypes, realms, realmIds, status, statusReason, cursor, createdAt, updatedAt, failingSince, nextAttemptAt }`, never with a secret. `eventTypes` and `realms` are null when the Webhook sends everything; `realms` lists the Realm keys that still exist, `realmIds` every stored id. A `Delivery` is `{ id, attemptedAt, messageId, kind, firstSeq, lastSeq, status, error, durationMs, responseBody }`; `kind` is `events`, `reset` or `ping`. Pass `nextBefore` as `before` for the next page; null ends it.
