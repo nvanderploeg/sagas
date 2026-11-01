@@ -138,5 +138,5 @@ MCP tools, with the same actions on the Account page. `webhook` is an id; `user`
 | `update_webhook`          | `webhook`, `name?`, `url?`, `eventTypes?`, `realms?`, `status?` (`active` or `paused`) | The Webhook.                                                | Owner or Admin |
 | `rotate_webhook_secret`   | `webhook`                                                                              | The new `secret`, shown once.                               | Owner or Admin |
 | `test_webhook`            | `webhook`                                                                              | The attempt: status or error and duration. Moves no cursor. | Owner or Admin |
-| `delete_webhook`          | `webhook`                                                                              | Nothing.                                                    | Owner or Admin |
+| `delete_webhook`          | `webhook`                                                                              | The deleted id.                                             | Owner or Admin |
 | `list_webhook_deliveries` | `webhook`, page                                                                        | Attempts, newest first.                                     | Owner or Admin |

@@ -16,6 +16,7 @@ import { registerOutcomeTools } from './tools/outcomes.ts';
 import { registerSkillTools } from './tools/skills.ts';
 import { registerMemberTools } from './tools/members.ts';
 import { registerScrollTools } from './tools/scrolls.ts';
+import { registerWebhookTools } from './tools/webhooks.ts';
 
 const INSTRUCTIONS = `sagas is a labour tracker. Vocabulary:
 - Labour: one unit of work, addressed by its Labour key (AM-123, any case). Moving a Labour or renaming its Realm key gives it a new key; old keys stay Aliases that still resolve.
@@ -60,6 +61,7 @@ export function createMcpServer(db: Db, actor: AuthUser, origin: string): Server
 	registerSkillTools(registry.tools);
 	registerMemberTools(registry.tools);
 	registerScrollTools(registry.tools);
+	registerWebhookTools(registry.tools);
 	server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: registry.list() }));
 	server.setRequestHandler(CallToolRequestSchema, (request) =>
 		registry.call(request.params.name, request.params.arguments)
