@@ -4,7 +4,7 @@ import { attributes, comments, labourAttributes, labours, surveys } from '../../
 import type { Actor } from '../../domain/write.ts';
 import { hashContent } from '../content.ts';
 import { loadCandidates, type Candidate } from './candidates.ts';
-import { embeddedOf } from './features/similarity.ts';
+import { embeddedCount } from './features/similarity.ts';
 import type { FeatureContext } from './features/types.ts';
 import { sentimentBlock, type SurveySentiment } from './sentiment-block.ts';
 import { checkRequest, type SurveyInput, type SurveyRequest } from './request.ts';
@@ -142,7 +142,7 @@ function runSurvey(
 		candidates: candidates.length,
 		unappraised: candidates.length - stamped.length,
 		stale: countStale(tx, stamped),
-		unembedded: candidates.length - embeddedOf(context).size,
+		unembedded: candidates.length - embeddedCount(context),
 		missing
 	};
 

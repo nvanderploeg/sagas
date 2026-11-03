@@ -21,6 +21,7 @@ import { seedActor, seedLabour, seedRealm } from '#lib/server/test/fixtures.ts';
 import type { Actor } from '#lib/server/domain/write.ts';
 import { appraise } from '../appraisals.ts';
 import { survey } from '../survey/index.ts';
+import { embeddedCount, embeddedOf } from '../survey/features/similarity.ts';
 import { similarity } from '../survey/features/similarity.ts';
 import { loadEmbedder, MODEL_ID, setEmbedder, type Embedder } from './embedder.ts';
 import {
@@ -458,6 +459,41 @@ describe('the similarity feature', () => {
 		prepare.mockRestore();
 	});
 
+	it('counts current vectors as many as it loads, without reading a blob', () => {
+		const [current, stale, other] = [1, 2, 3, 4].map(() => seedLabour(db, { realmId }));
+		store(current.id);
+		store(stale.id);
+		updateLabour(db, actor, stale.id, { title: 'Stale now' });
+		writeVector(db, other.id, 'other-model', hashOf(other.id), unit(1), NOW);
+		const ids = db
+			.select({ id: labours.id })
+			.from(labours)
+			.all()
+			.map((row) => row.id);
+
+		const prepare = vi.spyOn(db.$client, 'prepare');
+		const counted = embeddedCount(context(ids));
+		const sql = prepare.mock.calls.map(([text]) => String(text));
+		prepare.mockRestore();
+
+		expect(counted).toBe(embeddedOf(context(ids)).size);
+		expect(counted).toBe(1);
+		expect(sql.some((text) => /count\(\*\)/i.test(text))).toBe(true);
+		expect(sql.some((text) => /v\.vector\s+AS/i.test(text))).toBe(false);
+	});
+
+	it('reuses the loaded vectors when the Survey weights similarity', () => {
+		const a = seedLabour(db, { realmId });
+		seedLabour(db, { realmId });
+		store(a.id);
+		const ctx = context([a.id], unit(1));
+		similarity.load(ctx);
+		const prepare = vi.spyOn(db.$client, 'prepare');
+		expect(embeddedCount(ctx)).toBe(1);
+		expect(prepare).not.toHaveBeenCalled();
+		prepare.mockRestore();
+	});
+
 	it('counts missing and unembedded in a Survey', () => {
 		const [a, b, c] = [1, 2, 3].map(() => seedLabour(db, { realmId }));
 		store(a.id, unit(1));
@@ -766,42 +802,6 @@ describe('a failing embedder', () => {
 		await queue.drain();
 		expect(error).toHaveBeenCalledOnce();
 	});
-});
-
-describe('the survey tool, guarding the Survey', () => {
-	let registry: Registry;
-
-	beforeEach(() => {
-		registry = toolRegistry(db, seedHuman(db, 'ada'), 'http://sagas.test');
-		registerSurveyTools(registry.tools);
-	});
-
-	afterEach(() => {
-		vi.useRealTimers();
-		vi.restoreAllMocks();
-	});
-
-	it('never embeds for a request it refuses', async () => {
-		seedLabour(db, { realmId });
-		const embedQuery = vi.fn(async () => unit(1));
-		setEmbedder({ model: MODEL_ID, embedDocument: async () => unit(1), embedQuery });
-
-		const refused = [
-			{ query: 'q', weights: { similarity: 99 } },
-			{ query: 'q', weights: { similarity: 1 }, temperature: 5 },
-			{ query: 'q'.repeat(501), weights: { similarity: 1 } }
-		];
-		for (const args of refused) {
-			const result = await registry.call('survey', args);
-			expect(result.isError, JSON.stringify(args)).toBe(true);
-		}
-		expect(embedQuery).not.toHaveBeenCalled();
-	});
-
-	it('counts similarity missing when embedding the query throws, warning once per outage', async () => {
-		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-		const a = seedLabour(db, { realmId });
-		store(a.id);
 
 	describe('retry tick', () => {
 		function manualTimers() {
@@ -899,6 +899,42 @@ describe('the survey tool, guarding the Survey', () => {
 			expect(timers.scheduled).toHaveLength(1);
 		});
 	});
+});
+
+describe('the survey tool, guarding the Survey', () => {
+	let registry: Registry;
+
+	beforeEach(() => {
+		registry = toolRegistry(db, seedHuman(db, 'ada'), 'http://sagas.test');
+		registerSurveyTools(registry.tools);
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.restoreAllMocks();
+	});
+
+	it('never embeds for a request it refuses', async () => {
+		seedLabour(db, { realmId });
+		const embedQuery = vi.fn(async () => unit(1));
+		setEmbedder({ model: MODEL_ID, embedDocument: async () => unit(1), embedQuery });
+
+		const refused = [
+			{ query: 'q', weights: { similarity: 99 } },
+			{ query: 'q', weights: { similarity: 1 }, temperature: 5 },
+			{ query: 'q'.repeat(501), weights: { similarity: 1 } }
+		];
+		for (const args of refused) {
+			const result = await registry.call('survey', args);
+			expect(result.isError, JSON.stringify(args)).toBe(true);
+		}
+		expect(embedQuery).not.toHaveBeenCalled();
+	});
+
+	it('counts similarity missing when embedding the query throws, warning once per outage', async () => {
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		const a = seedLabour(db, { realmId });
+		store(a.id);
 		let broken = false;
 		setEmbedder({
 			model: MODEL_ID,
