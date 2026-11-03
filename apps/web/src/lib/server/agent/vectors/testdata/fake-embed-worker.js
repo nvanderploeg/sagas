@@ -1,4 +1,7 @@
-import { parentPort, workerData } from 'node:worker_threads';
+import { parentPort as port, workerData } from 'node:worker_threads';
+
+if (port === null) throw new Error('runs only as a worker');
+const parentPort = port;
 
 const mode = workerData.dir.split('/').pop();
 if (mode === 'fail') parentPort.postMessage({ failed: 'boom' });
