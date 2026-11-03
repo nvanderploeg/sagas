@@ -87,7 +87,12 @@ export type Tools = {
 	actor: AuthUser;
 	define<S extends z.ZodRawShape>(
 		name: string,
-		spec: { description: string; kind: ToolKind; input: S },
+		spec: {
+			description: string;
+			kind: ToolKind;
+			input: S;
+			meta?: Record<string, unknown>;
+		},
 		body: (args: z.output<z.ZodObject<S>>, present: Presenter) => Reply | Promise<Reply>
 	): void;
 };
@@ -112,7 +117,8 @@ export function toolRegistry(db: Db, actor: AuthUser, origin: string): Registry 
 						name,
 						description: spec.description,
 						inputSchema: inputSchema as Tool['inputSchema'],
-						annotations: ANNOTATIONS[spec.kind]
+						annotations: ANNOTATIONS[spec.kind],
+						...(spec.meta === undefined ? {} : { _meta: spec.meta })
 					},
 					schema,
 					body: body as Body

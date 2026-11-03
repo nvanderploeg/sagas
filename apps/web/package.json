@@ -4,15 +4,17 @@
 	"version": "0.1.0",
 	"type": "module",
 	"scripts": {
-		"dev": "vite dev",
-		"build": "vite build",
+		"build:mcp-ui": "vite build --config vite.mcp-ui.config.ts && mv src/lib/server/mcp/ui/index.html src/lib/server/mcp/ui/board.html",
+		"dev": "pnpm build:mcp-ui && vite dev",
+		"build": "pnpm build:mcp-ui && vite build",
 		"preview": "vite preview",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"test": "vitest run",
+		"check": "pnpm build:mcp-ui && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"test": "pnpm build:mcp-ui && vitest run",
 		"db:generate": "drizzle-kit generate",
 		"models:fetch": "node scripts/fetch-model.js"
 	},
 	"devDependencies": {
+		"@modelcontextprotocol/ext-apps": "^2.0.4",
 		"@sveltejs/adapter-node": "^6.0.0",
 		"@sveltejs/kit": "^3.0.0",
 		"@sveltejs/vite-plugin-svelte": "^7.2.0",
@@ -29,6 +31,7 @@
 		"tailwindcss": "^4.3.0",
 		"typescript": "^6.0.3",
 		"vite": "^8.3.0",
+		"vite-plugin-singlefile": "^2.3.4",
 		"vitest": "^5.0.4"
 	},
 	"imports": {

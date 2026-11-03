@@ -1,6 +1,11 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+	CallToolRequestSchema,
+	ListResourcesRequestSchema,
+	ListToolsRequestSchema,
+	ReadResourceRequestSchema
+} from '@modelcontextprotocol/sdk/types.js';
 import type { AuthUser } from '../auth/users.ts';
 import type { Db } from '../db/client.ts';
 import { toolRegistry } from './tool.ts';
@@ -17,6 +22,8 @@ import { registerSkillTools } from './tools/skills.ts';
 import { registerMemberTools } from './tools/members.ts';
 import { registerScrollTools } from './tools/scrolls.ts';
 import { registerWebhookTools } from './tools/webhooks.ts';
+import { registerBoardTools } from './tools/board.ts';
+import { listUiResources, readUiResource } from './ui/resources.ts';
 
 const INSTRUCTIONS = `sagas is a labour tracker. Vocabulary:
 - Labour: one unit of work, addressed by its Labour key (AM-123, any case). Moving a Labour or renaming its Realm key gives it a new key; old keys stay Aliases that still resolve.
@@ -41,12 +48,12 @@ Arguments: an id is a JSON number; a string is always a key, a username or a Pat
 Every tool acts as the User of your API token (see whoami).
 Telling a person about a Labour: name it by its key linked to its url, and sum it up with its brief, or one sentence of your own when it has none. Say it once, and offer the description and the rest instead of reciting them.`;
 
-// Declare `tools` without `listChanged`: a stateless server can never send that notification.
+// Declare `tools` and `resources` without `listChanged`: a stateless server can never send that notification.
 // `origin` is this server's public origin, which every `url` in a result starts with.
 export function createMcpServer(db: Db, actor: AuthUser, origin: string): Server {
 	const server = new Server(
 		{ name: 'sagas', version: '0.1.0' },
-		{ capabilities: { tools: {} }, instructions: INSTRUCTIONS }
+		{ capabilities: { tools: {}, resources: {} }, instructions: INSTRUCTIONS }
 	);
 	const registry = toolRegistry(db, actor, origin);
 	registerLabourTools(registry.tools);
@@ -62,7 +69,14 @@ export function createMcpServer(db: Db, actor: AuthUser, origin: string): Server
 	registerMemberTools(registry.tools);
 	registerScrollTools(registry.tools);
 	registerWebhookTools(registry.tools);
+	registerBoardTools(registry.tools);
 	server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: registry.list() }));
+	server.setRequestHandler(ListResourcesRequestSchema, () => ({ resources: listUiResources() }));
+	server.setRequestHandler(ReadResourceRequestSchema, (request) => {
+		const found = readUiResource(request.params.uri);
+		if (found === undefined) throw new Error(`No resource at ${request.params.uri}`);
+		return found;
+	});
 	server.setRequestHandler(CallToolRequestSchema, (request) =>
 		registry.call(request.params.name, request.params.arguments)
 	);
