@@ -65,6 +65,15 @@ function render(board: Board): void {
 }
 
 const app = new App({ name: 'sagas-board', version: '0.1.0' });
+
+// The host sandbox swallows anchor navigation; links open only through the host.
+root.addEventListener('click', (event) => {
+	const anchor = (event.target as Element).closest('a');
+	if (anchor === null) return;
+	event.preventDefault();
+	void app.openLink({ url: anchor.href });
+});
+
 app.ontoolresult = (result) => {
 	const data = result.structuredContent as Board | undefined;
 	if (data?.realm) render(data);
