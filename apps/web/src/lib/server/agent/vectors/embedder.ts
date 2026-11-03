@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { Worker } from 'node:worker_threads';
 
 const NAME = 'Xenova/bge-small-en-v1.5';
 // Vectors from two revisions don't compare: change this only together with scripts/fetch-model.js.
@@ -64,41 +65,84 @@ export function serial<A, T>(
 	};
 }
 
+// The worker is plain JS shipped beside the built server (Dockerfile copies server/); the
+// bundler never sees it.
+const DEFAULT_WORKER = resolve(process.cwd(), 'server/embed-worker.js');
+
+export type LoadedEmbedder = Embedder & { dispose(): Promise<void> };
+
+type Reply = { id: number; vector?: Float32Array; error?: string };
+
 // Never downloads a model.
 export async function loadEmbedder(
 	dir: string,
-	opts: { threads?: number; timeoutMs?: number } = {}
-): Promise<Embedder | null> {
+	opts: { threads?: number; timeoutMs?: number; workerPath?: string } = {}
+): Promise<LoadedEmbedder | null> {
 	const missing = FILES.filter((file) => !existsSync(join(dir, NAME, file)));
 	if (missing.length > 0) {
 		console.warn(`sagas embeddings off: ${missing.join(', ')} missing under ${join(dir, NAME)}`);
 		return null;
 	}
-	try {
-		// Importing it loads sharp and onnxruntime natively; only a server with the model pays.
-		const { env, pipeline } = await import('@huggingface/transformers');
-		env.allowRemoteModels = false;
-		env.localModelPath = dir;
-		env.useFSCache = false;
-		const extractor = await pipeline('feature-extraction', NAME, {
-			dtype: 'q8',
-			session_options: { intraOpNumThreads: opts.threads ?? 2 }
+	const worker = new Worker(opts.workerPath ?? DEFAULT_WORKER, {
+		workerData: { dir, name: NAME, threads: opts.threads ?? 2 }
+	});
+	const pending = new Map<number, { resolve(v: Float32Array): void; reject(e: Error): void }>();
+	let dead: Error | null = null;
+	let nextId = 0;
+
+	const fail = (error: Error) => {
+		dead ??= error;
+		for (const call of pending.values()) call.reject(error);
+		pending.clear();
+	};
+
+	const ready = new Promise<boolean>((done) => {
+		worker.on('message', (message: Reply & { ready?: boolean; failed?: string }) => {
+			if (message.ready) return done(true);
+			if (message.failed !== undefined) {
+				console.warn('sagas embeddings off: the model failed to load', message.failed);
+				return done(false);
+			}
+			const call = pending.get(message.id);
+			if (!call) return;
+			pending.delete(message.id);
+			if (message.vector) call.resolve(message.vector);
+			else call.reject(new Error(message.error ?? 'embedding failed'));
 		});
-		// One text per call: batching pads and changes the vectors.
-		const embed = serial(
-			async (text: string) => {
-				const output = await extractor([text], { pooling: 'cls', normalize: true });
-				return Float32Array.from(output.data as Float32Array);
-			},
-			{ timeoutMs: opts.timeoutMs ?? CALL_TIMEOUT_MS }
-		);
-		return {
-			model: MODEL_ID,
-			embedDocument: embed,
-			embedQuery: (text) => embed(QUERY_PREFIX + text)
-		};
-	} catch (error) {
-		console.warn('sagas embeddings off: the model failed to load', error);
+		worker.on('error', (error) => {
+			console.warn('sagas embeddings off: the embedding worker failed', error);
+			fail(error);
+			done(false);
+		});
+		worker.on('exit', (code) => {
+			fail(new Error(`embedding worker exited (code ${code})`));
+			done(false);
+		});
+	});
+
+	if (!(await ready)) {
+		await worker.terminate();
 		return null;
 	}
+	worker.unref();
+
+	const embed = serial(
+		(text: string) =>
+			new Promise<Float32Array>((resolve, reject) => {
+				if (dead) return reject(dead);
+				const id = nextId++;
+				pending.set(id, { resolve, reject });
+				worker.postMessage({ id, text });
+			}),
+		{ timeoutMs: opts.timeoutMs ?? CALL_TIMEOUT_MS }
+	);
+	return {
+		model: MODEL_ID,
+		embedDocument: embed,
+		embedQuery: (text) => embed(QUERY_PREFIX + text),
+		async dispose() {
+			fail(new Error('embedder disposed'));
+			await worker.terminate();
+		}
+	};
 }

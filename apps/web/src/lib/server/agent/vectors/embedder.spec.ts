@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { serial } from './embedder';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { loadEmbedder, serial } from './embedder';
 
 describe('serial', () => {
 	beforeEach(() => vi.useFakeTimers());
@@ -55,5 +59,64 @@ describe('serial', () => {
 		const failing = serial(() => Promise.reject(new Error('x')), { timeoutMs: 1000 });
 		await expect(failing(1)).rejects.toThrow('x');
 		expect(vi.getTimerCount()).toBe(0);
+	});
+});
+
+describe('loadEmbedder worker protocol', () => {
+	const worker = fileURLToPath(new URL('./testdata/fake-embed-worker.js', import.meta.url));
+	const made: string[] = [];
+	const modelDir = (mode: string) => {
+		const dir = join(mkdtempSync(join(tmpdir(), 'embed-')), mode);
+		made.push(dir);
+		for (const file of [
+			'config.json',
+			'tokenizer.json',
+			'tokenizer_config.json',
+			'onnx/model_quantized.onnx'
+		]) {
+			mkdirSync(dirname(join(dir, 'Xenova/bge-small-en-v1.5', file)), { recursive: true });
+			writeFileSync(join(dir, 'Xenova/bge-small-en-v1.5', file), '');
+		}
+		return dir;
+	};
+	afterEach(() => vi.restoreAllMocks());
+
+	it('completes the ready handshake and round-trips vectors', async () => {
+		const embedder = await loadEmbedder(modelDir('ok'), { workerPath: worker, threads: 3 });
+		expect(embedder).not.toBeNull();
+		expect(Array.from(await embedder!.embedDocument('abcd'))).toEqual([4, 3]);
+		const query = await embedder!.embedQuery('x');
+		expect(query[0]).toBe('Represent this sentence for searching relevant passages: x'.length);
+		await embedder!.dispose();
+	});
+
+	it('rejects a call whose reply is an error', async () => {
+		const embedder = await loadEmbedder(modelDir('ok'), { workerPath: worker });
+		await expect(embedder!.embedDocument('bad')).rejects.toThrow('nope');
+		await expect(embedder!.embedDocument('ok')).resolves.toBeInstanceOf(Float32Array);
+		await embedder!.dispose();
+	});
+
+	it('rejects pending and later calls when the worker exits', async () => {
+		const embedder = await loadEmbedder(modelDir('ok'), { workerPath: worker });
+		await expect(embedder!.embedDocument('die')).rejects.toThrow(/exited/);
+		await expect(embedder!.embedDocument('after')).rejects.toThrow(/exited/);
+	});
+
+	it('rejects a hung call after the timeout', async () => {
+		const embedder = await loadEmbedder(modelDir('ok'), { workerPath: worker, timeoutMs: 50 });
+		await expect(embedder!.embedDocument('hang')).rejects.toThrow(/timed out/);
+		await embedder!.dispose();
+	});
+
+	it('returns null when the worker reports a load failure', async () => {
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		expect(await loadEmbedder(modelDir('fail'), { workerPath: worker })).toBeNull();
+		expect(warn).toHaveBeenCalled();
+	});
+
+	it('returns null when the worker exits before ready', async () => {
+		vi.spyOn(console, 'warn').mockImplementation(() => {});
+		expect(await loadEmbedder(modelDir('crash'), { workerPath: worker })).toBeNull();
 	});
 });
