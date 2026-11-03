@@ -95,7 +95,8 @@ const TOOLS = [
 	'report_outcomes',
 	'define_skill',
 	'list_skills',
-	'set_skills'
+	'set_skills',
+	'show_board'
 ];
 
 const keysOf = (labours: { key: string }[]) => labours.map((t) => t.key);
