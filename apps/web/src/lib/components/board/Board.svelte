@@ -332,6 +332,7 @@
 			parentId: null,
 			rank: '',
 			labels: [],
+			recurrenceId: null,
 			createdAt: now,
 			updatedAt: now,
 			key: '',
@@ -380,6 +381,9 @@
 			</div>
 			<div class="flex gap-2">
 				<a class="btn" href={resolve('/r/[key]/s', { key: board.realm.key })}>Scrolls</a>
+				<a class="btn" href={resolve('/r/[key]/recurrences', { key: board.realm.key })}>
+					Recurrences
+				</a>
 				<a class="btn" href={resolve('/r/[key]/settings', { key: board.realm.key })}>Settings</a>
 			</div>
 		</header>

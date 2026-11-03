@@ -346,10 +346,15 @@ export const labours = sqliteTable(
 			.notNull()
 			.$type<string[]>()
 			.default(sql`'[]'`),
+		// The Recurrence that created this Labour.
+		recurrenceId: integer('recurrence_id').references((): AnySQLiteColumn => recurrences.id, {
+			onDelete: 'set null'
+		}),
 		createdAt: now(),
 		updatedAt: now('updated_at')
 	},
 	(t) => [
+		index('labours_recurrence_idx').on(t.recurrenceId),
 		uniqueIndex('labours_realm_number_uq').on(t.realmId, t.number),
 		uniqueIndex('labours_realm_id_uq').on(t.realmId, t.id),
 		index('labours_parent_idx').on(t.parentId),
@@ -445,6 +450,62 @@ export const questLabours = sqliteTable(
 		uniqueIndex('quest_labours_quest_rank_uq').on(t.questId, t.rank),
 		index('quest_labours_labour_idx').on(t.labourId)
 	]
+);
+
+// A schedule that creates a Labour in its Realm each time the last one is finished and the next
+// occurrence comes round.
+export const recurrences = sqliteTable(
+	'recurrences',
+	{
+		id: id(),
+		realmId: integer('realm_id')
+			.notNull()
+			.references(() => realms.id, { onDelete: 'cascade' }),
+		title: text('title').notNull(),
+		description: text('description').notNull().default(''),
+		ownerId: integer('owner_id')
+			.notNull()
+			.references(() => users.id),
+		assigneeId: integer('assignee_id').references(() => users.id),
+		labels: text('labels', { mode: 'json' })
+			.notNull()
+			.$type<string[]>()
+			.default(sql`'[]'`),
+		unit: text('unit', { enum: ['day', 'week', 'month', 'year'] }).notNull(),
+		every: integer('every').notNull(),
+		// The first occurrence, a local calendar date YYYY-MM-DD in `timezone`.
+		startsOn: text('starts_on').notNull(),
+		// An IANA zone name.
+		timezone: text('timezone').notNull().default('UTC'),
+		paused: integer('paused', { mode: 'boolean' }).notNull().default(false),
+		// The Labour created last. Null before the first, and after it is deleted.
+		labourId: integer('labour_id').references((): AnySQLiteColumn => labours.id, {
+			onDelete: 'set null'
+		}),
+		// When the next Labour is due. Null while the last one is unfinished.
+		nextDueAt: timestamp('next_due_at'),
+		createdAt: now(),
+		updatedAt: now('updated_at')
+	},
+	(t) => [
+		index('recurrences_realm_idx').on(t.realmId),
+		index('recurrences_due_idx').on(t.nextDueAt),
+		check('recurrences_every_positive', sql.raw(`"every" >= 1`))
+	]
+);
+
+// The Quests each new Labour of a Recurrence is added to.
+export const recurrenceQuests = sqliteTable(
+	'recurrence_quests',
+	{
+		recurrenceId: integer('recurrence_id')
+			.notNull()
+			.references(() => recurrences.id, { onDelete: 'cascade' }),
+		questId: integer('quest_id')
+			.notNull()
+			.references(() => quests.id, { onDelete: 'cascade' })
+	},
+	(t) => [primaryKey({ columns: [t.recurrenceId, t.questId] })]
 );
 
 // A page of a Realm's wiki, per docs/scrolls.md.

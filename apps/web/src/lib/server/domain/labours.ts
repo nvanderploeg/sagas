@@ -47,6 +47,7 @@ export type LabourSpec = {
 	substateId?: number | null;
 	parentId?: number | null;
 	labels?: string[];
+	recurrenceId?: number | null;
 	placement?: Placement;
 };
 
@@ -177,6 +178,7 @@ export function createLabour(db: Db, actor: Actor, input: LabourSpec): LabourVie
 				substateId,
 				parentId,
 				labels,
+				recurrenceId: input.recurrenceId ?? null,
 				rank
 			})
 			.returning()
