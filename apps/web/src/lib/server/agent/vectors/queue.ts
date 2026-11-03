@@ -16,10 +16,27 @@ const SCAN_CHUNK = 1000;
 
 const models = new WeakMap<EmbeddingQueue, string>();
 
+const RETRY_AFTER_MS = 60_000;
+
+export type EmbeddingQueueOptions = {
+	// Delay before a stopped worker with Labours still pending tries again.
+	retryAfterMs?: number;
+	setTimer?: (run: () => void, ms: number) => { unref?(): unknown };
+	clearTimer?: (timer: never) => void;
+};
+
 const nextTurn = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-export function createEmbeddingQueue(db: Db, embedder: Embedder): EmbeddingQueue {
+export function createEmbeddingQueue(
+	db: Db,
+	embedder: Embedder,
+	options: EmbeddingQueueOptions = {}
+): EmbeddingQueue {
+	const retryAfterMs = options.retryAfterMs ?? RETRY_AFTER_MS;
+	const setTimer = options.setTimer ?? setTimeout;
+	const clearTimer = (options.clearTimer ?? clearTimeout) as (timer: unknown) => void;
 	const pending = new Set<number>();
+	let retry: unknown = null;
 	let running: Promise<void> | null = null;
 	// In a row; an embedding that succeeds resets it.
 	let failures = 0;
@@ -49,7 +66,7 @@ export function createEmbeddingQueue(db: Db, embedder: Embedder): EmbeddingQueue
 		}
 		if (failures === STOP_AFTER_FAILURES) {
 			console.warn(
-				`sagas embeddings stopped after ${STOP_AFTER_FAILURES} failures in a row; ${pending.size} Labours wait for the next write`
+				`sagas embeddings stopped after ${STOP_AFTER_FAILURES} failures in a row; ${pending.size} Labours wait for the next write or retry`
 			);
 		}
 	}
@@ -71,11 +88,31 @@ export function createEmbeddingQueue(db: Db, embedder: Embedder): EmbeddingQueue
 			await nextTurn();
 		}
 		running = null;
+		if (pending.size > 0) scheduleRetry();
+	}
+
+	function cancelRetry(): void {
+		if (retry === null) return;
+		clearTimer(retry);
+		retry = null;
+	}
+
+	// At most one pending; unref'd so it never keeps the process or drain() alive.
+	function scheduleRetry(): void {
+		if (retry !== null) return;
+		const timer = setTimer(() => {
+			retry = null;
+			failures = 0;
+			running ??= work();
+		}, retryAfterMs);
+		timer.unref?.();
+		retry = timer;
 	}
 
 	const queue: EmbeddingQueue = {
 		enqueue(labourId) {
 			pending.add(labourId);
+			cancelRetry();
 			running ??= work();
 		},
 		async drain() {

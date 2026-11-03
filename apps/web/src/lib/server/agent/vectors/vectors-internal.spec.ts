@@ -802,6 +802,103 @@ describe('the survey tool, guarding the Survey', () => {
 		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 		const a = seedLabour(db, { realmId });
 		store(a.id);
+
+	describe('retry tick', () => {
+		function manualTimers() {
+			const scheduled: { run: () => void; ms: number; unref: ReturnType<typeof vi.fn> }[] = [];
+			const cleared: unknown[] = [];
+			return {
+				scheduled,
+				cleared,
+				setTimer: (run: () => void, ms: number) => {
+					const timer = { run, ms, unref: vi.fn() };
+					scheduled.push(timer);
+					return timer;
+				},
+				clearTimer: (timer: unknown) => cleared.push(timer)
+			};
+		}
+
+		function stopped(count = 25) {
+			vi.spyOn(console, 'error').mockImplementation(() => {});
+			vi.spyOn(console, 'warn').mockImplementation(() => {});
+			const ids = Array.from({ length: count }, () => seedLabour(db, { realmId }).id);
+			const fake = failing();
+			const timers = manualTimers();
+			const queue = createEmbeddingQueue(db, fake.embedder, { retryAfterMs: 5, ...timers });
+			return { ids, fake, timers, queue };
+		}
+
+		it('retries after 20 failures and drains the rest once the embedder recovers', async () => {
+			const { ids, fake, timers, queue } = stopped();
+			for (const id of ids) queue.enqueue(id);
+			await queue.drain();
+			expect(queue.size()).toBe(5);
+			expect(timers.scheduled).toHaveLength(1);
+			expect(timers.scheduled[0].ms).toBe(5);
+
+			fake.heal();
+			timers.scheduled[0].run();
+			await queue.drain();
+
+			expect(queue.size()).toBe(0);
+			expect(ids.slice(20).every((id) => vectorStatus(db, [id]).get(id) === 'current')).toBe(true);
+		});
+
+		it('gives the retry a fresh run of attempts', async () => {
+			const { ids, timers, queue } = stopped(45);
+			for (const id of ids) queue.enqueue(id);
+			await queue.drain();
+			expect(queue.size()).toBe(25);
+
+			timers.scheduled[0].run();
+			await queue.drain();
+
+			expect(queue.size()).toBe(5);
+			expect(timers.scheduled).toHaveLength(2);
+		});
+
+		it('never stacks timers and unrefs the one it holds', async () => {
+			const { ids, timers, queue } = stopped();
+			for (const id of ids) queue.enqueue(id);
+			await queue.drain();
+			await queue.drain();
+
+			expect(timers.scheduled).toHaveLength(1);
+			expect(timers.scheduled[0].unref).toHaveBeenCalledOnce();
+		});
+
+		it('clears the timer when an enqueue restarts the queue', async () => {
+			const { ids, fake, timers, queue } = stopped();
+			for (const id of ids) queue.enqueue(id);
+			await queue.drain();
+
+			fake.heal();
+			queue.enqueue(seedLabour(db, { realmId }).id);
+			await queue.drain();
+
+			expect(timers.cleared).toEqual([timers.scheduled[0]]);
+			expect(queue.size()).toBe(0);
+			expect(timers.scheduled).toHaveLength(1);
+		});
+
+		it('schedules nothing when the queue empties', async () => {
+			const { fake, timers, queue } = stopped();
+			fake.heal();
+			queue.enqueue(seedLabour(db, { realmId }).id);
+			await queue.drain();
+
+			expect(timers.scheduled).toEqual([]);
+		});
+
+		it('leaves drain resolved while the timer is pending', async () => {
+			const { ids, timers, queue } = stopped();
+			for (const id of ids) queue.enqueue(id);
+
+			await expect(queue.drain()).resolves.toBeUndefined();
+			expect(timers.scheduled).toHaveLength(1);
+		});
+	});
 		let broken = false;
 		setEmbedder({
 			model: MODEL_ID,
