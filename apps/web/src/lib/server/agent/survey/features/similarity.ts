@@ -1,5 +1,5 @@
 import { MODEL_ID } from '../../vectors/embedder.ts';
-import { currentVectors } from '../../vectors/vectors.ts';
+import { countCurrent, currentVectors } from '../../vectors/vectors.ts';
 import type { Feature, FeatureContext } from './types.ts';
 
 // Where unrelated text lands for bge-small; the product/agent-layer Scroll, Weights.
@@ -15,6 +15,12 @@ export function embeddedOf(ctx: FeatureContext): Map<number, Float32Array> {
 		cache.set(ctx, vectors);
 	}
 	return vectors;
+}
+
+// Reuses the loaded vectors when the Survey read them; otherwise counts without reading blobs.
+export function embeddedCount(ctx: FeatureContext): number {
+	const loaded = cache.get(ctx);
+	return loaded === undefined ? countCurrent(ctx.db, ctx.candidateIds, MODEL_ID) : loaded.size;
 }
 
 export const similarity: Feature = {

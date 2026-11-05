@@ -302,6 +302,14 @@
 			>
 		{/if}
 
+		{#if realm && labour.recurrenceId !== null}
+			<a
+				class="w-fit text-sm text-muted hover:text-ink"
+				data-testid="labour-recurrence"
+				href={resolve('/r/[key]/recurrences', { key: realm.key })}>↻ Created by a Recurrence</a
+			>
+		{/if}
+
 		<header
 			class="head"
 			class:glowing={glow}

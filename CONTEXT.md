@@ -93,6 +93,9 @@ A Labour's position within its State's board column, set by dragging: the order 
 **Quest**:
 A named, ordered set of Labours with a description and an Owner. It belongs to one Realm, which decides who sees and edits it, and its Labours may be in any Realm. Its Owner is a member of that Realm. A Labour can be in any number of Quests. Membership is explicit: adding a Labour never adds its Children. A Quest has no State; its progress is its Closed Labours over all its Labours.
 
+**Recurrence**:
+A schedule in a Realm that creates a Labour from its own title, description, Owner, Assignee and Labels, and adds it to the Quests it lists. It creates the first Labour on its start date. When that Labour is finished, the next is created at the first occurrence after that moment; occurrences that passed while a Labour was unfinished are skipped, so only one is ever unfinished. Occurrences are local midnights in the Recurrence's timezone; a month day past the end of a month falls on its last day. Pausing stops it; deleting it keeps its Labours.
+
 **Scroll**:
 A Markdown page in a Realm's wiki. Scrolls form a tree: a Scroll has at most one parent Scroll in the same Realm, and siblings are ordered by drag. The Realm's roles decide who reads and edits them. The contract is `docs/scrolls.md`.
 _Avoid_: page, doc, wiki entry

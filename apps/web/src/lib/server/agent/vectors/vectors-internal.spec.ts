@@ -21,6 +21,7 @@ import { seedActor, seedLabour, seedRealm } from '#lib/server/test/fixtures.ts';
 import type { Actor } from '#lib/server/domain/write.ts';
 import { appraise } from '../appraisals.ts';
 import { survey } from '../survey/index.ts';
+import { embeddedCount, embeddedOf } from '../survey/features/similarity.ts';
 import { similarity } from '../survey/features/similarity.ts';
 import { loadEmbedder, MODEL_ID, setEmbedder, type Embedder } from './embedder.ts';
 import {
@@ -458,6 +459,41 @@ describe('the similarity feature', () => {
 		prepare.mockRestore();
 	});
 
+	it('counts current vectors as many as it loads, without reading a blob', () => {
+		const [current, stale, other] = [1, 2, 3, 4].map(() => seedLabour(db, { realmId }));
+		store(current.id);
+		store(stale.id);
+		updateLabour(db, actor, stale.id, { title: 'Stale now' });
+		writeVector(db, other.id, 'other-model', hashOf(other.id), unit(1), NOW);
+		const ids = db
+			.select({ id: labours.id })
+			.from(labours)
+			.all()
+			.map((row) => row.id);
+
+		const prepare = vi.spyOn(db.$client, 'prepare');
+		const counted = embeddedCount(context(ids));
+		const sql = prepare.mock.calls.map(([text]) => String(text));
+		prepare.mockRestore();
+
+		expect(counted).toBe(embeddedOf(context(ids)).size);
+		expect(counted).toBe(1);
+		expect(sql.some((text) => /count\(\*\)/i.test(text))).toBe(true);
+		expect(sql.some((text) => /v\.vector\s+AS/i.test(text))).toBe(false);
+	});
+
+	it('reuses the loaded vectors when the Survey weights similarity', () => {
+		const a = seedLabour(db, { realmId });
+		seedLabour(db, { realmId });
+		store(a.id);
+		const ctx = context([a.id], unit(1));
+		similarity.load(ctx);
+		const prepare = vi.spyOn(db.$client, 'prepare');
+		expect(embeddedCount(ctx)).toBe(1);
+		expect(prepare).not.toHaveBeenCalled();
+		prepare.mockRestore();
+	});
+
 	it('counts missing and unembedded in a Survey', () => {
 		const [a, b, c] = [1, 2, 3].map(() => seedLabour(db, { realmId }));
 		store(a.id, unit(1));
@@ -765,6 +801,103 @@ describe('a failing embedder', () => {
 		queue.enqueue(seedLabour(db, { realmId }).id);
 		await queue.drain();
 		expect(error).toHaveBeenCalledOnce();
+	});
+
+	describe('retry tick', () => {
+		function manualTimers() {
+			const scheduled: { run: () => void; ms: number; unref: ReturnType<typeof vi.fn> }[] = [];
+			const cleared: unknown[] = [];
+			return {
+				scheduled,
+				cleared,
+				setTimer: (run: () => void, ms: number) => {
+					const timer = { run, ms, unref: vi.fn() };
+					scheduled.push(timer);
+					return timer;
+				},
+				clearTimer: (timer: unknown) => cleared.push(timer)
+			};
+		}
+
+		function stopped(count = 25) {
+			vi.spyOn(console, 'error').mockImplementation(() => {});
+			vi.spyOn(console, 'warn').mockImplementation(() => {});
+			const ids = Array.from({ length: count }, () => seedLabour(db, { realmId }).id);
+			const fake = failing();
+			const timers = manualTimers();
+			const queue = createEmbeddingQueue(db, fake.embedder, { retryAfterMs: 5, ...timers });
+			return { ids, fake, timers, queue };
+		}
+
+		it('retries after 20 failures and drains the rest once the embedder recovers', async () => {
+			const { ids, fake, timers, queue } = stopped();
+			for (const id of ids) queue.enqueue(id);
+			await queue.drain();
+			expect(queue.size()).toBe(5);
+			expect(timers.scheduled).toHaveLength(1);
+			expect(timers.scheduled[0].ms).toBe(5);
+
+			fake.heal();
+			timers.scheduled[0].run();
+			await queue.drain();
+
+			expect(queue.size()).toBe(0);
+			expect(ids.slice(20).every((id) => vectorStatus(db, [id]).get(id) === 'current')).toBe(true);
+		});
+
+		it('gives the retry a fresh run of attempts', async () => {
+			const { ids, timers, queue } = stopped(45);
+			for (const id of ids) queue.enqueue(id);
+			await queue.drain();
+			expect(queue.size()).toBe(25);
+
+			timers.scheduled[0].run();
+			await queue.drain();
+
+			expect(queue.size()).toBe(5);
+			expect(timers.scheduled).toHaveLength(2);
+		});
+
+		it('never stacks timers and unrefs the one it holds', async () => {
+			const { ids, timers, queue } = stopped();
+			for (const id of ids) queue.enqueue(id);
+			await queue.drain();
+			await queue.drain();
+
+			expect(timers.scheduled).toHaveLength(1);
+			expect(timers.scheduled[0].unref).toHaveBeenCalledOnce();
+		});
+
+		it('clears the timer when an enqueue restarts the queue', async () => {
+			const { ids, fake, timers, queue } = stopped();
+			for (const id of ids) queue.enqueue(id);
+			await queue.drain();
+
+			fake.heal();
+			queue.enqueue(seedLabour(db, { realmId }).id);
+			await queue.drain();
+
+			expect(timers.cleared).toEqual([timers.scheduled[0]]);
+			expect(queue.size()).toBe(0);
+			expect(timers.scheduled).toHaveLength(1);
+		});
+
+		it('schedules nothing when the queue empties', async () => {
+			const { fake, timers, queue } = stopped();
+			fake.heal();
+			queue.enqueue(seedLabour(db, { realmId }).id);
+			await queue.drain();
+
+			expect(timers.scheduled).toEqual([]);
+		});
+
+		it('leaves drain resolved while the timer is pending', async () => {
+			const { ids, timers, queue } = stopped();
+			for (const id of ids) queue.enqueue(id);
+
+			await expect(queue.drain()).resolves.toBeUndefined();
+			expect(timers.scheduled).toHaveLength(1);
+		});
 	});
 });
 

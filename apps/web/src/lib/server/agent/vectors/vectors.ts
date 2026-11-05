@@ -47,6 +47,17 @@ export function currentVectors(
 	return new Map(rows.map((row) => [row.id, toVector(row.vector)]));
 }
 
+export function countCurrent(db: Handle, idsJson: string, model: string): number {
+	const row = db.get<{ n: number }>(sql`
+		SELECT count(*) AS n
+		FROM json_each(${idsJson}) j
+		JOIN labour_vectors v ON v.labour_id = j.value
+		JOIN labour_inputs i ON i.labour_id = j.value
+		WHERE ${isCurrent(model)}
+	`);
+	return row.n;
+}
+
 export function scanCurrent(
 	db: Handle,
 	model: string,

@@ -96,7 +96,11 @@ const TOOLS = [
 	'define_skill',
 	'list_skills',
 	'set_skills',
-	'show_board'
+	'show_board',
+	'list_recurrences',
+	'create_recurrence',
+	'update_recurrence',
+	'delete_recurrence'
 ];
 
 const keysOf = (labours: { key: string }[]) => labours.map((t) => t.key);

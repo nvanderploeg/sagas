@@ -6,6 +6,7 @@ import { DomainError } from '../domain/errors.ts';
 import { parseLabourKey } from '../domain/keys.ts';
 import { getRealm, getState, getSubstate } from '../domain/lookup.ts';
 import { getQuest } from '../domain/quest-view.ts';
+import { getRecurrence } from '../domain/recurrences.ts';
 import type { Placement } from '../domain/rank.ts';
 import { listStates, listSubstates } from '../domain/states.ts';
 import { readLabour, resolveLabourKey } from '../domain/labours.ts';
@@ -98,6 +99,14 @@ export function userId(db: Handle, ref: Ref, me: { id: number }): number {
 export function questId(db: Handle, id: number, viewer: Viewer): number {
 	const quest = getQuest(db, id);
 	return canSeeRealm(db, viewer, quest.realmId) ? quest.id : notFound('Quest not found');
+}
+
+// A Recurrence in a Realm the viewer cannot see is not found.
+export function recurrenceId(db: Handle, id: number, viewer: Viewer): number {
+	const recurrence = getRecurrence(db, id);
+	return canSeeRealm(db, viewer, recurrence.realmId)
+		? recurrence.id
+		: notFound('Recurrence not found');
 }
 
 export function stateId(db: Handle, realm: number | undefined, ref: Ref): number {

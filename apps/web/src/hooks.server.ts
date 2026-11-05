@@ -23,6 +23,7 @@ import {
 	webhookMaxPerUser
 } from '#lib/server/config.ts';
 import { rebuildDerived } from '#lib/server/agent/derived.ts';
+import { scheduleRecurrences } from '#lib/server/domain/recurrences.ts';
 import { scheduleAgentPruning } from '#lib/server/agent/prune.ts';
 import { loadEmbedder, setEmbedder } from '#lib/server/agent/vectors/embedder.ts';
 import {
@@ -48,6 +49,7 @@ export const init: ServerInit = async () => {
 	schedulePruning(db, eventRetentionMs);
 	scheduleAgentPruning(db, surveyRetentionMs);
 	scheduleOAuthPruning(db);
+	scheduleRecurrences(db);
 	if (webhookKey) startWebhooks(db, webhookKey);
 	void startEmbeddings(db);
 };
