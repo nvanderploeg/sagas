@@ -55,7 +55,7 @@ body {
 
 @layer components {
 	.field {
-		@apply rounded-lg border-line bg-panel px-2.5 py-1.5 text-sm text-ink shadow-none;
+		@apply max-w-full min-w-0 rounded-lg border-line bg-panel px-2.5 py-1.5 text-sm text-ink shadow-none;
 	}
 
 	.field:focus {

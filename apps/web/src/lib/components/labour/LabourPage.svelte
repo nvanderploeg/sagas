@@ -534,7 +534,10 @@
 				</section>
 			</div>
 
-			<aside class="panel grid gap-5 p-5" aria-label="Labour fields">
+			<aside
+				class="panel grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5 p-5 [&>div]:grid-cols-[minmax(0,1fr)]"
+				aria-label="Labour fields"
+			>
 				<div class="grid gap-1.5">
 					<label class="label" for="state">State</label>
 					<select
