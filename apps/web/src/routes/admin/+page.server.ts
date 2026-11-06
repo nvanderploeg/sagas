@@ -2,16 +2,23 @@ import { error } from '@sveltejs/kit';
 import { createInvite, listInvites } from '#lib/server/auth/invites.ts';
 import { createApiToken, listApiTokens, revokeApiToken } from '#lib/server/auth/tokens.ts';
 import { createAgentUser, listUsers } from '#lib/server/auth/users.ts';
+import { dataLayout } from '#lib/server/admin/layout.ts';
+import { discardPendingImport, readPendingImport } from '#lib/server/admin/import.ts';
+import { IMPORT_CONFIRMATION, requireAdminSession } from '#lib/server/admin/guard.ts';
+import { importMaxBytes } from '#lib/server/config.ts';
 import { getDb } from '#lib/server/db/index.ts';
 import { int, perform, signedIn, text } from '#lib/server/ui/form.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ locals }) => {
+export const load: PageServerLoad = async ({ locals }) => {
 	const actor = signedIn(locals);
 	if (!actor.isAdmin) error(403, 'Only an Admin can manage Users and Invites');
 	const db = getDb();
 	const users = listUsers(db);
 	return {
+		pendingImport: await readPendingImport(dataLayout),
+		importConfirmation: IMPORT_CONFIRMATION,
+		importMaxBytes,
 		users,
 		invites: listInvites(db, actor),
 		tokens: Object.fromEntries(
@@ -21,6 +28,11 @@ export const load: PageServerLoad = ({ locals }) => {
 };
 
 export const actions: Actions = {
+	discardImport: async ({ locals }) => {
+		requireAdminSession(locals);
+		await discardPendingImport(dataLayout);
+	},
+
 	invite: ({ locals, url }) => {
 		const actor = signedIn(locals);
 		return perform('invite', () => {

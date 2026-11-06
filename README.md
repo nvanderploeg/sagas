@@ -37,6 +37,28 @@ reverse proxy, have the proxy send `X-Forwarded-Proto` and `X-Forwarded-Host`; t
 is `Secure` exactly when the forwarded protocol is https. `SAGAS_PROTOCOL_HEADER` and
 `SAGAS_HOST_HEADER` name those headers; set one empty to ignore it (see `.env.example`).
 
+## Move to another host
+
+An Admin opens `/admin` for instance stats (version, database size, row counts, applied
+migrations), **Export** and **Import**. The contract is `docs/data-bundle.md`.
+
+1. On the old host, choose Download export.
+2. On the new host, start sagas with the same `WEBHOOK_KEY` (it decrypts Webhook secrets), complete
+   `/setup` to create a throwaway Admin, then sign in and open `/admin`.
+3. Choose the bundle, type `REPLACE ALL DATA`, and press Replace all data. Import replaces
+   everything: Users, Realms, Labours, Scrolls, tokens, sessions, attachments. Sign in afterwards
+   as a User from the bundle.
+4. Restart the server (`docker compose restart app`). The swap happens at startup, before the
+   database opens: the current data is saved to `backups/pre-import-<time>/` beside the database,
+   the new files are renamed into place, and older bundles are migrated.
+
+`SAGAS_IMPORT_MAX_BYTES` (default 10 GiB) caps the upload. The browser sends the bundle in 256 KiB
+chunks, so the default `BODY_SIZE_LIMIT` of adapter-node needs no change. A reverse proxy must allow
+request bodies of at least that chunk size on `/admin/import`.
+
+If the swap fails at startup, sagas logs the error, moves the staged import to `quarantine/`, and
+boots on the current data. Only the newest 5 `backups/pre-import-*` are kept.
+
 ## Embedding model
 
 The embedding model (`Xenova/bge-small-en-v1.5`, 8-bit) ships in the image at `/app/models`, fetched

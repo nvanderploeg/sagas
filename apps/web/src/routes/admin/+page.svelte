@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import Avatar from '#lib/components/Avatar.svelte';
 	import Secret from '#lib/components/Secret.svelte';
 	import Tokens from '#lib/components/Tokens.svelte';
@@ -15,6 +17,90 @@
 	);
 	const name = (id: number | null) => data.users.find((u) => u.id === id)?.displayName ?? 'someone';
 	const day = (date: Date) => new Date(date).toISOString().slice(0, 10);
+	const bytes = (n: number) => {
+		const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+		let value = n;
+		let unit = 0;
+		while (value >= 1024 && unit < units.length - 1) {
+			value /= 1024;
+			unit += 1;
+		}
+		return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`;
+	};
+
+	let bundle = $state<File | null>(null);
+	let confirmation = $state('');
+	let uploading = $state(false);
+	let importError = $state<string | null>(null);
+	let staged = $state(false);
+	let progress = $state(0);
+
+	const CHUNK = 256 * 1024;
+
+	async function upload(event: SubmitEvent) {
+		event.preventDefault();
+		if (!bundle || confirmation !== data.importConfirmation) return;
+		uploading = true;
+		importError = null;
+		progress = 0;
+		const id = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) =>
+			b.toString(16).padStart(2, '0')
+		).join('');
+		try {
+			for (let offset = 0; offset < bundle.size || offset === 0; offset += CHUNK) {
+				const end = Math.min(offset + CHUNK, bundle.size);
+				const response = await fetch(
+					`/admin/import?id=${id}&offset=${offset}${end >= bundle.size ? '&final=1' : ''}`,
+					{
+						method: 'POST',
+						headers: {
+							accept: 'application/json',
+							'content-type': 'application/zip',
+							'x-sagas-confirm': confirmation
+						},
+						body: bundle.slice(offset, end)
+					}
+				);
+				if (!response.ok) {
+					const body = await response.json().catch(() => null);
+					importError = body?.message ?? `The import failed (${response.status})`;
+					return;
+				}
+				progress = end / Math.max(bundle.size, 1);
+				if (end >= bundle.size) break;
+			}
+			staged = true;
+			await invalidateAll();
+		} catch {
+			importError = 'The upload did not finish. Check the connection and try again.';
+		} finally {
+			uploading = false;
+		}
+	}
+
+	let stats = $state<{
+		appVersion: string;
+		databaseBytes: number;
+		tables: { name: string; rows: number }[];
+		migrations: { tag: string; date: string }[];
+		buildMigrations: number;
+		attachments: { files: number; bytes: number };
+	} | null>(null);
+	let statsError = $state<string | null>(null);
+
+	async function loadStats() {
+		statsError = null;
+		try {
+			const response = await fetch('/admin/stats', { headers: { accept: 'application/json' } });
+			if (!response.ok) throw new Error(String(response.status));
+			stats = await response.json();
+		} catch {
+			statsError = 'Could not load the stats.';
+		}
+	}
+
+	onMount(loadStats);
+
 	const agents = $derived(data.users.filter((u) => u.kind === 'agent'));
 </script>
 
@@ -105,6 +191,141 @@
 			</article>
 		{/each}
 		{#if failure('revoke')}<p role="alert" class="error">{failure('revoke')}</p>{/if}
+	</section>
+
+	<section class="panel grid gap-3 p-5" aria-labelledby="instance-heading">
+		<h2 id="instance-heading" class="text-lg font-bold tracking-tight">Instance</h2>
+		{#if stats}
+			<dl class="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-sm" data-testid="instance-stats">
+				<dt class="text-muted">App version</dt>
+				<dd>v{stats.appVersion}</dd>
+				<dt class="text-muted">Database size</dt>
+				<dd data-testid="database-size">{bytes(stats.databaseBytes)}</dd>
+				<dt class="text-muted">Attachments on disk</dt>
+				<dd>{stats.attachments.files} files, {bytes(stats.attachments.bytes)}</dd>
+				<dt class="text-muted">Migrations</dt>
+				<dd data-testid="migrations">
+					{stats.migrations.length} applied of {stats.buildMigrations} in this build
+				</dd>
+			</dl>
+			<details>
+				<summary class="cursor-pointer text-sm font-semibold">Rows per table</summary>
+				<table class="mt-2 w-full text-sm" data-testid="table-counts">
+					<tbody>
+						{#each stats.tables as table (table.name)}
+							<tr class="border-t border-line">
+								<td class="py-1 font-mono">{table.name}</td>
+								<td class="py-1 text-right tabular-nums">{table.rows}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</details>
+			<details>
+				<summary class="cursor-pointer text-sm font-semibold">Applied migrations</summary>
+				<ul class="mt-2 text-sm">
+					{#each stats.migrations as migration (migration.tag)}
+						<li class="flex gap-3 border-t border-line py-1">
+							<span class="font-mono">{migration.tag}</span>
+							<span class="ml-auto text-muted">{migration.date}</span>
+						</li>
+					{/each}
+				</ul>
+			</details>
+		{:else if statsError}
+			<p role="alert" class="error">{statsError}</p>
+		{:else}
+			<p class="text-sm text-muted">Loading…</p>
+		{/if}
+		<div>
+			<button type="button" class="btn" onclick={loadStats}>Refresh stats</button>
+		</div>
+	</section>
+
+	<section class="panel grid gap-3 p-5" aria-labelledby="export-heading">
+		<h2 id="export-heading" class="text-lg font-bold tracking-tight">Export</h2>
+		<p class="text-sm text-muted">
+			Downloads one .zip: a consistent snapshot of the database, every attachment file stored on
+			this server, and a manifest with checksums. Webhook secrets stay encrypted; the new host needs
+			the same <code>WEBHOOK_KEY</code>.
+		</p>
+		<form method="POST" action="/admin/export">
+			<button type="submit" class="btn btn-primary">Download export</button>
+		</form>
+	</section>
+
+	<section class="panel grid gap-3 p-5" aria-labelledby="import-heading">
+		<h2 id="import-heading" class="text-lg font-bold tracking-tight">Import</h2>
+		<p class="rounded-xl border border-danger/50 bg-danger/10 p-3 text-sm" role="note">
+			<strong>Importing replaces all data on this server</strong>: Users, Realms, Labours, Scrolls,
+			API tokens, sessions and attachments. You will be signed out and must sign in as a User from
+			the bundle. A backup of the current data is kept in <code>backups/</code> beside the database. The
+			swap happens when the server next starts.
+		</p>
+		{#if data.pendingImport === 'corrupt'}
+			<div
+				class="grid gap-2 rounded-xl border border-danger/50 bg-danger/10 p-3"
+				data-testid="pending-import"
+				role="alert"
+			>
+				<p class="text-sm font-semibold">A staged import is unreadable and will not be applied.</p>
+				<form method="POST" action="?/discardImport" use:enhance>
+					<button type="submit" class="btn">Discard staged import</button>
+				</form>
+			</div>
+		{:else if data.pendingImport}
+			<div
+				class="grid gap-2 rounded-xl border border-gold/60 bg-gold/10 p-3"
+				data-testid="pending-import"
+				role="status"
+			>
+				<p class="text-sm font-semibold">An import is staged. Restart the server to apply it.</p>
+				<p class="text-sm text-muted">
+					Bundle from {data.pendingImport.bundleCreatedAt} (v{data.pendingImport.bundleAppVersion},
+					{data.pendingImport.bundleSchema.level} migrations), {data.pendingImport.files} files, {bytes(
+						data.pendingImport.bytes
+					)}. Until the restart this server keeps running on its current data, and anything written
+					meanwhile is lost.
+				</p>
+				<form method="POST" action="?/discardImport" use:enhance>
+					<button type="submit" class="btn">Discard staged import</button>
+				</form>
+			</div>
+		{/if}
+		<form onsubmit={upload} class="grid gap-3">
+			<label class="grid gap-1">
+				<span class="label">Export bundle (.zip, up to {bytes(data.importMaxBytes)})</span>
+				<input
+					type="file"
+					accept=".zip,application/zip"
+					class="field"
+					required
+					onchange={(e) => (bundle = e.currentTarget.files?.[0] ?? null)}
+				/>
+			</label>
+			<label class="grid gap-1">
+				<span class="label">Type {data.importConfirmation} to confirm</span>
+				<input
+					class="field w-64"
+					autocomplete="off"
+					bind:value={confirmation}
+					name="confirmation"
+				/>
+			</label>
+			<div>
+				<button
+					type="submit"
+					class="btn btn-danger"
+					disabled={uploading || !bundle || confirmation !== data.importConfirmation}
+				>
+					{uploading ? `Uploading ${Math.round(progress * 100)}%` : 'Replace all data'}
+				</button>
+			</div>
+			{#if importError}<p role="alert" class="error">{importError}</p>{/if}
+			{#if staged}<p role="status" class="text-sm font-semibold">
+					Bundle checked and staged. Restart the server to apply it.
+				</p>{/if}
+		</form>
 	</section>
 </main>
 

@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from './fixtures/ui.ts';
 import { getNoFollow, uniqueName } from './support/http.ts';
+import { origin } from './support/env.ts';
 
 const PASSWORD = 'a long enough password';
 
@@ -59,6 +61,90 @@ test.describe('admin', () => {
 			authorization: `Bearer ${token}`
 		});
 		expect(refused.status()).toBe(401);
+	});
+
+	test('shows instance stats and moves data out and in through a bundle', async ({ page }) => {
+		await page.goto('/admin');
+		await expect(page.getByTestId('instance-stats')).toContainText('App version');
+		await expect(page.getByTestId('migrations')).toContainText('applied of');
+		await page.getByText('Rows per table').click();
+		await expect(page.getByTestId('table-counts')).toContainText('labour_vectors');
+
+		const download = page.waitForEvent('download');
+		await page.getByRole('button', { name: 'Download export' }).click();
+		const bundle = await (await download).path();
+		const bytes = readFileSync(bundle);
+		expect(bytes.subarray(0, 2).toString()).toBe('PK');
+		expect(bytes.includes(Buffer.from('manifest.json'))).toBe(true);
+
+		const replace = page.getByRole('button', { name: 'Replace all data' });
+		const confirm = page.getByLabel('Type REPLACE ALL DATA to confirm');
+		await page.locator('input[type=file]').setInputFiles(bundle);
+		await expect(replace).toBeDisabled();
+		await confirm.fill('replace all data');
+		await expect(replace).toBeDisabled();
+		await confirm.fill('REPLACE ALL DATA');
+		await replace.click();
+		await expect(page.getByTestId('pending-import')).toContainText('Restart the server');
+
+		await page.getByRole('button', { name: 'Discard staged import' }).click();
+		await expect(page.getByTestId('pending-import')).toHaveCount(0);
+	});
+
+	test('refuses a non-bundle, a missing confirmation, a foreign origin and non-Admins', async ({
+		page,
+		other
+	}) => {
+		const confirmed = {
+			origin,
+			'content-type': 'application/zip',
+			'x-sagas-confirm': 'REPLACE ALL DATA'
+		};
+		const junk = Buffer.from('not a zip at all, but long enough to be read as one');
+		const post = (who: typeof page, headers: Record<string, string>) =>
+			who.request.post(`/admin/import?id=${'a'.repeat(16)}&offset=0&final=1`, {
+				headers,
+				data: junk
+			});
+
+		expect((await post(page, confirmed)).status()).toBe(422);
+		expect((await post(page, { ...confirmed, 'x-sagas-confirm': 'no' })).status()).toBe(400);
+		expect((await post(page, { ...confirmed, origin: 'https://evil.example' })).status()).toBe(403);
+		expect((await post(other.page, confirmed)).status()).toBe(403);
+		const exported = await other.page.request.post('/admin/export', { headers: { origin } });
+		expect(exported.status()).toBe(403);
+	});
+
+	test('cannot be reached through encoded spellings of its paths', async ({
+		playwright,
+		other
+	}) => {
+		const stranger = await playwright.request.newContext({ baseURL: origin });
+		const paths = [
+			'/%61dmin/export',
+			'/admin/%65xport',
+			'/%61dmin/import',
+			'/%61dmin/stats',
+			'/admin%2Fstats'
+		];
+		for (const path of paths) {
+			for (const [who, client] of [
+				['signed out', stranger],
+				['non-Admin', other.page.request]
+			] as const) {
+				const response = await client.post(path, {
+					headers: { origin },
+					maxRedirects: 0
+				});
+				expect(response.headers()['content-type'] ?? '', `${who} ${path}`).not.toContain(
+					'application/zip'
+				);
+				expect(response.status(), `${who} ${path}`).not.toBe(200);
+			}
+			const read = await other.page.request.get(path, { maxRedirects: 0 });
+			expect(read.status(), `non-Admin GET ${path}`).not.toBe(200);
+		}
+		await stranger.dispose();
 	});
 
 	test('is for Admins only, in its page and in every one of its actions', async ({

@@ -31,3 +31,9 @@ export function loadMigrations(): MigrationMeta[] {
 		};
 	});
 }
+
+export function migrationTags(): Map<number, string> {
+	const [journalText] = Object.values(journals);
+	if (journalText === undefined) throw new Error('drizzle/meta/_journal.json is not bundled');
+	return new Map((JSON.parse(journalText) as Journal).entries.map((e) => [e.when, e.tag]));
+}

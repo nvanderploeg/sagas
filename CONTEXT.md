@@ -13,6 +13,13 @@ A User of kind `agent`. Has no password and signs in only with API tokens. Can o
 **Admin**:
 A User who can manage Users and Invites. The first User, created on the first-run setup screen, is an Admin.
 
+**Data bundle**:
+A single .zip an Admin exports to move the instance: a consistent snapshot of the database, the attachment files stored on the server, and `manifest.json` (format, app version, schema level, each file's size and sha256). Importing one replaces all data. The contract is `docs/data-bundle.md`.
+_Avoid_: backup, which is the copy the server keeps of what an import replaces.
+
+**Staged import**:
+A Data bundle that passed validation and was unpacked beside the database, waiting for the next server start to be swapped in. An Admin can discard it until then.
+
 **Invite**:
 A single-use link an Admin creates so a person can set their own password and join.
 
