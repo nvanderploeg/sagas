@@ -281,6 +281,7 @@ Writes through a token record its name: Events carry `actor.via`, and Comments a
 | `whoami`            |                         | `{ user: User }`                                                                 | anyone                                  |
 | `list_users`        |                         | `{ users: User[] }`                                                              | anyone                                  |
 | `set_realm_limit`   | `user, limit`           | `{ user, realmLimit }`                                                           | Admin                                   |
+| `unlink_sign_in`    | `user`                  | `{ user: User }`                                                                 | Admin                                   |
 | `create_agent_user` | `username, displayName` | `{ user: User }`                                                                 | Admin                                   |
 | `list_api_tokens`   | `user? (you)`           | `{ tokens: [{ id, name, createdAt, lastUsedAt, revokedAt, expiresAt, oauth }] }` | the User, or an Admin for an Agent user |
 | `create_api_token`  | `user? (you), name`     | `{ id, token }`; the secret is shown only here                                   | the User, or an Admin for an Agent user |

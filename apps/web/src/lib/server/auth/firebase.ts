@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { cert, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
@@ -16,9 +17,62 @@ export type SessionVerifier = {
 		idToken: string,
 		ttlMs: number
 	): Promise<{ cookie: string; identity: FirebaseIdentity } | null>;
-	// Null for a cookie that is invalid, expired or revoked.
+	// Null for a cookie that is invalid, expired or revoked; throws AuthUnavailableError when
+	// Firebase cannot be asked.
 	verify(cookie: string): Promise<FirebaseIdentity | null>;
+	// Signs the uid out everywhere: every session cookie and ID token issued before now stops verifying.
+	revoke(uid: string): Promise<void>;
 };
+
+export class AuthUnavailableError extends Error {
+	constructor(cause: unknown) {
+		super('Firebase could not be reached to verify the session', { cause });
+		this.name = 'AuthUnavailableError';
+	}
+}
+
+// An auth/* code is Firebase refusing the cookie, except its own failures.
+export function isInvalidSession(error: unknown): boolean {
+	const code = (error as { code?: unknown } | null)?.code;
+	return (
+		typeof code === 'string' &&
+		code.startsWith('auth/') &&
+		code !== 'auth/internal-error' &&
+		code !== 'auth/service-unavailable'
+	);
+}
+
+export const VERIFY_CACHE_MS = 5000;
+const VERIFY_CACHE_MAX = 500;
+
+// Remembers verified identities for a few seconds, keyed by a hash of the cookie. Only successes are
+// kept; revoke() empties it.
+export function cachedVerify(
+	inner: (cookie: string) => Promise<FirebaseIdentity | null>,
+	now: () => number = Date.now
+) {
+	const entries = new Map<string, { identity: FirebaseIdentity; until: number }>();
+	return {
+		async verify(cookie: string): Promise<FirebaseIdentity | null> {
+			const key = createHash('sha256').update(cookie).digest('hex');
+			const hit = entries.get(key);
+			if (hit && hit.until > now()) return hit.identity;
+			entries.delete(key);
+			const identity = await inner(cookie);
+			if (identity) {
+				if (entries.size >= VERIFY_CACHE_MAX) {
+					for (const [k, v] of entries) if (v.until <= now()) entries.delete(k);
+					if (entries.size >= VERIFY_CACHE_MAX) entries.clear();
+				}
+				entries.set(key, { identity, until: now() + VERIFY_CACHE_MS });
+			}
+			return identity;
+		},
+		clear(): void {
+			entries.clear();
+		}
+	};
+}
 
 const FRESH_SIGN_IN_MS = 5 * 60 * 1000;
 
@@ -56,6 +110,15 @@ function identityOf(claims: {
 	};
 }
 
+const verifyCache = cachedVerify(async (cookie) => {
+	try {
+		return identityOf(await getAuth(app()).verifySessionCookie(cookie, true));
+	} catch (error) {
+		if (isInvalidSession(error)) return null;
+		throw new AuthUnavailableError(error);
+	}
+});
+
 const adminVerifier: SessionVerifier = {
 	async exchange(idToken, ttlMs) {
 		const auth = getAuth(app());
@@ -64,12 +127,10 @@ const adminVerifier: SessionVerifier = {
 		const cookie = await auth.createSessionCookie(idToken, { expiresIn: ttlMs });
 		return { cookie, identity: identityOf(claims) };
 	},
-	async verify(cookie) {
-		try {
-			return identityOf(await getAuth(app()).verifySessionCookie(cookie, true));
-		} catch {
-			return null;
-		}
+	verify: verifyCache.verify,
+	async revoke(uid) {
+		verifyCache.clear();
+		await getAuth(app()).revokeRefreshTokens(uid);
 	}
 };
 
@@ -77,7 +138,8 @@ let current: SessionVerifier = adminVerifier;
 
 export const sessionVerifier: SessionVerifier = {
 	exchange: (idToken, ttlMs) => current.exchange(idToken, ttlMs),
-	verify: (cookie) => current.verify(cookie)
+	verify: (cookie) => current.verify(cookie),
+	revoke: (uid) => current.revoke(uid)
 };
 
 export function setSessionVerifier(verifier: SessionVerifier | null): void {

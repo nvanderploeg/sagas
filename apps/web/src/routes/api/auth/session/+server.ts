@@ -34,7 +34,7 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 	return json({ ok: true });
 };
 
-export const DELETE: RequestHandler = ({ cookies, url }) => {
-	endSession(cookies, url);
+export const DELETE: RequestHandler = async ({ cookies, url }) => {
+	await endSession(cookies, url);
 	return json({ ok: true });
 };

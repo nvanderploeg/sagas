@@ -66,11 +66,18 @@ export function clearSessionCookie(cookies: Cookies, url: URL): void {
 	});
 }
 
-export function endSession(cookies: Cookies, url: URL): void {
-	const token = cookies.get(SESSION_COOKIE);
-	if (token) {
-		const { kind, hash } = sessionCredential(token);
-		announceRevoked({ kind, hash });
+// Revokes the User's Firebase sessions everywhere, then clears the cookie whatever happens.
+export async function endSession(cookies: Cookies, url: URL): Promise<void> {
+	try {
+		const token = cookies.get(SESSION_COOKIE);
+		if (token) {
+			const { kind, hash } = sessionCredential(token);
+			announceRevoked({ kind, hash });
+			const identity = await sessionVerifier.verify(token);
+			if (identity) await sessionVerifier.revoke(identity.uid);
+		}
+	} catch {
+	} finally {
+		clearSessionCookie(cookies, url);
 	}
-	clearSessionCookie(cookies, url);
 }

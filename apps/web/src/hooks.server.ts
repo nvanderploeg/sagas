@@ -5,6 +5,7 @@ import { crossSiteFormRefusal } from '#lib/server/auth/csrf.ts';
 import { gate, isMcpPath, unauthorizedResponse } from '#lib/server/auth/access.ts';
 import { resourceMetadataUrl } from '#lib/server/auth/oauth-metadata.ts';
 import { scheduleOAuthPruning } from '#lib/server/auth/oauth.ts';
+import { AuthUnavailableError } from '#lib/server/auth/firebase.ts';
 import { authFromRequest, SESSION_COOKIE } from '#lib/server/auth/request.ts';
 import { gateRedirect } from '#lib/ui/return-path.ts';
 import {
@@ -93,7 +94,18 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (refusal) return refusal;
 
 	const db = getDb();
-	const auth = await authFromRequest(db, event.request, event.cookies.get(SESSION_COOKIE));
+	let auth: Awaited<ReturnType<typeof authFromRequest>>;
+	try {
+		auth = await authFromRequest(db, event.request, event.cookies.get(SESSION_COOKIE));
+	} catch (error) {
+		if (error instanceof AuthUnavailableError) {
+			return new Response('Sign-in is temporarily unavailable', {
+				status: 503,
+				headers: { 'retry-after': '5' }
+			});
+		}
+		throw error;
+	}
 	event.locals.user = auth?.user ?? null;
 	event.locals.credential = auth?.credential ?? null;
 

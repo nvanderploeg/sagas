@@ -37,7 +37,11 @@ export function fakeSessions() {
 	const live = new Map<string, FirebaseIdentity>();
 	setSessionVerifier({
 		exchange: () => Promise.resolve(null),
-		verify: (cookie) => Promise.resolve(live.get(cookie) ?? null)
+		verify: (cookie) => Promise.resolve(live.get(cookie) ?? null),
+		revoke: (uid) => {
+			for (const [cookie, identity] of live) if (identity.uid === uid) live.delete(cookie);
+			return Promise.resolve();
+		}
 	});
 	return {
 		async open(db: Db, user: AuthUser): Promise<string> {
