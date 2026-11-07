@@ -62,3 +62,7 @@ token.txt
 
 /apps/web/models/
 .playwright-mcp/
+
+# Firebase service account keys
+*-firebase-adminsdk-*.json
+firebase-service-account*.json

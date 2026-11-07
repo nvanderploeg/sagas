@@ -73,8 +73,8 @@ const TOOLS = [
 	'delete_webhook',
 	'list_webhook_deliveries',
 	'list_users',
-	'create_invite',
-	'list_invites',
+	'set_realm_limit',
+	'unlink_sign_in',
 	'create_agent_user',
 	'list_api_tokens',
 	'create_api_token',
@@ -375,10 +375,7 @@ test.describe('MCP at /mcp', () => {
 		expect(removed.quest.progress).toEqual({ closed: 0, total: 1 });
 	});
 
-	test('refuses an Admin tool to an Agent user, and lets the Admin use it', async ({
-		mcp,
-		request
-	}) => {
+	test('refuses an Admin tool to an Agent user, and lets the Admin use it', async ({ mcp }) => {
 		const username = uniqueName('agent');
 		const { user } = await mcp.ok('create_agent_user', { username, displayName: 'Bot' });
 		expect(user).toMatchObject({ username, kind: 'agent', isAdmin: false });
@@ -387,20 +384,19 @@ test.describe('MCP at /mcp', () => {
 		const agent = await connectMcp(token);
 		try {
 			expect((await agent.ok('whoami')).user).toMatchObject({ username, kind: 'agent' });
-			const refused = await agent.call('create_invite');
+			const refused = await agent.call('set_realm_limit', { user: username, limit: 5 });
 			expect(refused).toEqual({
 				isError: true,
 				text: 'Only an Admin can do that',
 				data: { error: { code: 'forbidden', message: 'Only an Admin can do that' } }
 			});
-			expect((await agent.call('list_invites')).isError).toBe(true);
 		} finally {
 			await agent.close();
 		}
 
-		const invite = await mcp.ok('create_invite');
-		expect(invite.path).toMatch(/^\/invite\/wli_/);
-		expect((await request.get(invite.path)).status()).toBe(200);
+		const limited = await mcp.ok('set_realm_limit', { user: username, limit: 5 });
+		expect(limited.realmLimit).toBe(5);
+		expect((await mcp.call('set_realm_limit', { user: username, limit: -1 })).isError).toBe(true);
 	});
 
 	test('answers 401 without a Bearer token', async ({ request, signedInPage: page }) => {
