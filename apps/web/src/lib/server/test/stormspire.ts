@@ -408,42 +408,44 @@ export type Stormspire = {
 	now: Date;
 };
 
-function agentUser(db: Db, username: string, displayName: string): number {
-	return db
-		.insert(users)
-		.values({ kind: 'agent', username, displayName })
-		.returning({ id: users.id })
-		.get().id;
+async function agentUser(db: Db, username: string, displayName: string): Promise<number> {
+	return (
+		await db
+			.insert(users)
+			.values({ kind: 'agent', username, displayName })
+			.returning({ id: users.id })
+	)[0].id;
 }
 
-function humanUser(db: Db, username: string): number {
-	return db
-		.insert(users)
-		.values({ kind: 'human', username, displayName: username, passwordHash: 'hash' })
-		.returning({ id: users.id })
-		.get().id;
+async function humanUser(db: Db, username: string): Promise<number> {
+	return (
+		await db
+			.insert(users)
+			.values({ kind: 'human', username, displayName: username, passwordHash: 'hash' })
+			.returning({ id: users.id })
+	)[0].id;
 }
 
 function style(key: string, label: string, color: string, icon: string) {
 	return { key, label, color, icon };
 }
 
-export function buildStormspire(db: Db): Stormspire {
-	const ivy = humanUser(db, 'ivy');
-	const rook = humanUser(db, 'rook');
-	const forum = agentUser(db, 'forum', 'Forum feeder');
+export async function buildStormspire(db: Db): Promise<Stormspire> {
+	const ivy = await humanUser(db, 'ivy');
+	const rook = await humanUser(db, 'rook');
+	const forum = await agentUser(db, 'forum', 'Forum feeder');
 	const owners = { ivy, rook };
 	const actor = { id: rook };
 
-	const realm = createRealmWithStates(db, actor, {
+	const realm = await createRealmWithStates(db, actor, {
 		name: 'Stormspire',
 		key: 'SPIRE',
 		initialState: style('todo', 'To do', '#6b7280', 'circle'),
 		states: [style('in-progress', 'In progress', '#2563eb', 'play')]
 	});
-	const closedState = listStates(db, realm.id).find((state) => state.isClosed)!;
+	const closedState = (await listStates(db, realm.id)).find((state) => state.isClosed)!;
 
-	defineAttribute(db, actor, realm.id, {
+	await defineAttribute(db, actor, realm.id, {
 		key: 'impact',
 		kind: 'scale',
 		label: 'Impact',
@@ -451,14 +453,14 @@ export function buildStormspire(db: Db): Stormspire {
 			'1 is cosmetic; 3 is felt by some players; 5 changes how the game plays or blocks players.',
 		spec: { min: 1, max: 5 }
 	});
-	defineAttribute(db, actor, realm.id, {
+	await defineAttribute(db, actor, realm.id, {
 		key: 'effort',
 		kind: 'scale',
 		label: 'Effort',
 		rubric: '1 is an afternoon; 3 is a week; 5 is a month or more.',
 		spec: { min: 1, max: 5 }
 	});
-	defineAttribute(db, actor, realm.id, {
+	await defineAttribute(db, actor, realm.id, {
 		key: 'area',
 		kind: 'tags',
 		label: 'Area',
@@ -470,7 +472,7 @@ export function buildStormspire(db: Db): Stormspire {
 			}))
 		}
 	});
-	defineAttribute(db, actor, realm.id, {
+	await defineAttribute(db, actor, realm.id, {
 		key: 'kind',
 		kind: 'tags',
 		label: 'Kind',
@@ -481,9 +483,9 @@ export function buildStormspire(db: Db): Stormspire {
 		}
 	});
 
-	for (const [key, label, rubric] of SKILLS) defineSkill(db, actor, { key, label, rubric });
-	setSkills(db, actor, ivy, { vfx: 4, animation: 3, 'ui-art': 2 });
-	setSkills(db, actor, rook, { combat: 4, gameplay: 4, audio: 1 });
+	for (const [key, label, rubric] of SKILLS) await defineSkill(db, actor, { key, label, rubric });
+	await setSkills(db, actor, ivy, { vfx: 4, animation: 3, 'ui-art': 2 });
+	await setSkills(db, actor, rook, { combat: 4, gameplay: 4, audio: 1 });
 
 	const labours = {} as Stormspire['labours'];
 	const keyOf: Key = (name) => `SPIRE-${NAMES.indexOf(name) + 1}`;
@@ -495,7 +497,7 @@ export function buildStormspire(db: Db): Stormspire {
 		vi.setSystemTime(daysBefore(21));
 		for (const name of NAMES) {
 			const spec: Spec = LABOURS[name];
-			const created = createLabour(db, actor, {
+			const created = await createLabour(db, actor, {
 				realmId: realm.id,
 				title: spec.title,
 				description: spec.description(keyOf),
@@ -506,30 +508,32 @@ export function buildStormspire(db: Db): Stormspire {
 		}
 		for (const { on, by, daysAgo, body } of [...COMMENTS].sort((a, b) => b.daysAgo - a.daysAgo)) {
 			vi.setSystemTime(daysBefore(daysAgo));
-			addComment(db, { id: owners[by] }, labours[on].id, body(keyOf));
+			await addComment(db, { id: owners[by] }, labours[on].id, body(keyOf));
 		}
 	} finally {
 		if (installed) vi.useRealTimers();
 		else vi.setSystemTime(resume);
 	}
 
-	const items: AppraiseItem[] = NAMES.map((name) => {
-		const spec: Spec = LABOURS[name];
-		return {
-			labourId: labours[name].id,
-			brief: spec.brief,
-			values: {
-				impact: spec.impact,
-				effort: spec.effort,
-				area: spec.area ?? null,
-				kind: [spec.kind]
-			},
-			needs: spec.needs,
-			links: spec.links?.map((link) => ({ type: link.type, to: labours[link.to].id })),
-			stamp: readAppraisal(db, labours[name].id).contentHash
-		};
-	});
-	appraise(db, { id: rook }, items, daysBefore(1));
+	const items: AppraiseItem[] = await Promise.all(
+		NAMES.map(async (name) => {
+			const spec: Spec = LABOURS[name];
+			return {
+				labourId: labours[name].id,
+				brief: spec.brief,
+				values: {
+					impact: spec.impact,
+					effort: spec.effort,
+					area: spec.area ?? null,
+					kind: [spec.kind]
+				},
+				needs: spec.needs,
+				links: spec.links?.map((link) => ({ type: link.type, to: labours[link.to].id })),
+				stamp: (await readAppraisal(db, labours[name].id)).contentHash
+			};
+		})
+	);
+	await appraise(db, { id: rook }, items, daysBefore(1));
 
 	const pulses: [PulseInput, number][] = [
 		[
@@ -594,10 +598,10 @@ export function buildStormspire(db: Db): Stormspire {
 		]
 	];
 	for (const [pulse, daysAgo] of pulses) {
-		postPulses(db, { id: forum }, realm.id, [pulse], daysBefore(daysAgo));
+		await postPulses(db, { id: forum }, realm.id, [pulse], daysBefore(daysAgo));
 	}
 
-	rebuildDerived(db, STORMSPIRE_NOW);
+	await rebuildDerived(db, STORMSPIRE_NOW);
 
 	return {
 		realmId: realm.id,

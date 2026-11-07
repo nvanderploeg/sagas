@@ -1,11 +1,10 @@
-import { dirname, join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 
-export const databasePath = process.env.DATABASE_PATH || '/data/sagas.db';
-
-export const dataDir = dirname(resolve(databasePath));
-
-// The local storage driver keeps attachment bytes here, one file per path.
-export const attachmentsDir = join(dataDir, 'attachments');
+export function databaseUrl(): string {
+	const url = process.env.DATABASE_URL;
+	if (!url) throw new Error('DATABASE_URL is not set');
+	return url;
+}
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;

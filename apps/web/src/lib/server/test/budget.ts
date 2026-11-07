@@ -1,2 +1,3 @@
-// The plan's timing budgets are for a developer machine; shared CI runners get four times as long.
-export const budget = (ms: number): number => (process.env.CI ? ms * 4 : ms);
+// Timing budgets assume a developer machine with the database on the same host: twice as long
+// there for the round trips, four times on shared CI runners.
+export const budget = (ms: number): number => ms * (process.env.CI ? 4 : 2);

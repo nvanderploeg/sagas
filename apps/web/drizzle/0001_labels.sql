@@ -1,1 +1,0 @@
-ALTER TABLE `labours` ADD `labels` text DEFAULT '[]' NOT NULL;
