@@ -1,7 +1,7 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, count, eq } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import type { EventSpec } from '../events/types.ts';
-import { realmKeys, realms, labours, quests } from '../db/schema.ts';
+import { realmKeys, realms, labours, quests, users } from '../db/schema.ts';
 import { falloutEvents, prepareLabourDelete } from './cascade.ts';
 import { DomainError } from './errors.ts';
 import { getRealm, getState } from './lookup.ts';
@@ -38,8 +38,11 @@ export async function createRealmWithStates(
 	const name = requireText(input.name, 'Realm name', 120);
 	const key = normalizeRealmKey(input.key);
 	return write(db, actor, async (tx) => {
+		await assertRealmLimit(tx, actor.id);
 		await assertKeyAvailable(tx, key, null);
-		const realm = (await tx.insert(realms).values({ name, key }).returning())[0];
+		const realm = (
+			await tx.insert(realms).values({ name, key, createdByUserId: actor.id }).returning()
+		)[0];
 		await tx.insert(realmKeys).values({ key, realmId: realm.id });
 		await addOwner(tx, realm.id, actor.id);
 		await insertState(tx, realm.id, CLOSED_STATE, { closed: true });
@@ -54,6 +57,22 @@ export async function createRealmWithStates(
 		)[0];
 		return { value, events: [await realmEvent(tx, 'realm.created', realm.id)] };
 	});
+}
+
+async function assertRealmLimit(tx: Handle, userId: number): Promise<void> {
+	const limit = (
+		await tx.select({ n: users.realmLimit }).from(users).where(eq(users.id, userId)).limit(1)
+	)[0]?.n;
+	if (limit === undefined) throw new DomainError('not_found', 'No such User');
+	const made = (
+		await tx.select({ n: count() }).from(realms).where(eq(realms.createdByUserId, userId))
+	)[0].n;
+	if (made >= limit) {
+		throw new DomainError(
+			'forbidden',
+			`Realm limit reached: you may create ${limit} ${limit === 1 ? 'Realm' : 'Realms'}. Ask an Admin to raise it.`
+		);
+	}
 }
 
 export async function updateRealm(

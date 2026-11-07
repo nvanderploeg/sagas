@@ -1,6 +1,9 @@
+import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import type { Actor } from './write.ts';
+import { users } from '#lib/server/db/schema.ts';
+import { addOwner } from './memberships.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { seedActor, seedRealm, seedLabour, TODO } from '#lib/server/test/fixtures.ts';
 import { DomainError } from './errors.ts';
@@ -256,5 +259,57 @@ describe('deleteRealm', () => {
 
 	it('reports a missing Realm as not found', async () => {
 		await expectDomainError(() => deleteRealm(db, actor, 999), 'not_found');
+	});
+});
+
+describe('realm limit', () => {
+	const input = (key: string) => ({ name: key, key, initialState: TODO });
+
+	async function limited(limit: number) {
+		const [row] = await db
+			.insert(users)
+			.values({ kind: 'human', username: 'lim', displayName: 'Lim', realmLimit: limit })
+			.returning({ id: users.id });
+		return { id: row.id };
+	}
+
+	it('refuses a Realm past the limit with a message that names it', async () => {
+		const user = await limited(1);
+		await createRealm(db, user, input('AA'));
+
+		await expect(createRealm(db, user, input('BB'))).rejects.toMatchObject({
+			code: 'forbidden',
+			message: expect.stringContaining('limit') as string
+		});
+		expect(await listRealms(db)).toHaveLength(1);
+	});
+
+	it('allows more once an Admin raises the limit, and none at 0', async () => {
+		const user = await limited(2);
+		await createRealm(db, user, input('AA'));
+		await createRealm(db, user, input('BB'));
+		await expectDomainError(() => createRealm(db, user, input('CC')), 'forbidden');
+
+		const none = await db
+			.update(users)
+			.set({ realmLimit: 0 })
+			.where(eq(users.id, user.id))
+			.returning();
+		expect(none).toHaveLength(1);
+		await expectDomainError(() => createRealm(db, user, input('DD')), 'forbidden');
+	});
+
+	it('counts the Realms a User created, not the ones they joined', async () => {
+		const owner = await limited(1);
+		await createRealm(db, owner, input('AA'));
+		const other = (
+			await db
+				.insert(users)
+				.values({ kind: 'human', username: 'oth', displayName: 'Oth' })
+				.returning({ id: users.id })
+		)[0];
+		await addOwner(db, (await listRealms(db))[0].id, other.id);
+
+		expect((await createRealm(db, other, input('BB'))).key).toBe('BB');
 	});
 });

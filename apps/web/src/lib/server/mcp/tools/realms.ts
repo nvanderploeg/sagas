@@ -114,7 +114,7 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'write',
 			description:
-				'Create a Realm with its Initial State and the built-in Closed State. The key is 2 to 6 letters or digits starting with a letter, unique across the instance, stored uppercase.',
+				'Create a Realm with its Initial State and the built-in Closed State. The key is 2 to 6 letters or digits starting with a letter, unique across the instance, stored uppercase. Refused once you have created as many Realms as your Realm limit allows.',
 			input: {
 				name: z.string().describe('1 to 120 characters'),
 				key: z.string().describe('Realm key, e.g. "AM"'),

@@ -13,8 +13,7 @@ beforeEach(async () => {
 const human = (username = 'ada') => ({
 	kind: 'human' as const,
 	username,
-	displayName: username,
-	passwordHash: 'hash'
+	displayName: username
 });
 
 const agent = (username = 'bot') => ({
@@ -67,17 +66,23 @@ const addLabour = async (
 	)[0];
 
 describe('users', () => {
-	it('stores a human with a password and an agent without one', async () => {
+	it('stores a human and an agent without passwords', async () => {
 		expect((await addUser(human())).id).toBeTypeOf('number');
 		expect((await addUser(agent())).id).toBeTypeOf('number');
 	});
 
-	it('rejects a human without a password hash', async () => {
-		await expect(addUser({ ...human(), passwordHash: null })).rejects.toThrow();
+	it('rejects an agent with a Firebase uid', async () => {
+		await expect(addUser({ ...agent(), firebaseUid: 'uid' })).rejects.toThrow();
 	});
 
-	it('rejects an agent that has a password hash', async () => {
-		await expect(addUser({ ...agent(), passwordHash: 'hash' })).rejects.toThrow();
+	it('rejects a negative realm limit', async () => {
+		await expect(addUser({ ...human(), realmLimit: -1 })).rejects.toThrow();
+	});
+
+	it('rejects two Users with one email and a mixed-case email', async () => {
+		await addUser({ ...human('ada'), email: 'a@x.test' });
+		await expect(addUser({ ...human('bob'), email: 'a@x.test' })).rejects.toThrow();
+		await expect(addUser({ ...human('cy'), email: 'C@x.test' })).rejects.toThrow();
 	});
 
 	it('rejects an agent flagged as Admin', async () => {

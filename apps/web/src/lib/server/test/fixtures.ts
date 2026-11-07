@@ -19,7 +19,7 @@ async function insertUser(db: Db, username: string): Promise<number> {
 	return (
 		await db
 			.insert(users)
-			.values({ kind: 'human', username, displayName: username, passwordHash: 'hash' })
+			.values({ kind: 'human', username, displayName: username, realmLimit: 1000 })
 			.returning({ id: users.id })
 	)[0].id;
 }

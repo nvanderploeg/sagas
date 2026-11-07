@@ -36,15 +36,20 @@ export const users = pgTable(
 		displayName: text('display_name').notNull(),
 		passwordHash: text('password_hash'),
 		mustChangePassword: boolean('must_change_password').notNull().default(false),
+		firebaseUid: text('firebase_uid').unique(),
+		email: text('email'),
+		realmLimit: integer('realm_limit').notNull().default(1),
 		createdAt: now()
 	},
-	() => [
+	(t) => [
+		uniqueIndex('users_email_unique')
+			.on(t.email)
+			.where(sql`${t.email} IS NOT NULL`),
 		check('users_kind', sql.raw(`"kind" IN ('human', 'agent')`)),
 		check('users_username_lower', sql.raw(`"username" = lower("username")`)),
-		check(
-			'users_password_iff_human',
-			sql.raw(`("kind" = 'human') = ("password_hash" IS NOT NULL)`)
-		),
+		check('users_realm_limit', sql.raw(`"realm_limit" >= 0`)),
+		check('users_email_lower', sql.raw(`"email" IS NULL OR "email" = lower("email")`)),
+		check('users_agent_has_no_firebase', sql.raw(`"kind" = 'human' OR "firebase_uid" IS NULL`)),
 		check('users_admin_is_human', sql.raw(`NOT "is_admin" OR "kind" = 'human'`))
 	]
 );
@@ -187,7 +192,10 @@ export const realms = pgTable(
 		name: text('name').notNull(),
 		key: text('key').notNull().unique(),
 		labourCounter: integer('labour_counter').notNull().default(0),
-		initialStateId: integer('initial_state_id')
+		initialStateId: integer('initial_state_id'),
+		createdByUserId: integer('created_by_user_id').references(() => users.id, {
+			onDelete: 'set null'
+		})
 	},
 	(t) => [
 		check('realms_key_format', sql.raw(`"key" ~ '^[A-Z][A-Z0-9]{1,5}$'`)),
