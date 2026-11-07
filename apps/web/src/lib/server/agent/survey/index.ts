@@ -9,6 +9,8 @@ import type { FeatureContext } from './features/types.ts';
 import { sentimentBlock, type SurveySentiment } from './sentiment-block.ts';
 import { checkRequest, type SurveyInput, type SurveyRequest } from './request.ts';
 import { applyWeights, readVocabulary, type Applied } from './weights.ts';
+import { transact } from '#lib/server/db/tx.ts';
+import { intList } from '#lib/server/db/lists.ts';
 
 export type { IncludeClosed, SurveyInput } from './request.ts';
 export { ASSIGNEES_MAX, HAS_MAX, QUERY_MAX, REALMS_MAX } from './request.ts';
@@ -48,36 +50,40 @@ const CONTRIBUTIONS_MAX = 5;
 const EDGE = 1e-12;
 const SENTIMENT_FEATURES = ['sentiment', 'pain', 'delight'];
 
-export function survey(
+export async function survey(
 	db: Db,
 	actor: Actor,
 	input: SurveyInput,
 	opts: { now?: Date; random?: () => number; queryVector?: Float32Array } = {}
-): SurveyResult {
+): Promise<SurveyResult> {
 	const now = opts.now ?? new Date();
 	const random = opts.random ?? Math.random;
-	return db.transaction((tx) => {
-		const request = checkRequest(tx, actor, input);
+	return transact(db, async (tx) => {
+		const request = await checkRequest(tx, actor, input);
 		return runSurvey(tx, actor, request, now, random, opts.queryVector);
 	});
 }
 
-export function pruneSurveys(db: Handle, retentionMs: number, now = Date.now()): number {
-	return db
-		.delete(surveys)
-		.where(lt(surveys.createdAt, new Date(now - retentionMs)))
-		.run().changes;
+export async function pruneSurveys(
+	db: Handle,
+	retentionMs: number,
+	now = Date.now()
+): Promise<number> {
+	return (
+		(await db.delete(surveys).where(lt(surveys.createdAt, new Date(now - retentionMs)))).rowCount ??
+		0
+	);
 }
 
-function runSurvey(
+async function runSurvey(
 	tx: Handle,
 	actor: Actor,
 	request: SurveyRequest,
 	now: Date,
 	random: () => number,
 	queryVector?: Float32Array
-): SurveyResult {
-	const candidates = loadCandidates(
+): Promise<SurveyResult> {
+	const candidates = await loadCandidates(
 		tx,
 		{
 			...request.filter,
@@ -89,17 +95,17 @@ function runSurvey(
 		now.getTime()
 	);
 
-	const vocabulary = readVocabulary(tx, request.realmIds);
+	const vocabulary = await readVocabulary(tx, request.realmIds);
 	const context: FeatureContext = {
 		db: tx,
 		candidates,
-		candidateIds: JSON.stringify(candidates.map((candidate) => candidate.id)),
+		candidateIds: candidates.map((candidate) => candidate.id),
 		query: request.query,
 		forUserId: request.forUserId,
 		now,
 		queryVector
 	};
-	const { applied, ignored } = applyWeights(context, request.weights, vocabulary);
+	const { applied, ignored } = await applyWeights(context, request.weights, vocabulary);
 	const shown = (request.show ?? []).filter((key) => vocabulary.attributeKeys.has(key));
 	for (const key of request.show ?? []) {
 		if (!vocabulary.attributeKeys.has(key) && !ignored.includes(key)) ignored.push(key);
@@ -114,7 +120,8 @@ function runSurvey(
 
 	const top = order.slice(0, request.limit);
 	const picked = top.map((index) => candidates[index]);
-	const attributeValues = request.show === undefined ? undefined : readShown(tx, picked, shown);
+	const attributeValues =
+		request.show === undefined ? undefined : await readShown(tx, picked, shown);
 	const results = top.map((index): SurveyResultItem => {
 		const candidate = candidates[index];
 		return {
@@ -132,7 +139,7 @@ function runSurvey(
 	});
 
 	const sentiment = applied.some((column) => SENTIMENT_FEATURES.includes(column.key))
-		? sentimentBlock(context, picked)
+		? await sentimentBlock(context, picked)
 		: [];
 
 	const missing: Record<string, number> = {};
@@ -141,22 +148,23 @@ function runSurvey(
 	const coverage: SurveyCoverage = {
 		candidates: candidates.length,
 		unappraised: candidates.length - stamped.length,
-		stale: countStale(tx, stamped),
-		unembedded: candidates.length - embeddedCount(context),
+		stale: await countStale(tx, stamped),
+		unembedded: candidates.length - (await embeddedCount(context)),
 		missing
 	};
 
-	const { id } = tx
-		.insert(surveys)
-		.values({
-			actorId: actor.id,
-			forId: request.forUserId,
-			request,
-			results: results.map(({ labourId, score }) => ({ labour: labourId, score })),
-			createdAt: now
-		})
-		.returning({ id: surveys.id })
-		.get();
+	const { id } = (
+		await tx
+			.insert(surveys)
+			.values({
+				actorId: actor.id,
+				forId: request.forUserId,
+				request,
+				results: results.map(({ labourId, score }) => ({ labour: labourId, score })),
+				createdAt: now
+			})
+			.returning({ id: surveys.id })
+	)[0];
 	return { surveyId: id, results, sentiment, coverage, ignored };
 }
 
@@ -191,16 +199,16 @@ function contributionsOf(applied: Applied[], labourId: number): Record<string, n
 }
 
 // Format as readValues in agent/attributes.ts: the stored value.
-function readShown(
+async function readShown(
 	tx: Handle,
 	picked: Candidate[],
 	keys: string[]
-): Map<number, Record<string, unknown>> {
+): Promise<Map<number, Record<string, unknown>>> {
 	const byLabour = new Map(
 		picked.map((candidate) => [candidate.id, {} as Record<string, unknown>])
 	);
 	if (keys.length === 0 || picked.length === 0) return byLabour;
-	const rows = tx
+	const rows = await tx
 		.select({
 			labourId: labourAttributes.labourId,
 			key: attributes.key,
@@ -209,9 +217,8 @@ function readShown(
 		.from(labourAttributes)
 		.innerJoin(attributes, eq(attributes.id, labourAttributes.attributeId))
 		.where(
-			sql`${labourAttributes.labourId} IN (SELECT value FROM json_each(${JSON.stringify(picked.map((candidate) => candidate.id))})) AND ${inArray(attributes.key, keys)}`
-		)
-		.all();
+			sql`${labourAttributes.labourId} IN ${intList(picked.map((candidate) => candidate.id))} AND ${inArray(attributes.key, keys)}`
+		);
 	const held = new Map(rows.map((row) => [`${row.labourId}:${row.key}`, row.value]));
 	for (const candidate of picked) {
 		const values = byLabour.get(candidate.id)!;
@@ -224,10 +231,10 @@ function readShown(
 }
 
 // Rebuilds each stamped candidate's hash from two batched reads, never one read per Labour.
-function countStale(tx: Handle, stamped: Candidate[]): number {
+async function countStale(tx: Handle, stamped: Candidate[]): Promise<number> {
 	if (stamped.length === 0) return 0;
-	const ids = JSON.stringify(stamped.map((candidate) => candidate.id));
-	const rows = tx
+	const ids = stamped.map((candidate) => candidate.id);
+	const rows = await tx
 		.select({
 			id: labours.id,
 			title: labours.title,
@@ -235,15 +242,13 @@ function countStale(tx: Handle, stamped: Candidate[]): number {
 			labels: labours.labels
 		})
 		.from(labours)
-		.where(sql`${labours.id} IN (SELECT value FROM json_each(${ids}))`)
-		.all();
+		.where(sql`${labours.id} IN ${intList(ids)}`);
 	const bodies = new Map<number, string[]>();
-	const comment = tx
+	const comment = await tx
 		.select({ labourId: comments.labourId, body: comments.body })
 		.from(comments)
-		.where(sql`${comments.labourId} IN (SELECT value FROM json_each(${ids}))`)
-		.orderBy(asc(comments.labourId), asc(comments.id))
-		.all();
+		.where(sql`${comments.labourId} IN ${intList(ids)}`)
+		.orderBy(asc(comments.labourId), asc(comments.id));
 	for (const { labourId, body } of comment) {
 		const list = bodies.get(labourId);
 		if (list === undefined) bodies.set(labourId, [body]);

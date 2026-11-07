@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { GET as labourRoute } from '../../../routes/api/agent/labours/[id]/+server.ts';
 import { GET as meRoute } from '../../../routes/api/agent/me/+server.ts';
 import { GET as realmRoute } from '../../../routes/api/agent/realms/[id]/+server.ts';
@@ -16,17 +16,13 @@ const signedOut = { user: null, credential: null };
 
 let db: Db;
 
-beforeEach(() => {
-	db = testDb();
-});
-
-afterEach(() => {
-	db.$client.close();
+beforeEach(async () => {
+	db = await testDb();
 });
 
 describe('answerSession', () => {
 	it('answers a session with the read as JSON', async () => {
-		const response = answerSession(asSession, () => ({ at: new Date(0), n: 1 }));
+		const response = await answerSession(asSession, () => ({ at: new Date(0), n: 1 }));
 		expect(response.status).toBe(200);
 		expect(await response.json()).toEqual({ at: '1970-01-01T00:00:00.000Z', n: 1 });
 	});
@@ -37,24 +33,24 @@ describe('answerSession', () => {
 		['a credential without a User', { user: null, credential: sessionCredential('s') }]
 	])('answers %s with 401 and never reads', async (_name, locals) => {
 		let read = false;
-		const response = answerSession(locals, () => (read = true));
+		const response = await answerSession(locals, () => (read = true));
 		expect(response.status).toBe(401);
 		expect(await response.json()).toEqual({ error: 'unauthorized' });
 		expect(read).toBe(false);
 	});
 
 	it('answers an unknown id with 404', async () => {
-		const response = answerSession(asSession, () => readLabourLayer(db, { id: 1 }, 999));
+		const response = await answerSession(asSession, () => readLabourLayer(db, { id: 1 }, 999));
 		expect(response.status).toBe(404);
 		expect(await response.json()).toEqual({ error: 'not found' });
 	});
 
-	it('lets other failures through', () => {
-		expect(() =>
+	it('lets other failures through', async () => {
+		await expect(
 			answerSession(asSession, () => {
 				throw new Error('boom');
 			})
-		).toThrow('boom');
+		).rejects.toThrow('boom');
 	});
 });
 

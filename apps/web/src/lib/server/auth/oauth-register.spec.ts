@@ -9,8 +9,8 @@ const CALLBACK = OAUTH_REDIRECT_URIS[0];
 const NOW = new Date('2026-01-01T00:00:00Z');
 
 let db: Db;
-beforeEach(() => {
-	db = testDb();
+beforeEach(async () => {
+	db = await testDb();
 	resetThrottle();
 });
 
@@ -42,7 +42,7 @@ describe('handleRegistration', () => {
 			response_types: ['code'],
 			client_id_issued_at: NOW.getTime() / 1000
 		});
-		expect(getClient(db, body.client_id)).toMatchObject({
+		expect(await getClient(db, body.client_id)).toMatchObject({
 			name: 'Claude',
 			redirectUris: [CALLBACK],
 			authMethod: 'none'
@@ -61,7 +61,7 @@ describe('handleRegistration', () => {
 		expect(body.client_secret).toEqual(expect.any(String));
 		expect(body.client_secret_expires_at).toBe(0);
 		expect(body).not.toHaveProperty('scope');
-		expect(getClient(db, body.client_id)?.authMethod).toBe('client_secret_post');
+		expect((await getClient(db, body.client_id))?.authMethod).toBe('client_secret_post');
 	});
 
 	it('sets cache-control: no-store', async () => {

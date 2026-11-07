@@ -7,8 +7,8 @@ import { acceptInvite, isInviteOpen } from '#lib/server/auth/invites.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ params }) => ({
-	open: isInviteOpen(getDb(), params.token ?? '')
+export const load: PageServerLoad = async ({ params }) => ({
+	open: await isInviteOpen(getDb(), params.token ?? '')
 });
 
 export const actions: Actions = {
@@ -23,7 +23,7 @@ export const actions: Actions = {
 				displayName,
 				password: field(form, 'password')
 			});
-			const session = createSession(db, user.id);
+			const session = await createSession(db, user.id);
 			setSessionCookie(cookies, url, session.token, session.expiresAt);
 		} catch (error) {
 			if (error instanceof DomainError) {

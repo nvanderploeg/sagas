@@ -47,8 +47,8 @@ export function freshKey(prefix = 'U'): string {
 
 // Writes go straight to the run's DB with the given User as actor; a running page sees them only
 // after a reload, never live.
-export function createUiSeed(db: Db, actorId: number) {
-	const actor = findUser(db, actorId);
+export async function createUiSeed(db: Db, actorId: number) {
+	const actor = await findUser(db, actorId);
 	if (!actor) throw new Error(`no user ${actorId} in the run database`);
 
 	// Users every new Realm is shared with as an Owner, so a second browser can use it fully.
@@ -60,29 +60,29 @@ export function createUiSeed(db: Db, actorId: number) {
 		},
 
 		// Adds a User to a Realm: the Owner's Offer, accepted.
-		join(realmId: number, userId: number, role: 'owner' | 'editor' | 'viewer' = 'editor') {
-			offerMembership(db, actor, realmId, userId, role);
-			acceptOffer(db, findUser(db, userId)!, realmId);
+		async join(realmId: number, userId: number, role: 'owner' | 'editor' | 'viewer' = 'editor') {
+			await offerMembership(db, actor, realmId, userId, role);
+			await acceptOffer(db, (await findUser(db, userId))!, realmId);
 		},
 
 		// A Realm with To do, In progress and Closed.
-		realm(input: { key?: string; name?: string } = {}) {
+		async realm(input: { key?: string; name?: string } = {}) {
 			const key = input.key ?? freshKey();
-			const realm = createRealm(db, actor, {
+			const realm = await createRealm(db, actor, {
 				name: input.name ?? `Board ${key}`,
 				key,
 				initialState: { key: 'todo', label: 'To do', color: '#94a3b8', icon: 'circle' }
 			});
 			for (const userId of sharedWith) {
-				self.join(realm.id, userId, 'owner');
+				await self.join(realm.id, userId, 'owner');
 			}
-			const doing = createState(db, actor, realm.id, {
+			const doing = await createState(db, actor, realm.id, {
 				key: 'doing',
 				label: 'In progress',
 				color: '#eab308',
 				icon: 'half'
 			});
-			const view = readRealm(db, realm.id);
+			const view = await readRealm(db, realm.id);
 			const closed = view.states.find((s) => s.isClosed)!;
 			return {
 				id: realm.id,
@@ -142,15 +142,15 @@ export function createUiSeed(db: Db, actorId: number) {
 
 		comment: (labourId: number, body: string) => addComment(db, actor, labourId, body),
 
-		attribute: (realmId: number, input: AttributeInput) =>
-			defineAttribute(db, actor, realmId, input).attribute,
+		attribute: async (realmId: number, input: AttributeInput) =>
+			(await defineAttribute(db, actor, realmId, input)).attribute,
 		tune: (realmId: number, input: { notes?: string; halfLifeDays?: number; loudness?: number }) =>
 			tuneRealm(db, actor, realmId, input),
 		values: (labourId: number, values: Record<string, unknown>) =>
 			setValues(db, actor, labourId, values),
 		appraise: (items: AppraiseItem[]) => appraise(db, actor, items),
-		appraiseAs: (userId: number, items: AppraiseItem[]) =>
-			appraise(db, findUser(db, userId)!, items),
+		appraiseAs: async (userId: number, items: AppraiseItem[]) =>
+			appraise(db, (await findUser(db, userId))!, items),
 		contentHash: (labourId: number) => contentHash(db, labourId),
 		skill: (input: SkillInput) => defineSkill(db, actor, input),
 		skills: (userId: number, levels: Record<string, number | null>) =>
@@ -158,20 +158,18 @@ export function createUiSeed(db: Db, actorId: number) {
 		pulses: (realmId: number, items: PulseInput[]) => postPulses(db, actor, realmId, items),
 
 		// `member` is null for a scale Attribute.
-		affinity(userId: number, attributeId: number, member: string | null, rawKey: string) {
-			db.insert(pulses)
-				.values({
-					userId,
-					attributeId,
-					member,
-					rawKey,
-					amount: 2,
-					mood: 1,
-					halfLifeDays: null,
-					note: 'seeded',
-					authorId: actor.id
-				})
-				.run();
+		async affinity(userId: number, attributeId: number, member: string | null, rawKey: string) {
+			await db.insert(pulses).values({
+				userId,
+				attributeId,
+				member,
+				rawKey,
+				amount: 2,
+				mood: 1,
+				halfLifeDays: null,
+				note: 'seeded',
+				authorId: actor.id
+			});
 		},
 
 		readQuest: (questId: number) => readQuest(db, questId),
@@ -183,11 +181,11 @@ export function createUiSeed(db: Db, actorId: number) {
 
 		// A second human, signed up through an Invite.
 		async human(username: string, displayName: string, password: string) {
-			const { token } = createInvite(db, actor);
+			const { token } = await createInvite(db, actor);
 			return acceptInvite(db, token, { username, displayName, password });
 		}
 	};
 	return self;
 }
 
-export type UiSeed = ReturnType<typeof createUiSeed>;
+export type UiSeed = Awaited<ReturnType<typeof createUiSeed>>;

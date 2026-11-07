@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { Db, Handle } from '#lib/server/db/client.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import { addComment, deleteComment, editComment } from '#lib/server/domain/comments.ts';
@@ -64,18 +64,14 @@ import type { BoardView, LiveEvent, Labour, LabourPageView } from './types.ts';
 let db: Db;
 let actor: Actor;
 
-beforeEach(() => {
-	db = testDb();
-	actor = seedActor(db);
+beforeEach(async () => {
+	db = await testDb();
+	actor = await seedActor(db);
 });
 
-afterEach(() => {
-	db.$client.close();
-});
-
-function loadOrNull<T>(read: (tx: Handle) => T): { seq: number; value: T } | null {
+async function loadOrNull<T>(read: (tx: Handle) => T): Promise<{ seq: number; value: T } | null> {
 	try {
-		const loaded = readAtSeq(db, read);
+		const loaded = await readAtSeq(db, read);
 		return { seq: loaded.seq, value: toJson(loaded.value) as T };
 	} catch (error) {
 		if (error instanceof DomainError && error.code === 'not_found') return null;
@@ -83,17 +79,17 @@ function loadOrNull<T>(read: (tx: Handle) => T): { seq: number; value: T } | nul
 	}
 }
 
-type Probe = { name: string; check: () => void };
+type Probe = { name: string; check: () => Promise<void> };
 
 // A client view: loaded with its seq, attached to the Feed, reloaded when it asks.
-function view<T>(
+async function view<T>(
 	feed: FeedCore,
 	name: string,
 	read: (tx: Handle) => unknown,
 	apply: Apply<T>,
 	normal: (value: T | null) => unknown = (v) => v
-): Probe {
-	const loaded = loadOrNull(read)!;
+): Promise<Probe> {
+	const loaded = (await loadOrNull(read))!;
 	let reload = false;
 	const core = new LiveCore<T>({
 		seq: loaded.seq,
@@ -104,13 +100,13 @@ function view<T>(
 	core.connect(feed);
 	return {
 		name,
-		check() {
+		async check() {
 			if (reload) {
 				reload = false;
-				const fresh = loadOrNull(read);
+				const fresh = await loadOrNull(read);
 				if (fresh) core.load(fresh.value as T, fresh.seq);
 			}
-			const fresh = loadOrNull(read);
+			const fresh = await loadOrNull(read);
 			expect(normal(core.value), name).toEqual(normal((fresh?.value as T) ?? null));
 		}
 	};
@@ -125,42 +121,50 @@ const boardOrder = (board: BoardView | null) =>
 	};
 
 describe('the client views, fed by the Stream', () => {
-	it('equal a fresh load after every write of the replica scenario', () => {
+	it('equal a fresh load after every write of the replica scenario', async () => {
 		const style = (key: string) => ({ key, label: key, color: '#000000', icon: 'dot' });
 		const realm = (key: string) => createRealm(db, actor, { name: key, key, initialState: TODO });
 		const labour = (realmId: number, parentId: number | null = null) =>
 			createLabour(db, actor, { realmId, title: 't', ownerId: actor.id, parentId });
-		const other = seedUser(db, 'other');
+		const other = await seedUser(db, 'other');
 		let firstComment = 0;
 		let secondComment = 0;
-		const am = realm('AM');
-		const bl = realm('BL');
-		const cc = realm('CC');
-		const quest = createQuest(db, actor, {
-			realmId: anyRealmId(db),
+		const am = await realm('AM');
+		const bl = await realm('BL');
+		const cc = await realm('CC');
+		const quest = await createQuest(db, actor, {
+			realmId: await anyRealmId(db),
 			name: 'Launch',
 			ownerId: actor.id
 		});
-		const closedOf = (realmId: number) => listStates(db, realmId).find((s) => s.isClosed)!.id;
+		const closedOf = async (realmId: number) =>
+			(await listStates(db, realmId)).find((s) => s.isClosed)!.id;
 
 		const feed = new FeedCore();
 		feed.start(0);
 		let pushed = 0;
-		const deliver = () => {
-			for (const event of toJson(eventsSince(db, pushed)) as LiveEvent[]) {
+		const deliver = async () => {
+			for (const event of toJson(await eventsSince(db, pushed)) as LiveEvent[]) {
 				feed.push(event);
 				pushed = event.seq;
 			}
 		};
 
 		const probes: Probe[] = [
-			...[am, bl, cc].map((p) =>
-				view(feed, `board ${p.key}`, (tx) => readBoard(tx, p.id), applyToBoard(p.id), boardOrder)
-			),
-			view(feed, 'quest page', (tx) => readQuestPage(tx, actor, quest.id), applyToQuestPage),
-			view(feed, 'quest list', (tx) => readQuestList(tx, actor), applyToQuestList),
-			view(feed, 'home', (tx) => readHome(tx, actor), applyToHome(actor.id)),
-			view(feed, 'settings AM', (tx) => ({ realm: readRealm(tx, am.id) }), applyToSettings)
+			...(await Promise.all(
+				[am, bl, cc].map((p) =>
+					view(feed, `board ${p.key}`, (tx) => readBoard(tx, p.id), applyToBoard(p.id), boardOrder)
+				)
+			)),
+			await view(feed, 'quest page', (tx) => readQuestPage(tx, actor, quest.id), applyToQuestPage),
+			await view(feed, 'quest list', (tx) => readQuestList(tx, actor), applyToQuestList),
+			await view(feed, 'home', (tx) => readHome(tx, actor), applyToHome(actor.id)),
+			await view(
+				feed,
+				'settings AM',
+				async (tx) => ({ realm: await readRealm(tx, am.id) }),
+				applyToSettings
+			)
 		];
 
 		let a = 0;
@@ -171,20 +175,25 @@ describe('the client views, fed by the Stream', () => {
 		const writes: [string, () => unknown][] = [
 			[
 				'create Labours across Realms',
-				() => {
-					a = labour(am.id).id;
-					b = labour(bl.id, a).id;
-					c = labour(cc.id, a).id;
-					d = labour(am.id).id;
-					e = labour(am.id, d).id;
+				async () => {
+					a = (await labour(am.id)).id;
+					b = (await labour(bl.id, a)).id;
+					c = (await labour(cc.id, a)).id;
+					d = (await labour(am.id)).id;
+					e = (await labour(am.id, d)).id;
 				}
 			],
 			[
 				'open Labour pages',
-				() => {
+				async () => {
 					for (const id of [a, b, d, e]) {
 						probes.push(
-							view(feed, `labour ${id}`, (tx) => readLabourPage(tx, actor, id), applyToLabourPage)
+							await view(
+								feed,
+								`labour ${id}`,
+								(tx) => readLabourPage(tx, actor, id),
+								applyToLabourPage
+							)
 						);
 					}
 				}
@@ -194,15 +203,19 @@ describe('the client views, fed by the Stream', () => {
 			['add across Realms', () => addQuestLabour(db, actor, quest.id, c, 'top')],
 			[
 				'a second Quest',
-				() => createQuest(db, actor, { realmId: anyRealmId(db), name: 'Other', ownerId: other })
+				async () =>
+					createQuest(db, actor, { realmId: await anyRealmId(db), name: 'Other', ownerId: other })
 			],
 			['edit a member', () => updateLabour(db, actor, a, { title: 'renamed' })],
 			['assign away', () => updateLabour(db, actor, b, { assigneeId: other })],
 			['hand over', () => updateLabour(db, actor, b, { ownerId: other })],
-			['close a member', () => updateLabour(db, actor, d, { stateId: closedOf(am.id) })],
+			[
+				'close a member',
+				async () => updateLabour(db, actor, d, { stateId: await closedOf(am.id) })
+			],
 			['first Substate', () => createSubstate(db, actor, am.initialStateId!, style('review'))],
 			['add a State', () => createState(db, actor, am.id, style('doing'))],
-			['move a State', () => moveState(db, actor, listStates(db, am.id)[1].id, 0)],
+			['move a State', async () => moveState(db, actor, (await listStates(db, am.id))[1].id, 0)],
 			['restyle a State', () => updateState(db, actor, am.initialStateId!, { label: 'Next' })],
 			['rank a member', () => rankLabour(db, actor, e, 'top')],
 			['rank through an update', () => updateLabour(db, actor, a, { placement: 'top' })],
@@ -213,8 +226,11 @@ describe('the client views, fed by the Stream', () => {
 			['reparent', () => setParent(db, actor, d, b)],
 			['clear a Parent', () => setParent(db, actor, c, null)],
 			['rank in the Quest', () => rankQuestLabour(db, actor, quest.id, a, 'top')],
-			['comment', () => (firstComment = addComment(db, actor, a, 'first').id)],
-			['comment on a Child', () => (secondComment = addComment(db, { id: other }, d, 'second').id)],
+			['comment', async () => (firstComment = (await addComment(db, actor, a, 'first')).id)],
+			[
+				'comment on a Child',
+				async () => (secondComment = (await addComment(db, { id: other }, d, 'second')).id)
+			],
 			['edit a comment', () => editComment(db, actor, firstComment, 'edited')],
 			['delete a comment', () => deleteComment(db, { id: other }, secondComment)],
 			['remove from the Quest', () => removeQuestLabour(db, actor, quest.id, e)],
@@ -226,11 +242,11 @@ describe('the client views, fed by the Stream', () => {
 		];
 
 		for (const [step, run] of writes) {
-			run();
-			deliver();
+			await run();
+			await deliver();
 			for (const probe of probes) {
 				try {
-					probe.check();
+					await probe.check();
 				} catch (error) {
 					throw new Error(`${probe.name} after ${step}: ${(error as Error).message}`, {
 						cause: error
@@ -242,27 +258,39 @@ describe('the client views, fed by the Stream', () => {
 });
 
 describe('applyToBoard', () => {
-	it('hands back the same board for every Event about another Realm', () => {
-		const am = createRealm(db, actor, { name: 'AM', key: 'AM', initialState: TODO });
-		const bl = createRealm(db, actor, { name: 'BL', key: 'BL', initialState: TODO });
-		createLabour(db, actor, { realmId: am.id, title: 'here', ownerId: actor.id });
-		const loaded = loadOrNull((tx) => readBoard(tx, am.id))!;
+	it('hands back the same board for every Event about another Realm', async () => {
+		const am = await createRealm(db, actor, { name: 'AM', key: 'AM', initialState: TODO });
+		const bl = await createRealm(db, actor, { name: 'BL', key: 'BL', initialState: TODO });
+		await createLabour(db, actor, { realmId: am.id, title: 'here', ownerId: actor.id });
+		const loaded = (await loadOrNull((tx) => readBoard(tx, am.id)))!;
 		const style = { key: 'doing', label: 'Doing', color: '#000000', icon: 'dot' };
 
-		const there = createLabour(db, actor, { realmId: bl.id, title: 'there', ownerId: actor.id });
-		const sibling = createLabour(db, actor, { realmId: bl.id, title: 'x', ownerId: actor.id });
-		updateLabour(db, actor, there.id, { title: 'renamed' });
-		updateLabour(db, actor, there.id, { placement: 'top' });
-		rankLabour(db, actor, sibling.id, 'top');
-		setParent(db, actor, sibling.id, there.id);
-		createState(db, actor, bl.id, style);
-		const quest = createQuest(db, actor, { realmId: anyRealmId(db), name: 'Q', ownerId: actor.id });
-		addQuestLabour(db, actor, quest.id, there.id);
-		renameRealmKey(db, actor, bl.id, 'BX');
-		deleteLabour(db, actor, sibling.id);
-		deleteRealm(db, actor, bl.id);
+		const there = await createLabour(db, actor, {
+			realmId: bl.id,
+			title: 'there',
+			ownerId: actor.id
+		});
+		const sibling = await createLabour(db, actor, {
+			realmId: bl.id,
+			title: 'x',
+			ownerId: actor.id
+		});
+		await updateLabour(db, actor, there.id, { title: 'renamed' });
+		await updateLabour(db, actor, there.id, { placement: 'top' });
+		await rankLabour(db, actor, sibling.id, 'top');
+		await setParent(db, actor, sibling.id, there.id);
+		await createState(db, actor, bl.id, style);
+		const quest = await createQuest(db, actor, {
+			realmId: await anyRealmId(db),
+			name: 'Q',
+			ownerId: actor.id
+		});
+		await addQuestLabour(db, actor, quest.id, there.id);
+		await renameRealmKey(db, actor, bl.id, 'BX');
+		await deleteLabour(db, actor, sibling.id);
+		await deleteRealm(db, actor, bl.id);
 
-		const events = toJson(eventsSince(db, loaded.seq)) as LiveEvent[];
+		const events = toJson(await eventsSince(db, loaded.seq)) as LiveEvent[];
 		expect(new Set(events.map((e) => e.type)).size).toBeGreaterThan(8);
 		const board = loaded.value as unknown as BoardView;
 		const apply = applyToBoard(am.id);
@@ -271,16 +299,16 @@ describe('applyToBoard', () => {
 });
 
 describe('applyToLabourPage', () => {
-	it("applies one's own new Parent from the view it shows, and reloads for any other", () => {
-		const am = createRealm(db, actor, { name: 'AM', key: 'AM', initialState: TODO });
+	it("applies one's own new Parent from the view it shows, and reloads for any other", async () => {
+		const am = await createRealm(db, actor, { name: 'AM', key: 'AM', initialState: TODO });
 		const labour = (title: string) =>
 			createLabour(db, actor, { realmId: am.id, title, ownerId: actor.id });
-		const [kid, a, b] = [labour('kid'), labour('a'), labour('b')];
-		const loaded = loadOrNull((tx) => readLabourPage(tx, actor, kid.id))!;
+		const [kid, a, b] = [await labour('kid'), await labour('a'), await labour('b')];
+		const loaded = (await loadOrNull((tx) => readLabourPage(tx, actor, kid.id)))!;
 		const page = loaded.value as unknown as LabourPageView;
-		setParent(db, actor, kid.id, a.id);
-		const [event] = toJson(eventsSince(db, loaded.seq)) as LiveEvent[];
-		const parent = (id: number) => toJson(readLabour(db, id)) as Labour;
+		await setParent(db, actor, kid.id, a.id);
+		const [event] = toJson(await eventsSince(db, loaded.seq)) as LiveEvent[];
+		const parent = async (id: number) => toJson(await readLabour(db, id)) as Labour;
 		const showing = (p: Labour) => ({
 			...page,
 			labour: { ...page.labour, parentId: p.id },
@@ -288,10 +316,10 @@ describe('applyToLabourPage', () => {
 		});
 
 		expect(applyToLabourPage(page, event)).toBe(RELOAD);
-		expect(applyToLabourPage(page, event, showing(parent(b.id)))).toBe(RELOAD);
-		expect(applyToLabourPage(page, event, showing(parent(a.id)))).toMatchObject({
+		expect(applyToLabourPage(page, event, showing(await parent(b.id)))).toBe(RELOAD);
+		expect(applyToLabourPage(page, event, showing(await parent(a.id)))).toMatchObject({
 			labour: { id: kid.id, parentId: a.id },
-			parent: parent(a.id)
+			parent: await parent(a.id)
 		});
 	});
 });

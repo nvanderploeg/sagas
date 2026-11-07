@@ -25,22 +25,26 @@ export function registerOutcomeTools({ db, actor, define }: Tools): void {
 					.describe(`1 to ${OUTCOMES_MAX} Outcomes`)
 			}
 		},
-		(args) => {
-			const results = reportOutcomes(
+		async (args) => {
+			const results = await reportOutcomes(
 				db,
 				actor,
 				args.survey,
-				args.outcomes.map((item) => ({
-					labourId: refs.labourId(db, item.labour, actor),
-					verdict: item.verdict
-				}))
+				await Promise.all(
+					args.outcomes.map(async (item) => ({
+						labourId: await refs.labourId(db, item.labour, actor),
+						verdict: item.verdict
+					}))
+				)
 			);
 			const data = {
-				outcomes: results.map((result) => ({
-					labour: refs.labourKey(db, result.labourId),
-					verdict: result.verdict,
-					recorded: result.recorded
-				}))
+				outcomes: await Promise.all(
+					results.map(async (result) => ({
+						labour: await refs.labourKey(db, result.labourId),
+						verdict: result.verdict,
+						recorded: result.recorded
+					}))
+				)
 			};
 			const fresh = results.filter((result) => result.recorded).length;
 			return reply(

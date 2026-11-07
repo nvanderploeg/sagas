@@ -34,8 +34,8 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 				'List every User, human or agent. Owners and Assignees are Users, named by username.',
 			input: {}
 		},
-		() => {
-			const users = listUsers(db).map(userSummary);
+		async () => {
+			const users = (await listUsers(db)).map(userSummary);
 			return reply(
 				{ users },
 				`${count(users.length, 'User')}: ${users.map((u) => u.username).join(', ')}`
@@ -51,8 +51,8 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 				'Admin only. Create a single-use Invite. Returns `path`, its accept page, where a person sets a username and password. Join `path` to the origin you connect to (the scheme, host and port of this MCP URL) to get the link to share. The link is shown only now.',
 			input: {}
 		},
-		() => {
-			const invite = createInvite(db, actor);
+		async () => {
+			const invite = await createInvite(db, actor);
 			const path = `/invite/${invite.token}`;
 			return reply(
 				{ id: invite.id, path },
@@ -68,16 +68,18 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 			description: 'Admin only. List every Invite, and who used it.',
 			input: {}
 		},
-		() => {
-			const name = (id: number | null) =>
-				id === null ? null : (findUser(db, id)?.username ?? null);
-			const invites = listInvites(db, actor).map((invite) => ({
-				id: invite.id,
-				createdBy: name(invite.createdByUserId),
-				createdAt: invite.createdAt.toISOString(),
-				usedBy: name(invite.usedByUserId),
-				usedAt: iso(invite.usedAt)
-			}));
+		async () => {
+			const name = async (id: number | null) =>
+				id === null ? null : ((await findUser(db, id))?.username ?? null);
+			const invites = await Promise.all(
+				(await listInvites(db, actor)).map(async (invite) => ({
+					id: invite.id,
+					createdBy: await name(invite.createdByUserId),
+					createdAt: invite.createdAt.toISOString(),
+					usedBy: await name(invite.usedByUserId),
+					usedAt: iso(invite.usedAt)
+				}))
+			);
 			const open = invites.filter((i) => i.usedBy === null).length;
 			return reply({ invites }, `${count(invites.length, 'Invite')}, ${open} unused`);
 		}
@@ -96,8 +98,8 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 				displayName: z.string().describe('1 to 100 characters')
 			}
 		},
-		(args) => {
-			const user = userSummary(createAgentUser(db, actor, args));
+		async (args) => {
+			const user = userSummary(await createAgentUser(db, actor, args));
 			return reply({ user }, `Created ${userLine(user)}`);
 		}
 	);
@@ -110,9 +112,9 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 				"List a User's API tokens, without their secrets. You can manage your own tokens; an Admin can also manage an Agent user's.",
 			input: { user: userRef.optional().describe('Username, "me" or id; defaults to you') }
 		},
-		(args) => {
-			const userId = args.user === undefined ? actor.id : refs.userId(db, args.user, actor);
-			const listed = listApiTokens(db, actor, userId);
+		async (args) => {
+			const userId = args.user === undefined ? actor.id : await refs.userId(db, args.user, actor);
+			const listed = await listApiTokens(db, actor, userId);
 			const now = new Date();
 			const live = listed.filter(
 				(t) => t.revokedAt === null && (t.expiresAt === null || t.expiresAt > now)
@@ -141,9 +143,9 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 				name: z.string().describe('What the token is for, 1 to 100 characters')
 			}
 		},
-		(args) => {
-			const userId = args.user === undefined ? actor.id : refs.userId(db, args.user, actor);
-			const { id, token } = createApiToken(db, actor, userId, args.name);
+		async (args) => {
+			const userId = args.user === undefined ? actor.id : await refs.userId(db, args.user, actor);
+			const { id, token } = await createApiToken(db, actor, userId, args.name);
 			return reply({ id, token }, `API token ${id} created; its secret is shown only now`);
 		}
 	);
@@ -162,8 +164,8 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 					.describe('API token id')
 			}
 		},
-		(args) => {
-			revokeApiToken(db, actor, args.token);
+		async (args) => {
+			await revokeApiToken(db, actor, args.token);
 			return reply({ revoked: args.token }, `Revoked API token ${args.token}`);
 		}
 	);

@@ -6,9 +6,9 @@ import { int, perform, signedIn, text } from '#lib/server/ui/form.ts';
 import { readQuestList, toJson } from '#lib/server/ui/reads.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ locals }) => {
+export const load: PageServerLoad = async ({ locals }) => {
 	const viewer = signedIn(locals);
-	const { seq, value } = readAtSeq(getDb(), (tx) => readQuestList(tx, viewer));
+	const { seq, value } = await readAtSeq(getDb(), (tx) => readQuestList(tx, viewer));
 	return { seq, list: toJson(value) };
 };
 
@@ -16,8 +16,8 @@ export const actions: Actions = {
 	create: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const result = perform('create', () => {
-			const quest = createQuest(getDb(), actor, {
+		const result = await perform('create', async () => {
+			const quest = await createQuest(getDb(), actor, {
 				realmId: int(form, 'realmId'),
 				name: text(form, 'name'),
 				description: text(form, 'description'),

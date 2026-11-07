@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { readBoard } from '#lib/server/domain/realms.ts';
 import { rankLabour, updateLabour } from '#lib/server/domain/labours.ts';
@@ -13,13 +13,9 @@ import { Drafts, matches, moveOnBoard, NO_FILTER, placementAt, type Placement } 
 let db: Db;
 let actor: Actor;
 
-beforeEach(() => {
-	db = testDb();
-	actor = seedActor(db);
-});
-
-afterEach(() => {
-	db.$client.close();
+beforeEach(async () => {
+	db = await testDb();
+	actor = await seedActor(db);
 });
 
 const order = (board: BoardView, stateId: number) =>
@@ -29,15 +25,17 @@ const order = (board: BoardView, stateId: number) =>
 		.map((t) => t.id);
 
 describe('moveOnBoard', () => {
-	it('predicts the Rank and State the server records', () => {
-		const realm = seedRealm(db);
-		const ids = Array.from(
-			{ length: 5 },
-			() => seedLabour(db, { realmId: realm.id, ownerId: actor.id }).id
+	it('predicts the Rank and State the server records', async () => {
+		const realm = await seedRealm(db);
+		const ids = await Promise.all(
+			Array.from(
+				{ length: 5 },
+				async () => (await seedLabour(db, { realmId: realm.id, ownerId: actor.id })).id
+			)
 		);
-		const board = () => toJson(readBoard(db, realm.id)) as BoardView;
+		const board = async () => toJson(await readBoard(db, realm.id)) as BoardView;
 		const open = realm.initialStateId!;
-		const closed = board().realm.states.find((s) => s.isClosed)!.id;
+		const closed = (await board()).realm.states.find((s) => s.isClosed)!.id;
 
 		const moves: [number, number, Placement][] = [
 			[ids[4], open, 'top'],
@@ -48,12 +46,12 @@ describe('moveOnBoard', () => {
 			[ids[1], open, { before: ids[4] }]
 		];
 		for (const [id, stateId, placement] of moves) {
-			const before = board();
+			const before = await board();
 			const predicted = moveOnBoard(before, id, stateId, placement)!;
 			const current = before.labours.find((t) => t.id === id)!;
-			if (current.stateId === stateId) rankLabour(db, actor, id, placement);
-			else updateLabour(db, actor, id, { stateId, placement });
-			const after = board();
+			if (current.stateId === stateId) await rankLabour(db, actor, id, placement);
+			else await updateLabour(db, actor, id, { stateId, placement });
+			const after = await board();
 			const pick = (b: BoardView) => b.labours.find((t) => t.id === id)!;
 			expect(pick(predicted)).toMatchObject({
 				stateId,
@@ -65,11 +63,11 @@ describe('moveOnBoard', () => {
 		}
 	});
 
-	it('is null for a drop back where the card was', () => {
-		const realm = seedRealm(db);
-		const a = seedLabour(db, { realmId: realm.id });
-		const b = seedLabour(db, { realmId: realm.id });
-		const board = toJson(readBoard(db, realm.id)) as BoardView;
+	it('is null for a drop back where the card was', async () => {
+		const realm = await seedRealm(db);
+		const a = await seedLabour(db, { realmId: realm.id });
+		const b = await seedLabour(db, { realmId: realm.id });
+		const board = toJson(await readBoard(db, realm.id)) as BoardView;
 		expect(moveOnBoard(board, b.id, b.stateId, { after: a.id })).toBeNull();
 	});
 });
@@ -85,38 +83,38 @@ describe('placementAt', () => {
 });
 
 describe('Drafts', () => {
-	it('shows a draft card until its Labour arrives, and never both', () => {
-		const realm = seedRealm(db);
-		seedLabour(db, { realmId: realm.id, title: 'Existing' });
-		const loaded = toJson(readBoard(db, realm.id)) as BoardView;
+	it('shows a draft card until its Labour arrives, and never both', async () => {
+		const realm = await seedRealm(db);
+		await seedLabour(db, { realmId: realm.id, title: 'Existing' });
+		const loaded = toJson(await readBoard(db, realm.id)) as BoardView;
 		const card = { ...loaded.labours[0], id: -1, title: 'Fresh', key: '' };
 		const drafts = new Drafts();
 		const patch = drafts.add(card, new Set(loaded.labours.map((t) => t.id)));
 
 		expect(patch(loaded).labours.map((t) => t.title)).toEqual(['Existing', 'Fresh']);
 
-		const created = seedLabour(db, { realmId: realm.id, title: 'Fresh' });
-		const arrived = toJson(readBoard(db, realm.id)) as BoardView;
+		const created = await seedLabour(db, { realmId: realm.id, title: 'Fresh' });
+		const arrived = toJson(await readBoard(db, realm.id)) as BoardView;
 		expect(patch(arrived).labours.map((t) => t.id)).toEqual(arrived.labours.map((t) => t.id));
 		drafts.answer(-1, created.id);
 		expect(patch(arrived).labours.map((t) => t.id)).toEqual(arrived.labours.map((t) => t.id));
 	});
 
-	it('gives way only to the Labour its create answered with, once it has answered', () => {
-		const realm = seedRealm(db);
+	it('gives way only to the Labour its create answered with, once it has answered', async () => {
+		const realm = await seedRealm(db);
 		const stateId = realm.initialStateId!;
 		const drafts = new Drafts();
 		const patch = drafts.add({ ...({} as Labour), id: -1, stateId, title: 'Mine' }, new Set());
 		drafts.answer(-1, 999);
 
-		const other = seedLabour(db, { realmId: realm.id, title: 'Mine' });
-		const board = toJson(readBoard(db, realm.id)) as BoardView;
+		const other = await seedLabour(db, { realmId: realm.id, title: 'Mine' });
+		const board = toJson(await readBoard(db, realm.id)) as BoardView;
 		expect(patch(board).labours.map((t) => t.id)).toEqual([other.id, -1]);
 	});
 
-	it('gives each of two drafts with the same title a Labour of its own', () => {
-		const realm = seedRealm(db);
-		const loaded = toJson(readBoard(db, realm.id)) as BoardView;
+	it('gives each of two drafts with the same title a Labour of its own', async () => {
+		const realm = await seedRealm(db);
+		const loaded = toJson(await readBoard(db, realm.id)) as BoardView;
 		const stateId = realm.initialStateId!;
 		const base = { ...({} as Labour), stateId, title: 'Same', key: '', rank: '' };
 		const drafts = new Drafts();
@@ -125,15 +123,15 @@ describe('Drafts', () => {
 			patches.reduce((view, patch) => patch(view), board).labours.map((t) => t.id);
 
 		expect(shown(loaded)).toEqual([-1, -2]);
-		const first = seedLabour(db, { realmId: realm.id, title: 'Same' });
-		const one = toJson(readBoard(db, realm.id)) as BoardView;
+		const first = await seedLabour(db, { realmId: realm.id, title: 'Same' });
+		const one = toJson(await readBoard(db, realm.id)) as BoardView;
 		expect(shown(one)).toEqual([first.id, -2]);
 
 		drafts.answer(-2, first.id);
 		expect(shown(one)).toEqual([first.id, -1]);
-		const second = seedLabour(db, { realmId: realm.id, title: 'Same' });
+		const second = await seedLabour(db, { realmId: realm.id, title: 'Same' });
 		drafts.answer(-1, second.id);
-		const both = toJson(readBoard(db, realm.id)) as BoardView;
+		const both = toJson(await readBoard(db, realm.id)) as BoardView;
 		expect(shown(both)).toEqual([first.id, second.id]);
 	});
 });

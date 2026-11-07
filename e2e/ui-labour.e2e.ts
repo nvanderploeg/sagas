@@ -2,8 +2,8 @@ import { expect, holdAction, holdLoads, live, recordText, test } from './fixture
 
 test.describe('labour page', () => {
 	test('a long line in a code block scrolls inside the page', async ({ page, ui }) => {
-		const p = ui.realm();
-		const t = ui.labour(p.id, {
+		const p = await ui.realm();
+		const t = await ui.labour(p.id, {
 			title: 'Wide code',
 			description: '```\n' + 'x'.repeat(3000) + '\n```'
 		});
@@ -21,8 +21,8 @@ test.describe('labour page', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.realm();
-		const t = ui.labour(p.id, { title: 'Draft title' });
+		const p = await ui.realm();
+		const t = await ui.labour(p.id, { title: 'Draft title' });
 		await page.goto(`/l/${t.key}`);
 		await live(page);
 
@@ -53,18 +53,18 @@ test.describe('labour page', () => {
 		expect(
 			await page.evaluate(() => (window as unknown as { pwned?: number }).pwned)
 		).toBeUndefined();
-		expect(ui.readLabour(t.id).description).toContain('**bold**');
+		expect((await ui.readLabour(t.id)).description).toContain('**bold**');
 	});
 
 	test('sets State, Substate, Owner and Assignee', async ({ page, ui }) => {
-		const p = ui.realm();
-		ui.substate(p.doing, 'Coding');
-		ui.substate(p.doing, 'Review');
+		const p = await ui.realm();
+		await ui.substate(p.doing, 'Coding');
+		await ui.substate(p.doing, 'Review');
 		const tag = Date.now().toString(36);
 		const name = `Field Bot ${tag}`;
-		const bot = ui.agent(`bot${tag}`, name);
-		ui.join(p.id, bot.id);
-		const t = ui.labour(p.id, { title: 'Fields' });
+		const bot = await ui.agent(`bot${tag}`, name);
+		await ui.join(p.id, bot.id);
+		const t = await ui.labour(p.id, { title: 'Fields' });
 		await page.goto(`/l/${t.key}`);
 		await live(page);
 
@@ -75,8 +75,8 @@ test.describe('labour page', () => {
 		await page.getByLabel('Owner').selectOption({ label: name });
 
 		await expect
-			.poll(() => {
-				const now = ui.readLabour(t.id);
+			.poll(async () => {
+				const now = await ui.readLabour(t.id);
 				return [now.stateId, now.assigneeId, now.ownerId];
 			})
 			.toEqual([p.doing, bot.id, bot.id]);
@@ -88,16 +88,16 @@ test.describe('labour page', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.realm();
-		const parent = ui.labour(p.id, { title: 'The epic' });
-		const child = ui.labour(p.id, { title: 'A part' });
+		const p = await ui.realm();
+		const parent = await ui.labour(p.id, { title: 'The epic' });
+		const child = await ui.labour(p.id, { title: 'A part' });
 		await page.goto(`/l/${child.key}`);
 		await live(page);
 
 		await page.getByLabel('Set Parent').fill(parent.key);
 		await page.getByRole('option', { name: new RegExp(parent.key) }).click();
 		await expect(page.getByTestId('parent')).toContainText('The epic');
-		await expect.poll(() => ui.readLabour(child.id).parentId).toBe(parent.id);
+		await expect.poll(async () => (await ui.readLabour(child.id)).parentId).toBe(parent.id);
 
 		await page.goto(`/l/${parent.key}`);
 		await expect(page.getByTestId('children')).toContainText('A part');
@@ -105,13 +105,13 @@ test.describe('labour page', () => {
 		await page.goto(`/l/${child.key}`);
 		await page.getByTestId('parent').getByRole('button', { name: 'Clear' }).click();
 		await expect(page.getByTestId('parent')).toHaveCount(0);
-		await expect.poll(() => ui.readLabour(child.id).parentId).toBeNull();
+		await expect.poll(async () => (await ui.readLabour(child.id)).parentId).toBeNull();
 	});
 
 	test('moves to another Realm, and the old key redirects to the new one', async ({ page, ui }) => {
-		const from = ui.realm();
-		const to = ui.realm();
-		const t = ui.labour(from.id, { title: 'Travelling' });
+		const from = await ui.realm();
+		const to = await ui.realm();
+		const t = await ui.labour(from.id, { title: 'Travelling' });
 		await page.goto(`/l/${t.key}`);
 		await live(page);
 
@@ -123,7 +123,7 @@ test.describe('labour page', () => {
 		const moved = `${to.key}-1`;
 		await expect(page).toHaveURL(new RegExp(`/l/${moved}$`));
 		await expect(page.getByTestId('labour-key')).toHaveText(moved);
-		expect(ui.readLabour(t.id)).toMatchObject({ realmId: to.id, stateId: to.doing });
+		expect(await ui.readLabour(t.id)).toMatchObject({ realmId: to.id, stateId: to.doing });
 
 		await page.goto(`/l/${t.key}`);
 		await expect(page).toHaveURL(new RegExp(`/l/${moved}$`));
@@ -131,9 +131,9 @@ test.describe('labour page', () => {
 	});
 
 	test('a Closed Labour can only move into the target Closed', async ({ page, ui }) => {
-		const from = ui.realm();
-		const to = ui.realm();
-		const t = ui.labour(from.id, { stateId: from.closed });
+		const from = await ui.realm();
+		const to = await ui.realm();
+		const t = await ui.labour(from.id, { stateId: from.closed });
 		await page.goto(`/l/${t.key}`);
 		await page.getByText('Move to another Realm').click();
 		await page.getByLabel('Target Realm').selectOption({ value: String(to.id) });
@@ -142,24 +142,26 @@ test.describe('labour page', () => {
 		await expect(page.getByText('A Closed Labour stays Closed.')).toBeVisible();
 		await page.getByRole('button', { name: `Move to ${to.key}` }).click();
 		await expect(page).toHaveURL(new RegExp(`/l/${to.key}-1$`));
-		expect(ui.readLabour(t.id)).toMatchObject({ stateId: to.closed, closed: true });
+		expect(await ui.readLabour(t.id)).toMatchObject({ stateId: to.closed, closed: true });
 	});
 
 	test('joins and leaves a Quest, and deletes the Labour', async ({ page, ui }) => {
-		const p = ui.realm();
-		const quest = ui.quest(p.id, `Side quest ${Date.now().toString(36)}`);
-		const t = ui.labour(p.id, { title: 'Doomed' });
+		const p = await ui.realm();
+		const quest = await ui.quest(p.id, `Side quest ${Date.now().toString(36)}`);
+		const t = await ui.labour(p.id, { title: 'Doomed' });
 		await page.goto(`/l/${t.key}`);
 		await live(page);
 
 		await page.getByLabel('Quest to add this Labour to').selectOption({ label: quest.name });
 		await page.getByRole('button', { name: 'Add', exact: true }).click();
 		await expect(page.getByTestId('labour-quests')).toContainText(quest.name);
-		await expect.poll(() => ui.readQuest(quest.id).labours.map((m) => m.id)).toEqual([t.id]);
+		await expect
+			.poll(async () => (await ui.readQuest(quest.id)).labours.map((m) => m.id))
+			.toEqual([t.id]);
 
 		await page.getByRole('button', { name: `Remove from ${quest.name}` }).click();
 		await expect(page.getByTestId('labour-quests')).toHaveCount(0);
-		await expect.poll(() => ui.readQuest(quest.id).labours).toEqual([]);
+		await expect.poll(async () => (await ui.readQuest(quest.id)).labours).toEqual([]);
 
 		await page.getByRole('button', { name: 'Delete Labour' }).click();
 		await page.getByRole('button', { name: `Delete ${t.key} for good` }).click();
@@ -169,7 +171,7 @@ test.describe('labour page', () => {
 	});
 
 	test('posts a Comment that stays after a reload', async ({ page, ui }) => {
-		const t = ui.labour(ui.realm().id, { title: 'Discussed' });
+		const t = await ui.labour((await ui.realm()).id, { title: 'Discussed' });
 		await page.goto(`/l/${t.key}`);
 		await live(page);
 
@@ -183,7 +185,7 @@ test.describe('labour page', () => {
 	});
 
 	test("edits and deletes one's own Comment", async ({ page, ui }) => {
-		const t = ui.labour(ui.realm().id, { title: 'Discussed' });
+		const t = await ui.labour((await ui.realm()).id, { title: 'Discussed' });
 		await page.goto(`/l/${t.key}`);
 		await live(page);
 		await page.getByLabel('New Comment (Markdown)').fill('first draft');
@@ -207,10 +209,10 @@ test.describe('labour page', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.realm();
-		const elsewhere = ui.realm();
-		const parent = ui.labour(p.id, { title: 'Parent', description: 'Parent text' });
-		const child = ui.labour(p.id, {
+		const p = await ui.realm();
+		const elsewhere = await ui.realm();
+		const parent = await ui.labour(p.id, { title: 'Parent', description: 'Parent text' });
+		const child = await ui.labour(p.id, {
 			title: 'Open child',
 			parentId: parent.id,
 			description: 'Child text'
@@ -236,7 +238,7 @@ test.describe('labour page', () => {
 		await expect(page.getByLabel('Title')).toHaveCount(0);
 		await expect(page.getByLabel('Target State')).toHaveCount(0);
 		await expect(page.getByRole('button', { name: `Move to ${elsewhere.key}` })).toHaveCount(0);
-		expect(ui.readLabour(child.id)).toMatchObject({
+		expect(await ui.readLabour(child.id)).toMatchObject({
 			title: 'Open child',
 			description: 'Child text'
 		});
@@ -246,9 +248,9 @@ test.describe('labour page', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.realm();
-		const parent = ui.labour(p.id, { title: 'Parent' });
-		ui.labour(p.id, { title: 'Closed child', parentId: parent.id, stateId: p.closed });
+		const p = await ui.realm();
+		const parent = await ui.labour(p.id, { title: 'Parent' });
+		await ui.labour(p.id, { title: 'Closed child', parentId: parent.id, stateId: p.closed });
 		await page.goto(`/l/${parent.key}`);
 		await live(page);
 
@@ -272,10 +274,10 @@ test.describe('labour page', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.realm();
-		const a = ui.labour(p.id, { title: 'Parent A' });
-		const b = ui.labour(p.id, { title: 'Parent B' });
-		const t = ui.labour(p.id, { title: 'Kid' });
+		const p = await ui.realm();
+		const a = await ui.labour(p.id, { title: 'Parent A' });
+		const b = await ui.labour(p.id, { title: 'Parent B' });
+		const t = await ui.labour(p.id, { title: 'Kid' });
 		await page.goto(`/l/${t.key}`);
 		await live(page);
 		await holdAction(page, 'parent', 200);
@@ -284,21 +286,21 @@ test.describe('labour page', () => {
 		const shown = await recordText(page, '[data-testid="parent"] [data-testid="labour-row"]');
 		await page.getByLabel('Set Parent').fill(a.key);
 		await page.getByRole('option', { name: new RegExp(a.key) }).click();
-		await expect.poll(() => ui.readLabour(t.id).parentId).toBe(a.id);
+		await expect.poll(async () => (await ui.readLabour(t.id)).parentId).toBe(a.id);
 		await page.waitForTimeout(1000);
 		expect((await shown()).map((text) => text.split(' ')[0])).toEqual(['(none)', a.key]);
 
 		const changed = await recordText(page, '[data-testid="parent"] [data-testid="labour-row"]');
 		await page.getByLabel('Change Parent').fill(b.key);
 		await page.getByRole('option', { name: new RegExp(b.key) }).click();
-		await expect.poll(() => ui.readLabour(t.id).parentId).toBe(b.id);
+		await expect.poll(async () => (await ui.readLabour(t.id)).parentId).toBe(b.id);
 		await page.waitForTimeout(1000);
 		expect((await changed()).map((text) => text.split(' ')[0])).toEqual([a.key, b.key]);
 	});
 
 	test('deleting the Labour oneself goes straight to the board', async ({ page, ui }) => {
-		const p = ui.realm();
-		const t = ui.labour(p.id, { title: 'Doomed' });
+		const p = await ui.realm();
+		const t = await ui.labour(p.id, { title: 'Doomed' });
 		await page.goto(`/l/${t.key}`);
 		await live(page);
 		await holdAction(page, 'delete');
@@ -315,9 +317,9 @@ test.describe('labour page', () => {
 		other,
 		ui
 	}) => {
-		const from = ui.realm();
-		const to = ui.realm();
-		const t = ui.labour(from.id, { title: 'Wanderer' });
+		const from = await ui.realm();
+		const to = await ui.realm();
+		const t = await ui.labour(from.id, { title: 'Wanderer' });
 		await page.goto(`/l/${t.key}`);
 		await live(page);
 		await page.getByText('Move to another Realm').click();
@@ -340,8 +342,8 @@ test.describe('labour page', () => {
 	});
 
 	test('keeps focus on the control that replaces the one pressed', async ({ page, ui }) => {
-		const p = ui.realm();
-		const t = ui.labour(p.id, { title: 'Focus' });
+		const p = await ui.realm();
+		const t = await ui.labour(p.id, { title: 'Focus' });
 		await page.goto(`/l/${t.key}`);
 		await live(page);
 

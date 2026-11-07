@@ -16,28 +16,36 @@ export const sessionCredential = (token: string): Credential => ({
 	hash: hashSecret(token)
 });
 
-export function credentialValid(db: Handle, credential: Credential, now = new Date()): boolean {
+export async function credentialValid(
+	db: Handle,
+	credential: Credential,
+	now = new Date()
+): Promise<boolean> {
 	if (credential.kind === 'api_token') {
 		return (
-			db
-				.select({ id: apiTokens.id })
-				.from(apiTokens)
-				.where(
-					and(
-						eq(apiTokens.tokenHash, credential.hash),
-						isNull(apiTokens.revokedAt),
-						or(isNull(apiTokens.expiresAt), gt(apiTokens.expiresAt, now))
+			(
+				await db
+					.select({ id: apiTokens.id })
+					.from(apiTokens)
+					.where(
+						and(
+							eq(apiTokens.tokenHash, credential.hash),
+							isNull(apiTokens.revokedAt),
+							or(isNull(apiTokens.expiresAt), gt(apiTokens.expiresAt, now))
+						)
 					)
-				)
-				.get() !== undefined
+					.limit(1)
+			)[0] !== undefined
 		);
 	}
 	return (
-		db
-			.select({ id: sessions.id })
-			.from(sessions)
-			.where(and(eq(sessions.id, credential.hash), gt(sessions.expiresAt, now)))
-			.get() !== undefined
+		(
+			await db
+				.select({ id: sessions.id })
+				.from(sessions)
+				.where(and(eq(sessions.id, credential.hash), gt(sessions.expiresAt, now)))
+				.limit(1)
+		)[0] !== undefined
 	);
 }
 

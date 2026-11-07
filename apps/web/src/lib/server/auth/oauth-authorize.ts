@@ -26,17 +26,17 @@ export function consentRedirect(redirectUri: string, params: Record<string, stri
 }
 
 // `invalid` means the client or redirect_uri cannot be trusted: show an error, never redirect.
-export function readAuthorizeRequest(
+export async function readAuthorizeRequest(
 	db: Handle,
 	params: URLSearchParams,
 	origin: string
-): AuthorizeRequest {
+): Promise<AuthorizeRequest> {
 	const clientIds = params.getAll('client_id');
 	const redirectUris = params.getAll('redirect_uri');
 	if (clientIds.length > 1 || redirectUris.length > 1) {
 		return { kind: 'invalid', message: 'client_id and redirect_uri must each be given once' };
 	}
-	const client = clientIds[0] ? getClient(db, clientIds[0]) : null;
+	const client = clientIds[0] ? await getClient(db, clientIds[0]) : null;
 	if (!client) return { kind: 'invalid', message: 'Unknown client' };
 	const redirectUri = redirectUris[0];
 	if (!redirectUri || !client.redirectUris.includes(redirectUri)) {

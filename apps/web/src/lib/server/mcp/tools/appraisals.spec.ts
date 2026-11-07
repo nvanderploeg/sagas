@@ -16,19 +16,18 @@ let bob: AuthUser;
 const clients: Client[] = [];
 
 beforeEach(async () => {
-	db = testDb();
+	db = await testDb();
 	admin = await createFirstAdmin(db, {
 		username: 'root',
 		displayName: 'Root',
 		password: 'a long enough password'
 	});
-	bob = seedHuman(db, 'bob');
+	bob = await seedHuman(db, 'bob');
 });
 
 afterEach(async () => {
 	vi.useRealTimers();
 	await Promise.all(clients.splice(0).map((client) => client.close()));
-	db.$client.close();
 });
 
 async function connect(actor: AuthUser): Promise<Client> {
@@ -83,7 +82,7 @@ const appraise = (client: Client, ...labours: Record<string, unknown>[]) =>
 const getAppraisal = (client: Client, labour: string | number) =>
 	ok(client, 'get_appraisal', { labour });
 
-const lastSeq = () => eventWindow(db).last;
+const lastSeq = async () => (await eventWindow(db)).last;
 
 describe('tool registration', () => {
 	it('lists appraise as a write and the other two as reads, each with a closed input schema', async () => {
@@ -240,7 +239,7 @@ describe('appraise', () => {
 		await seed(client, 2);
 		await ok(client, 'define_attribute', { realm: 'AM', ...IMPACT });
 		const { labour: before } = await ok(client, 'get_labour', { labour: 'AM-1' });
-		const seq = lastSeq();
+		const seq = await lastSeq();
 		at(20);
 
 		await ok(client, 'appraise', {
@@ -256,7 +255,7 @@ describe('appraise', () => {
 			]
 		});
 
-		expect(lastSeq()).toBe(seq);
+		expect(await lastSeq()).toBe(seq);
 		const { labour: after } = await ok(client, 'get_labour', { labour: 'AM-1' });
 		expect(after.updatedAt).toBe(before.updatedAt);
 	});

@@ -3,7 +3,7 @@ import type { Feature } from './types.ts';
 
 export const age: Feature = {
 	name: 'age',
-	load({ candidates, now }) {
+	async load({ candidates, now }) {
 		return new Map(
 			candidates.map(({ id, createdAt }) => {
 				const d = daysSince(now, createdAt);

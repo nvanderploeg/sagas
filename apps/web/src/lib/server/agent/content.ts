@@ -17,8 +17,8 @@ export function hashContent({ title, description, labels, comments }: HashedCont
 		.digest('hex');
 }
 
-export function contentHash(db: Handle, labourId: number): string {
-	const { title, description, labels } = getLabour(db, labourId);
-	const comments = listComments(db, labourId).map((comment) => comment.body);
+export async function contentHash(db: Handle, labourId: number): Promise<string> {
+	const { title, description, labels } = await getLabour(db, labourId);
+	const comments = (await listComments(db, labourId)).map((comment) => comment.body);
 	return hashContent({ title, description, labels, comments });
 }

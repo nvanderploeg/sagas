@@ -5,10 +5,10 @@ test.describe('board', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.realm();
-		const a = ui.labour(p.id, { title: 'Write the brief' });
-		const b = ui.labour(p.id, { title: 'Ship it', stateId: p.doing });
-		ui.substate(p.doing, 'Review');
+		const p = await ui.realm();
+		const a = await ui.labour(p.id, { title: 'Write the brief' });
+		const b = await ui.labour(p.id, { title: 'Ship it', stateId: p.doing });
+		await ui.substate(p.doing, 'Review');
 
 		await page.goto(`/r/${p.key}`);
 		await expect(page.getByRole('heading', { name: p.name, level: 1 })).toBeVisible();
@@ -22,7 +22,7 @@ test.describe('board', () => {
 	});
 
 	test('a former Realm key redirects to the board under the current key', async ({ page, ui }) => {
-		const p = ui.realm();
+		const p = await ui.realm();
 		await page.goto(`/r/${p.key}/settings`);
 		const next = `${p.key.slice(0, 5)}X`;
 		await page.getByLabel('Key').fill(next);
@@ -37,9 +37,9 @@ test.describe('board', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.realm();
-		const a = ui.labour(p.id, { title: 'Move me' });
-		ui.labour(p.id, { title: 'Stay', stateId: p.doing });
+		const p = await ui.realm();
+		const a = await ui.labour(p.id, { title: 'Move me' });
+		await ui.labour(p.id, { title: 'Stay', stateId: p.doing });
 
 		await page.goto(`/r/${p.key}`);
 		await live(page);
@@ -51,7 +51,7 @@ test.describe('board', () => {
 
 		await expect(column(page, 'In progress').locator('[data-card]')).toHaveCount(2);
 		expect(await cardKeys(column(page, 'In progress'))).toEqual([a.key, expect.any(String)]);
-		await expect.poll(() => ui.readLabour(a.id).stateId).toBe(p.doing);
+		await expect.poll(async () => (await ui.readLabour(a.id)).stateId).toBe(p.doing);
 
 		await page.reload();
 		expect(await cardKeys(column(page, 'In progress'))).toContain(a.key);
@@ -62,8 +62,10 @@ test.describe('board', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.realm();
-		const [a, b, c] = ['First', 'Second', 'Third'].map((title) => ui.labour(p.id, { title }));
+		const p = await ui.realm();
+		const a = await ui.labour(p.id, { title: 'First' });
+		const b = await ui.labour(p.id, { title: 'Second' });
+		const c = await ui.labour(p.id, { title: 'Third' });
 
 		await page.goto(`/r/${p.key}`);
 		await live(page);
@@ -79,9 +81,9 @@ test.describe('board', () => {
 	});
 
 	test('moves a card with the keyboard alone', async ({ page, ui }) => {
-		const p = ui.realm();
-		const a = ui.labour(p.id, { title: 'Keyboard' });
-		const b = ui.labour(p.id, { title: 'Other' });
+		const p = await ui.realm();
+		const a = await ui.labour(p.id, { title: 'Keyboard' });
+		const b = await ui.labour(p.id, { title: 'Other' });
 
 		await page.goto(`/r/${p.key}`);
 		await live(page);
@@ -98,11 +100,11 @@ test.describe('board', () => {
 		await page.keyboard.press('Enter');
 		await expect.poll(() => cardKeys(column(page, 'Closed'))).toEqual([a.key]);
 		await expect(page.getByTestId('loot-burst')).toHaveCount(1);
-		await expect.poll(() => ui.readLabour(a.id).closed).toBe(true);
+		await expect.poll(async () => (await ui.readLabour(a.id)).closed).toBe(true);
 	});
 
 	test('quick-creates a Labour into a column', async ({ page, ui }) => {
-		const p = ui.realm();
+		const p = await ui.realm();
 		await page.goto(`/r/${p.key}`);
 		await live(page);
 		await page.getByRole('button', { name: 'Add a Labour to In progress' }).click();
@@ -117,13 +119,13 @@ test.describe('board', () => {
 	});
 
 	test('filters by owner and by assignee', async ({ page, ui }) => {
-		const p = ui.realm();
+		const p = await ui.realm();
 		const tag = Date.now().toString(36);
 		const name = `Filter Bot ${tag}`;
-		const bot = ui.agent(`bot${tag}`, name);
-		ui.join(p.id, bot.id);
-		ui.labour(p.id, { title: 'Mine, unassigned' });
-		ui.labour(p.id, { title: 'For the bot', assigneeId: bot.id });
+		const bot = await ui.agent(`bot${tag}`, name);
+		await ui.join(p.id, bot.id);
+		await ui.labour(p.id, { title: 'Mine, unassigned' });
+		await ui.labour(p.id, { title: 'For the bot', assigneeId: bot.id });
 
 		await page.goto(`/r/${p.key}`);
 		const todo = column(page, 'To do');
@@ -140,9 +142,9 @@ test.describe('board', () => {
 	});
 
 	test('a long column stays within the viewport and scrolls on its own', async ({ page, ui }) => {
-		const p = ui.realm();
-		for (let i = 0; i < 40; i++) ui.labour(p.id, { title: `Pile ${i}` });
-		ui.labour(p.id, { title: 'Alone', stateId: p.doing });
+		const p = await ui.realm();
+		for (let i = 0; i < 40; i++) await ui.labour(p.id, { title: `Pile ${i}` });
+		await ui.labour(p.id, { title: 'Alone', stateId: p.doing });
 		await page.goto(`/r/${p.key}`);
 		await live(page);
 
@@ -160,8 +162,8 @@ test.describe('board', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.realm();
-		for (let i = 0; i < 40; i++) ui.labour(p.id, { title: `Pile ${i}` });
+		const p = await ui.realm();
+		for (let i = 0; i < 40; i++) await ui.labour(p.id, { title: `Pile ${i}` });
 		await page.setViewportSize({ width: 600, height: 700 });
 		await page.goto(`/r/${p.key}`);
 		await live(page);
@@ -183,7 +185,7 @@ test.describe('board', () => {
 	});
 
 	test('dragging from inline text on the board pans it', async ({ page, ui }) => {
-		const p = ui.realm();
+		const p = await ui.realm();
 		await page.setViewportSize({ width: 600, height: 700 });
 		await page.goto(`/r/${p.key}`);
 		await live(page);
@@ -210,9 +212,9 @@ test.describe('board', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.realm();
-		const a = ui.labour(p.id, { title: 'Held' });
-		ui.labour(p.id, { title: 'Target', stateId: p.doing });
+		const p = await ui.realm();
+		const a = await ui.labour(p.id, { title: 'Held' });
+		await ui.labour(p.id, { title: 'Target', stateId: p.doing });
 		await page.goto(`/r/${p.key}`);
 		await live(page);
 		const moves: string[] = [];
@@ -237,14 +239,14 @@ test.describe('board', () => {
 		await page.waitForTimeout(400);
 
 		expect(moves).toEqual([]);
-		expect(ui.readLabour(a.id).stateId).toBe(p.todo);
+		expect((await ui.readLabour(a.id)).stateId).toBe(p.todo);
 	});
 
 	test.describe('with reduced motion', () => {
 		test('moves land at once and nothing animates or transitions', async ({ page, ui }) => {
-			const p = ui.realm();
-			const a = ui.labour(p.id, { title: 'Calm' });
-			ui.labour(p.id, { title: 'Neighbour' });
+			const p = await ui.realm();
+			const a = await ui.labour(p.id, { title: 'Calm' });
+			await ui.labour(p.id, { title: 'Neighbour' });
 			await page.emulateMedia({ reducedMotion: 'reduce' });
 			await page.addInitScript(() => {
 				const seen: string[] = [];

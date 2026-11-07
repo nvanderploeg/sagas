@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { defineAttribute, setValues } from '#lib/server/agent/attributes.ts';
 import { seedHuman } from '#lib/server/auth/fixtures.ts';
 import type { AuthUser } from '#lib/server/auth/users.ts';
@@ -14,16 +14,12 @@ let db: Db;
 let registry: Registry;
 let user: AuthUser;
 
-beforeEach(() => {
-	db = testDb();
-	user = seedHuman(db, 'ada');
+beforeEach(async () => {
+	db = await testDb();
+	user = await seedHuman(db, 'ada');
 	registry = toolRegistry(db, user, 'http://sagas.test');
 	registerSentimentTools(registry.tools);
 	registerSurveyTools(registry.tools);
-});
-
-afterEach(() => {
-	db.$client.close();
 });
 
 async function call(name: string, args: Record<string, unknown>) {
@@ -31,9 +27,9 @@ async function call(name: string, args: Record<string, unknown>) {
 	return { error: result.isError === true, data: result.structuredContent as any };
 }
 
-function setup() {
-	const realm = seedRealm(db, 'AM');
-	defineAttribute(db, user, realm.id, {
+async function setup() {
+	const realm = await seedRealm(db, 'AM');
+	await defineAttribute(db, user, realm.id, {
 		key: 'impact',
 		kind: 'scale',
 		label: 'Impact',
@@ -45,7 +41,7 @@ function setup() {
 
 describe('sentiment tools', () => {
 	it('closes every input object', async () => {
-		setup();
+		await setup();
 		for (const tool of registry.list()) {
 			expect(tool.inputSchema.additionalProperties, tool.name).toBe(false);
 		}
@@ -62,8 +58,8 @@ describe('sentiment tools', () => {
 	});
 
 	it('posts, reads, files and deletes, naming users, Realms and Labours', async () => {
-		const realm = setup();
-		const cited = seedLabour(db, { realmId: realm.id });
+		const realm = await setup();
+		const cited = await seedLabour(db, { realmId: realm.id });
 		const posted = await call('pulse', {
 			realm: 'am',
 			pulses: [
@@ -110,7 +106,7 @@ describe('sentiment tools', () => {
 		expect(read.data.unfiled).toMatchObject([{ rawKey: 'boss-hp', count: 1 }]);
 		expect(read.data.asOf).toMatch(/Z$/);
 
-		deleteLabour(db, user, cited.id);
+		await deleteLabour(db, user, cited.id);
 		const after = await call('get_sentiment', { realm: 'AM', limit: 1 });
 		expect(after.data.keys[0].pulses[0].evidence).toEqual([
 			{ href: 'https://x.test', label: null }
@@ -130,9 +126,9 @@ describe('sentiment tools', () => {
 	});
 
 	it('shows the notes behind a Survey as Realm keys, usernames and ISO times', async () => {
-		const realm = setup();
-		const labour = seedLabour(db, { realmId: realm.id });
-		setValues(db, user, labour.id, { impact: 4 });
+		const realm = await setup();
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await setValues(db, user, labour.id, { impact: 4 });
 		await call('pulse', {
 			realm: 'AM',
 			pulses: [

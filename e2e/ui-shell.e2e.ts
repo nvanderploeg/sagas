@@ -34,8 +34,8 @@ test.describe('theme', () => {
 
 test.describe('content security policy', () => {
 	test('pages carry it, and it lets the app and its theme script run', async ({ page, ui }) => {
-		const p = ui.realm();
-		const t = ui.labour(p.id, {
+		const p = await ui.realm();
+		const t = await ui.labour(p.id, {
 			title: 'Pictures',
 			description: '![chart](https://tracker.example/pixel.png) and [a link](https://example.com)'
 		});
@@ -106,7 +106,7 @@ test.describe('session', () => {
 		other,
 		ui
 	}) => {
-		const p = ui.realm();
+		const p = await ui.realm();
 		const { page, context, person } = other;
 		await page.goto(`/r/${p.key}?filter=1`);
 		await live(page);
@@ -145,8 +145,8 @@ test.describe('session', () => {
 
 test.describe('dashboard', () => {
 	test('a long list of open Labours shows about 20 and scrolls the rest', async ({ page, ui }) => {
-		const p = ui.realm();
-		for (let i = 0; i < 30; i++) ui.labour(p.id, { title: `Mine ${i}` });
+		const p = await ui.realm();
+		for (let i = 0; i < 30; i++) await ui.labour(p.id, { title: `Mine ${i}` });
 		await page.goto('/');
 
 		const list = page.getByTestId('mine');

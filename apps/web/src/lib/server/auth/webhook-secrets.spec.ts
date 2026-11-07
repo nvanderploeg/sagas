@@ -36,9 +36,7 @@ describe('seal and open', () => {
 		const [fp, nonce, body] = seal('hello', key).split('.');
 		const bytes = Buffer.from(body, 'base64url');
 		bytes[0] ^= 1;
-		expect(() => open(`${fp}.${nonce}.${bytes.toString('base64url')}`, key)).toThrow(
-			TamperedError
-		);
+		expect(() => open(`${fp}.${nonce}.${bytes.toString('base64url')}`, key)).toThrow(TamperedError);
 	});
 
 	it('throws TamperedError when the tag or nonce is altered or the body truncated', () => {

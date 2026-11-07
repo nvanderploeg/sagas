@@ -3,10 +3,10 @@ import { unauthorizedResponse } from '../auth/access.ts';
 import { DomainError } from '../domain/errors.ts';
 import { toJson } from './reads.ts';
 
-export function answerSession(locals: App.Locals, read: () => unknown): Response {
+export async function answerSession(locals: App.Locals, read: () => unknown): Promise<Response> {
 	if (!locals.user || locals.credential?.kind !== 'session') return unauthorizedResponse();
 	try {
-		return json(toJson(read()));
+		return json(toJson(await read()));
 	} catch (error) {
 		if (error instanceof DomainError && error.code === 'not_found') {
 			return json({ error: 'not found' }, { status: 404 });

@@ -22,26 +22,25 @@ const T1 = new Date('2030-01-01T00:00:00.000Z');
 const T2 = new Date('2030-02-01T00:00:00.000Z');
 const T3 = new Date('2030-03-01T00:00:00.000Z');
 
-beforeEach(() => {
+beforeEach(async () => {
 	vi.useFakeTimers({ toFake: ['Date'] });
 	vi.setSystemTime(T1);
-	db = testDb();
-	actor = seedActor(db);
-	ada = seedUser(db, 'ada');
-	bob = seedUser(db, 'bob');
-	amId = seedRealm(db, 'AM').id;
-	target = seedLabour(db, { realmId: amId, title: 'Target', ownerId: ada });
+	db = await testDb();
+	actor = await seedActor(db);
+	ada = await seedUser(db, 'ada');
+	bob = await seedUser(db, 'bob');
+	amId = (await seedRealm(db, 'AM')).id;
+	target = await seedLabour(db, { realmId: amId, title: 'Target', ownerId: ada });
 });
 
 afterEach(() => {
 	vi.useRealTimers();
-	db.$client.close();
 });
 
-function expectDomainError(action: () => unknown, code: DomainError['code']) {
+async function expectDomainError(action: () => unknown, code: DomainError['code']) {
 	let thrown: unknown;
 	try {
-		action();
+		await action();
 	} catch (error) {
 		thrown = error;
 	}
@@ -49,33 +48,28 @@ function expectDomainError(action: () => unknown, code: DomainError['code']) {
 	expect((thrown as DomainError).code).toBe(code);
 }
 
-const rowsFrom = (sourceId: number) =>
-	db
+const rowsFrom = async (sourceId: number) =>
+	await db
 		.select()
 		.from(mentions)
 		.where(eq(mentions.sourceLabourId, sourceId))
-		.orderBy(asc(mentions.id))
-		.all();
+		.orderBy(asc(mentions.id));
 
-const allRows = () => db.select().from(mentions).orderBy(asc(mentions.id)).all();
+const allRows = async () => await db.select().from(mentions).orderBy(asc(mentions.id));
 
-const labourTargets = (sourceId: number) =>
-	rowsFrom(sourceId)
-		.map((row) => row.labourId)
-		.filter((id) => id !== null);
+const labourTargets = async (sourceId: number) =>
+	(await rowsFrom(sourceId)).map((row) => row.labourId).filter((id) => id !== null);
 
-const userTargets = (sourceId: number) =>
-	rowsFrom(sourceId)
-		.map((row) => row.userId)
-		.filter((id) => id !== null);
+const userTargets = async (sourceId: number) =>
+	(await rowsFrom(sourceId)).map((row) => row.userId).filter((id) => id !== null);
 
 const source = (description: string, ownerId = ada) =>
 	seedLabour(db, { realmId: amId, title: 'Source', description, ownerId });
 
-const eventCount = () => db.select().from(events).all().length;
+const eventCount = async () => (await db.select().from(events)).length;
 
-const updatedAtOf = (labourId: number) =>
-	db.select().from(labours).where(eq(labours.id, labourId)).get()!.updatedAt;
+const updatedAtOf = async (labourId: number) =>
+	(await db.select().from(labours).where(eq(labours.id, labourId)).limit(1))[0]!.updatedAt;
 
 describe('Labour keys', () => {
 	it.each([
@@ -93,10 +87,10 @@ describe('Labour keys', () => {
 		['AM-1-2'],
 		['AM-1.5'],
 		['line one\nAM-1\nline three']
-	])('mentions AM-1 in %j', (text) => {
-		const labour = source(text);
+	])('mentions AM-1 in %j', async (text) => {
+		const labour = await source(text);
 
-		expect(labourTargets(labour.id)).toEqual([target.id]);
+		expect(await labourTargets(labour.id)).toEqual([target.id]);
 	});
 
 	it.each([
@@ -118,113 +112,115 @@ describe('Labour keys', () => {
 		['AM1'],
 		['AM -1'],
 		['AM-']
-	])('does not mention AM-1 in %j', (text) => {
-		const labour = source(text);
+	])('does not mention AM-1 in %j', async (text) => {
+		const labour = await source(text);
 
-		expect(rowsFrom(labour.id)).toEqual([]);
+		expect(await rowsFrom(labour.id)).toEqual([]);
 	});
 
-	it('mentions AM-12, not AM-1, in AM-12', () => {
-		const made = Array.from({ length: 11 }, () => seedLabour(db, { realmId: amId }));
+	it('mentions AM-12, not AM-1, in AM-12', async () => {
+		const made = await Promise.all(
+			Array.from({ length: 11 }, () => seedLabour(db, { realmId: amId }))
+		);
 		const twelfth = made[10];
-		expect(labourKeyOf(db, twelfth)).toBe('AM-12');
+		expect(await labourKeyOf(db, twelfth)).toBe('AM-12');
 
-		const labour = source('see AM-12');
+		const labour = await source('see AM-12');
 
-		expect(labourTargets(labour.id)).toEqual([twelfth.id]);
+		expect(await labourTargets(labour.id)).toEqual([twelfth.id]);
 	});
 
-	it('reads Realm keys of 2 to 6 letters and digits', () => {
-		const long = seedRealm(db, 'ABCDEF');
-		const withDigits = seedRealm(db, 'P2');
-		const longTarget = seedLabour(db, { realmId: long.id });
-		const digitTarget = seedLabour(db, { realmId: withDigits.id });
+	it('reads Realm keys of 2 to 6 letters and digits', async () => {
+		const long = await seedRealm(db, 'ABCDEF');
+		const withDigits = await seedRealm(db, 'P2');
+		const longTarget = await seedLabour(db, { realmId: long.id });
+		const digitTarget = await seedLabour(db, { realmId: withDigits.id });
 
-		const labour = source('ABCDEF-1 and P2-1');
+		const labour = await source('ABCDEF-1 and P2-1');
 
-		expect(labourTargets(labour.id).sort()).toEqual([longTarget.id, digitTarget.id].sort());
+		expect((await labourTargets(labour.id)).sort()).toEqual([longTarget.id, digitTarget.id].sort());
 	});
 
-	it('does not read a longer run of letters as a shorter Realm key', () => {
-		const long = seedRealm(db, 'ABCDEF');
-		seedLabour(db, { realmId: long.id });
+	it('does not read a longer run of letters as a shorter Realm key', async () => {
+		const long = await seedRealm(db, 'ABCDEF');
+		await seedLabour(db, { realmId: long.id });
 
-		const labour = source('ABCDEFG-1');
+		const labour = await source('ABCDEFG-1');
 
-		expect(rowsFrom(labour.id)).toEqual([]);
+		expect(await rowsFrom(labour.id)).toEqual([]);
 	});
 
-	it('resolves a Labour through the key it held before a move', () => {
-		const bl = seedRealm(db, 'BL');
-		moveLabour(db, actor, target.id, { realmId: bl.id });
+	it('resolves a Labour through the key it held before a move', async () => {
+		const bl = await seedRealm(db, 'BL');
+		await moveLabour(db, actor, target.id, { realmId: bl.id });
 
-		const labour = source('old key AM-1');
-		const other = source('new key BL-1');
+		const labour = await source('old key AM-1');
+		const other = await source('new key BL-1');
 
-		expect(labourTargets(labour.id)).toEqual([target.id]);
-		expect(labourTargets(other.id)).toEqual([target.id]);
+		expect(await labourTargets(labour.id)).toEqual([target.id]);
+		expect(await labourTargets(other.id)).toEqual([target.id]);
 	});
 
-	it('resolves a Labour through the key it held before a Realm key rename', () => {
-		renameRealmKey(db, actor, amId, 'ZZ');
+	it('resolves a Labour through the key it held before a Realm key rename', async () => {
+		await renameRealmKey(db, actor, amId, 'ZZ');
 
-		const labour = source('old AM-1');
-		const other = source('new zz-1');
+		const labour = await source('old AM-1');
+		const other = await source('new zz-1');
 
-		expect(labourTargets(labour.id)).toEqual([target.id]);
-		expect(labourTargets(other.id)).toEqual([target.id]);
+		expect(await labourTargets(labour.id)).toEqual([target.id]);
+		expect(await labourTargets(other.id)).toEqual([target.id]);
 	});
 
-	it('counts a Labour named by two of its keys as one Mention', () => {
-		const bl = seedRealm(db, 'BL');
-		moveLabour(db, actor, target.id, { realmId: bl.id });
+	it('counts a Labour named by two of its keys as one Mention', async () => {
+		const bl = await seedRealm(db, 'BL');
+		await moveLabour(db, actor, target.id, { realmId: bl.id });
 
-		const labour = source('AM-1 is now BL-1');
+		const labour = await source('AM-1 is now BL-1');
 
-		expect(rowsFrom(labour.id)).toHaveLength(1);
+		expect(await rowsFrom(labour.id)).toHaveLength(1);
 	});
 
-	it('skips a key no Labour has held', () => {
-		const labour = source('AM-999 and ZZ-1');
+	it('skips a key no Labour has held', async () => {
+		const labour = await source('AM-999 and ZZ-1');
 
-		expect(rowsFrom(labour.id)).toEqual([]);
+		expect(await rowsFrom(labour.id)).toEqual([]);
 	});
 
-	it('skips a Labour naming itself, by current key or Alias', () => {
-		const labour = source('placeholder');
-		const bl = seedRealm(db, 'BL');
-		const oldKey = labourKeyOf(db, labour);
-		const newKey = moveLabour(db, actor, labour.id, { realmId: bl.id }).key;
+	it('skips a Labour naming itself, by current key or Alias', async () => {
+		const labour = await source('placeholder');
+		const bl = await seedRealm(db, 'BL');
+		const oldKey = await labourKeyOf(db, labour);
+		const newKey = (await moveLabour(db, actor, labour.id, { realmId: bl.id })).key;
 		expect(newKey).toBe('BL-1');
 
-		updateLabour(db, actor, labour.id, { description: `${oldKey} ${newKey} and AM-1` });
+		await updateLabour(db, actor, labour.id, { description: `${oldKey} ${newKey} and AM-1` });
 
-		expect(labourTargets(labour.id)).toEqual([target.id]);
+		expect(await labourTargets(labour.id)).toEqual([target.id]);
 	});
 
-	it('makes one Mention of a Labour named twice in one text', () => {
-		const labour = source('AM-1 and am-1 and AM-1 again');
+	it('makes one Mention of a Labour named twice in one text', async () => {
+		const labour = await source('AM-1 and am-1 and AM-1 again');
 
-		expect(rowsFrom(labour.id)).toHaveLength(1);
+		expect(await rowsFrom(labour.id)).toHaveLength(1);
 	});
 
-	it('makes a Mention per text: the description and each Comment count separately', () => {
-		const labour = source('AM-1');
-		addComment(db, actor, labour.id, 'also AM-1');
-		addComment(db, actor, labour.id, 'and AM-1 once more, AM-1');
+	it('makes a Mention per text: the description and each Comment count separately', async () => {
+		const labour = await source('AM-1');
+		await addComment(db, actor, labour.id, 'also AM-1');
+		await addComment(db, actor, labour.id, 'and AM-1 once more, AM-1');
 
-		const rows = rowsFrom(labour.id);
+		const rows = await rowsFrom(labour.id);
 
 		expect(rows).toHaveLength(3);
 		expect(rows.filter((row) => row.commentId === null)).toHaveLength(1);
 		expect(new Set(rows.map((row) => row.commentId)).size).toBe(3);
 	});
 
-	it('sets exactly one of labourId and userId on every row', () => {
-		const labour = source('AM-1 and @ada and @bob');
-		addComment(db, actor, labour.id, 'AM-1 @ada');
+	it('sets exactly one of labourId and userId on every row', async () => {
+		const labour = await source('AM-1 and @ada and @bob');
+		await addComment(db, actor, labour.id, 'AM-1 @ada');
 
-		const rows = rowsFrom(labour.id);
+		const rows = await rowsFrom(labour.id);
 
 		expect(rows).toHaveLength(5);
 		for (const row of rows) {
@@ -251,10 +247,10 @@ describe('@username', () => {
 		['@ada--'],
 		['@ada_-_'],
 		['@ada-.']
-	])('mentions ada in %j', (text) => {
-		const labour = source(text);
+	])('mentions ada in %j', async (text) => {
+		const labour = await source(text);
 
-		expect(userTargets(labour.id)).toEqual([ada]);
+		expect(await userTargets(labour.id)).toEqual([ada]);
 	});
 
 	it.each([
@@ -268,74 +264,74 @@ describe('@username', () => {
 		['@ada-bob'],
 		['@ada_bob'],
 		['@']
-	])('does not mention anyone in %j', (text) => {
-		const labour = source(text);
+	])('does not mention anyone in %j', async (text) => {
+		const labour = await source(text);
 
-		expect(rowsFrom(labour.id)).toEqual([]);
+		expect(await rowsFrom(labour.id)).toEqual([]);
 	});
 
-	it('does not mention a User whose name is a single character', () => {
-		seedUser(db, 'a');
+	it('does not mention a User whose name is a single character', async () => {
+		await seedUser(db, 'a');
 
-		const labour = source('hello @a');
+		const labour = await source('hello @a');
 
-		expect(rowsFrom(labour.id)).toEqual([]);
+		expect(await rowsFrom(labour.id)).toEqual([]);
 	});
 
-	it('mentions several Users once each', () => {
-		const labour = source('@ada @bob @ADA again');
+	it('mentions several Users once each', async () => {
+		const labour = await source('@ada @bob @ADA again');
 
-		expect(userTargets(labour.id).sort()).toEqual([ada, bob].sort());
+		expect((await userTargets(labour.id)).sort()).toEqual([ada, bob].sort());
 	});
 
-	it('prefers a User named exactly, trailing dash included, over the trimmed name', () => {
-		const dashed = seedUser(db, 'ada-');
+	it('prefers a User named exactly, trailing dash included, over the trimmed name', async () => {
+		const dashed = await seedUser(db, 'ada-');
 
-		const labour = source('ping @ada-');
+		const labour = await source('ping @ada-');
 
-		expect(userTargets(labour.id)).toEqual([dashed]);
+		expect(await userTargets(labour.id)).toEqual([dashed]);
 	});
 
-	it('mentions a User whose name is 32 characters', () => {
+	it('mentions a User whose name is 32 characters', async () => {
 		const longName = `u${'x'.repeat(31)}`;
-		const long = seedUser(db, longName);
+		const long = await seedUser(db, longName);
 
-		const labour = source(`@${longName}`);
+		const labour = await source(`@${longName}`);
 
-		expect(userTargets(labour.id)).toEqual([long]);
+		expect(await userTargets(labour.id)).toEqual([long]);
 	});
 
-	it('skips a name that is not a User', () => {
-		const labour = source('@nobody and @ada');
+	it('skips a name that is not a User', async () => {
+		const labour = await source('@nobody and @ada');
 
-		expect(userTargets(labour.id)).toEqual([ada]);
+		expect(await userTargets(labour.id)).toEqual([ada]);
 	});
 
-	it('mentions Users from a Comment, attributed to the Comment author', () => {
-		const labour = source('plain');
+	it('mentions Users from a Comment, attributed to the Comment author', async () => {
+		const labour = await source('plain');
 
-		const comment = addComment(db, { id: bob }, labour.id, 'thanks @ada');
+		const comment = await addComment(db, { id: bob }, labour.id, 'thanks @ada');
 
-		expect(rowsFrom(labour.id)).toMatchObject([
+		expect(await rowsFrom(labour.id)).toMatchObject([
 			{ userId: ada, labourId: null, commentId: comment.id, authorId: bob }
 		]);
 	});
 
-	it('keeps Labour and User Mentions of one text side by side', () => {
-		const labour = source('AM-1 reported by @ada');
+	it('keeps Labour and User Mentions of one text side by side', async () => {
+		const labour = await source('AM-1 reported by @ada');
 
-		expect(labourTargets(labour.id)).toEqual([target.id]);
-		expect(userTargets(labour.id)).toEqual([ada]);
+		expect(await labourTargets(labour.id)).toEqual([target.id]);
+		expect(await userTargets(labour.id)).toEqual([ada]);
 	});
 });
 
 describe('refreshing', () => {
-	it('records a description Mention at creation with the Labour createdAt and the acting User', () => {
+	it('records a description Mention at creation with the Labour createdAt and the acting User', async () => {
 		vi.setSystemTime(T2);
 
-		const labour = source('AM-1', bob);
+		const labour = await source('AM-1', bob);
 
-		expect(rowsFrom(labour.id)).toMatchObject([
+		expect(await rowsFrom(labour.id)).toMatchObject([
 			{
 				sourceLabourId: labour.id,
 				commentId: null,
@@ -344,83 +340,85 @@ describe('refreshing', () => {
 				authorId: actor.id
 			}
 		]);
-		expect(rowsFrom(labour.id)[0].firstSeenAt).toEqual(labour.createdAt);
-		expect(rowsFrom(labour.id)[0].firstSeenAt).toEqual(T2);
+		expect((await rowsFrom(labour.id))[0].firstSeenAt).toEqual(labour.createdAt);
+		expect((await rowsFrom(labour.id))[0].firstSeenAt).toEqual(T2);
 	});
 
-	it('records a new description target at update with the update time and the updating User', () => {
-		const labour = source('AM-1', bob);
+	it('records a new description target at update with the update time and the updating User', async () => {
+		const labour = await source('AM-1', bob);
 		vi.setSystemTime(T2);
 
-		updateLabour(db, { id: bob }, labour.id, { description: 'AM-1 and @ada' });
+		await updateLabour(db, { id: bob }, labour.id, { description: 'AM-1 and @ada' });
 
-		const [kept, added] = rowsFrom(labour.id);
+		const [kept, added] = await rowsFrom(labour.id);
 		expect(kept).toMatchObject({ labourId: target.id, authorId: actor.id });
 		expect(kept.firstSeenAt).toEqual(T1);
 		expect(added).toMatchObject({ userId: ada, authorId: bob });
 		expect(added.firstSeenAt).toEqual(T2);
-		expect(added.firstSeenAt).toEqual(updatedAtOf(labour.id));
+		expect(added.firstSeenAt).toEqual(await updatedAtOf(labour.id));
 	});
 
-	it('keeps the row, firstSeenAt and authorId of a target the new description still names', () => {
-		const labour = source('AM-1 first');
-		const before = rowsFrom(labour.id);
+	it('keeps the row, firstSeenAt and authorId of a target the new description still names', async () => {
+		const labour = await source('AM-1 first');
+		const before = await rowsFrom(labour.id);
 		vi.setSystemTime(T2);
 
-		updateLabour(db, { id: bob }, labour.id, { description: 'a different sentence about am-1' });
+		await updateLabour(db, { id: bob }, labour.id, {
+			description: 'a different sentence about am-1'
+		});
 
-		expect(rowsFrom(labour.id)).toEqual(before);
+		expect(await rowsFrom(labour.id)).toEqual(before);
 	});
 
-	it('deletes the row of a target the new description no longer names', () => {
-		const labour = source('AM-1 and @ada');
+	it('deletes the row of a target the new description no longer names', async () => {
+		const labour = await source('AM-1 and @ada');
 
-		updateLabour(db, actor, labour.id, { description: 'just @ada' });
+		await updateLabour(db, actor, labour.id, { description: 'just @ada' });
 
-		expect(labourTargets(labour.id)).toEqual([]);
-		expect(userTargets(labour.id)).toEqual([ada]);
+		expect(await labourTargets(labour.id)).toEqual([]);
+		expect(await userTargets(labour.id)).toEqual([ada]);
 	});
 
-	it('deletes every description Mention when the description is cleared, and no Comment one', () => {
-		const labour = source('AM-1');
-		const comment = addComment(db, actor, labour.id, 'AM-1');
+	it('deletes every description Mention when the description is cleared, and no Comment one', async () => {
+		const labour = await source('AM-1');
+		const comment = await addComment(db, actor, labour.id, 'AM-1');
 
-		updateLabour(db, actor, labour.id, { description: '' });
+		await updateLabour(db, actor, labour.id, { description: '' });
 
-		expect(rowsFrom(labour.id)).toMatchObject([{ commentId: comment.id }]);
+		expect(await rowsFrom(labour.id)).toMatchObject([{ commentId: comment.id }]);
 	});
 
-	it('leaves Mentions alone when an update changes only the title', () => {
-		const labour = source('AM-1 @ada');
-		const before = rowsFrom(labour.id);
+	it('leaves Mentions alone when an update changes only the title', async () => {
+		const labour = await source('AM-1 @ada');
+		const before = await rowsFrom(labour.id);
 		vi.setSystemTime(T2);
 
-		updateLabour(db, { id: bob }, labour.id, { title: 'Retitled' });
+		await updateLabour(db, { id: bob }, labour.id, { title: 'Retitled' });
 
-		expect(rowsFrom(labour.id)).toEqual(before);
+		expect(await rowsFrom(labour.id)).toEqual(before);
 	});
 
-	it('records a Comment Mention at add with the Comment createdAt and author', () => {
-		const labour = source('plain');
+	it('records a Comment Mention at add with the Comment createdAt and author', async () => {
+		const labour = await source('plain');
 		vi.setSystemTime(T2);
 
-		const comment = addComment(db, { id: bob }, labour.id, 'see AM-1');
+		const comment = await addComment(db, { id: bob }, labour.id, 'see AM-1');
 
-		expect(rowsFrom(labour.id)).toMatchObject([
+		expect(await rowsFrom(labour.id)).toMatchObject([
 			{ commentId: comment.id, labourId: target.id, authorId: bob }
 		]);
-		expect(rowsFrom(labour.id)[0].firstSeenAt).toEqual(comment.createdAt);
-		expect(rowsFrom(labour.id)[0].firstSeenAt).toEqual(T2);
+		expect((await rowsFrom(labour.id))[0].firstSeenAt).toEqual(comment.createdAt);
+		expect((await rowsFrom(labour.id))[0].firstSeenAt).toEqual(T2);
 	});
 
-	it('records a new target at Comment edit with the Comment updatedAt and its author', () => {
-		const labour = source('plain');
-		const comment = addComment(db, { id: bob }, labour.id, 'see AM-1');
+	it('records a new target at Comment edit with the Comment updatedAt and its author', async () => {
+		const labour = await source('plain');
+		const comment = await addComment(db, { id: bob }, labour.id, 'see AM-1');
 		vi.setSystemTime(T2);
 
-		const edited = editComment(db, { id: bob }, comment.id, 'see AM-1 and @ada');
+		const edited = await editComment(db, { id: bob }, comment.id, 'see AM-1 and @ada');
 
-		const [kept, added] = rowsFrom(labour.id);
+		const [kept, added] = await rowsFrom(labour.id);
 		expect(kept).toMatchObject({ labourId: target.id, authorId: bob });
 		expect(kept.firstSeenAt).toEqual(T1);
 		expect(added).toMatchObject({ userId: ada, commentId: comment.id, authorId: bob });
@@ -428,37 +426,37 @@ describe('refreshing', () => {
 		expect(added.firstSeenAt).toEqual(edited.updatedAt);
 	});
 
-	it('keeps the row of a target a Comment edit still names and deletes the one it drops', () => {
-		const labour = source('plain');
-		const comment = addComment(db, actor, labour.id, 'AM-1 and @ada');
-		const [keptBefore] = rowsFrom(labour.id);
+	it('keeps the row of a target a Comment edit still names and deletes the one it drops', async () => {
+		const labour = await source('plain');
+		const comment = await addComment(db, actor, labour.id, 'AM-1 and @ada');
+		const [keptBefore] = await rowsFrom(labour.id);
 		vi.setSystemTime(T2);
 
-		editComment(db, actor, comment.id, 'reworded: am-1');
+		await editComment(db, actor, comment.id, 'reworded: am-1');
 
-		expect(rowsFrom(labour.id)).toEqual([keptBefore]);
+		expect(await rowsFrom(labour.id)).toEqual([keptBefore]);
 	});
 
-	it('refreshes only the edited Comment', () => {
-		const labour = source('AM-1');
-		const first = addComment(db, actor, labour.id, 'AM-1');
-		const second = addComment(db, actor, labour.id, 'AM-1');
-		const before = rowsFrom(labour.id);
+	it('refreshes only the edited Comment', async () => {
+		const labour = await source('AM-1');
+		const first = await addComment(db, actor, labour.id, 'AM-1');
+		const second = await addComment(db, actor, labour.id, 'AM-1');
+		const before = await rowsFrom(labour.id);
 
-		editComment(db, actor, second.id, 'nothing here now');
+		await editComment(db, actor, second.id, 'nothing here now');
 
-		expect(rowsFrom(labour.id)).toEqual(before.filter((row) => row.commentId !== second.id));
-		expect(rowsFrom(labour.id).map((row) => row.commentId)).toEqual([null, first.id]);
+		expect(await rowsFrom(labour.id)).toEqual(before.filter((row) => row.commentId !== second.id));
+		expect((await rowsFrom(labour.id)).map((row) => row.commentId)).toEqual([null, first.id]);
 	});
 
-	it('deletes a Comment Mentions with the Comment and no others', () => {
-		const labour = source('AM-1 @ada');
-		const doomed = addComment(db, actor, labour.id, 'AM-1 @ada');
-		const kept = addComment(db, actor, labour.id, 'AM-1');
+	it('deletes a Comment Mentions with the Comment and no others', async () => {
+		const labour = await source('AM-1 @ada');
+		const doomed = await addComment(db, actor, labour.id, 'AM-1 @ada');
+		const kept = await addComment(db, actor, labour.id, 'AM-1');
 
-		deleteComment(db, actor, doomed.id);
+		await deleteComment(db, actor, doomed.id);
 
-		const shape = rowsFrom(labour.id)
+		const shape = (await rowsFrom(labour.id))
 			.map((row) => `${row.commentId}:${row.labourId}:${row.userId}`)
 			.sort();
 		expect(shape).toEqual(
@@ -466,122 +464,122 @@ describe('refreshing', () => {
 		);
 	});
 
-	it('gains a Mention of a Labour created after the text only when the text is next written', () => {
-		const labour = source('look at AM-3');
-		const comment = addComment(db, actor, labour.id, 'and AM-3');
-		const later = seedLabour(db, { realmId: amId });
-		expect(labourKeyOf(db, later)).toBe('AM-3');
-		expect(rowsFrom(labour.id)).toEqual([]);
+	it('gains a Mention of a Labour created after the text only when the text is next written', async () => {
+		const labour = await source('look at AM-3');
+		const comment = await addComment(db, actor, labour.id, 'and AM-3');
+		const later = await seedLabour(db, { realmId: amId });
+		expect(await labourKeyOf(db, later)).toBe('AM-3');
+		expect(await rowsFrom(labour.id)).toEqual([]);
 
-		updateLabour(db, actor, labour.id, { description: 'look at AM-3 again' });
-		expect(rowsFrom(labour.id)).toMatchObject([{ labourId: later.id, commentId: null }]);
+		await updateLabour(db, actor, labour.id, { description: 'look at AM-3 again' });
+		expect(await rowsFrom(labour.id)).toMatchObject([{ labourId: later.id, commentId: null }]);
 
-		editComment(db, actor, comment.id, 'and AM-3 too');
-		expect(rowsFrom(labour.id)).toMatchObject([
+		await editComment(db, actor, comment.id, 'and AM-3 too');
+		expect(await rowsFrom(labour.id)).toMatchObject([
 			{ labourId: later.id, commentId: null },
 			{ labourId: later.id, commentId: comment.id }
 		]);
 	});
 
-	it('gains a Mention of a User created after the text only when the text is next written', () => {
-		const labour = source('hello @carol');
-		const comment = addComment(db, actor, labour.id, 'cc @carol');
-		const carol = seedUser(db, 'carol');
-		expect(rowsFrom(labour.id)).toEqual([]);
+	it('gains a Mention of a User created after the text only when the text is next written', async () => {
+		const labour = await source('hello @carol');
+		const comment = await addComment(db, actor, labour.id, 'cc @carol');
+		const carol = await seedUser(db, 'carol');
+		expect(await rowsFrom(labour.id)).toEqual([]);
 
-		updateLabour(db, actor, labour.id, { description: 'hello @carol, again' });
-		expect(rowsFrom(labour.id)).toMatchObject([{ userId: carol, commentId: null }]);
+		await updateLabour(db, actor, labour.id, { description: 'hello @carol, again' });
+		expect(await rowsFrom(labour.id)).toMatchObject([{ userId: carol, commentId: null }]);
 
-		editComment(db, actor, comment.id, 'cc @carol please');
-		expect(rowsFrom(labour.id)).toMatchObject([
+		await editComment(db, actor, comment.id, 'cc @carol please');
+		expect(await rowsFrom(labour.id)).toMatchObject([
 			{ userId: carol, commentId: null },
 			{ userId: carol, commentId: comment.id }
 		]);
 	});
 
-	it('keeps Mentions when the mentioned Labour moves', () => {
-		const labour = source('AM-1');
-		const bl = seedRealm(db, 'BL');
-		const before = rowsFrom(labour.id);
+	it('keeps Mentions when the mentioned Labour moves', async () => {
+		const labour = await source('AM-1');
+		const bl = await seedRealm(db, 'BL');
+		const before = await rowsFrom(labour.id);
 
-		moveLabour(db, actor, target.id, { realmId: bl.id });
+		await moveLabour(db, actor, target.id, { realmId: bl.id });
 
-		expect(rowsFrom(labour.id)).toEqual(before);
+		expect(await rowsFrom(labour.id)).toEqual(before);
 	});
 
-	it('leaves the Mentions as they were when a write is refused', () => {
-		const labour = source('AM-1');
-		const comment = addComment(db, actor, labour.id, 'AM-1 @ada');
-		const before = allRows();
+	it('leaves the Mentions as they were when a write is refused', async () => {
+		const labour = await source('AM-1');
+		const comment = await addComment(db, actor, labour.id, 'AM-1 @ada');
+		const before = await allRows();
 
-		expectDomainError(
+		await expectDomainError(
 			() => updateLabour(db, actor, labour.id, { title: '   ', description: '@bob' }),
 			'invalid'
 		);
-		expectDomainError(
+		await expectDomainError(
 			() => updateLabour(db, actor, labour.id, { description: `@bob ${'x'.repeat(50_001)}` }),
 			'invalid'
 		);
-		expectDomainError(() => addComment(db, actor, labour.id, '   '), 'invalid');
-		expectDomainError(() => editComment(db, { id: bob }, comment.id, '@bob'), 'forbidden');
-		expectDomainError(() => deleteComment(db, { id: bob }, comment.id), 'forbidden');
+		await expectDomainError(() => addComment(db, actor, labour.id, '   '), 'invalid');
+		await expectDomainError(() => editComment(db, { id: bob }, comment.id, '@bob'), 'forbidden');
+		await expectDomainError(() => deleteComment(db, { id: bob }, comment.id), 'forbidden');
 
-		expect(allRows()).toEqual(before);
+		expect(await allRows()).toEqual(before);
 	});
 
-	it('records no Event and moves no updatedAt beyond the board write itself', () => {
-		const labour = source('plain');
-		const stamped = updatedAtOf(labour.id);
+	it('records no Event and moves no updatedAt beyond the board write itself', async () => {
+		const labour = await source('plain');
+		const stamped = await updatedAtOf(labour.id);
 		vi.setSystemTime(T2);
 
-		const beforeAdd = eventCount();
-		addComment(db, actor, labour.id, 'AM-1 @ada');
-		expect(eventCount()).toBe(beforeAdd + 1);
-		expect(updatedAtOf(labour.id)).toEqual(stamped);
+		const beforeAdd = await eventCount();
+		await addComment(db, actor, labour.id, 'AM-1 @ada');
+		expect(await eventCount()).toBe(beforeAdd + 1);
+		expect(await updatedAtOf(labour.id)).toEqual(stamped);
 
-		const beforeUpdate = eventCount();
-		updateLabour(db, actor, labour.id, { description: 'AM-1 @ada @bob' });
-		expect(eventCount()).toBe(beforeUpdate + 1);
-		expect(updatedAtOf(labour.id)).toEqual(T2);
+		const beforeUpdate = await eventCount();
+		await updateLabour(db, actor, labour.id, { description: 'AM-1 @ada @bob' });
+		expect(await eventCount()).toBe(beforeUpdate + 1);
+		expect(await updatedAtOf(labour.id)).toEqual(T2);
 	});
 });
 
 describe('removal', () => {
-	it('removes the Mentions a deleted Labour made', () => {
-		const labour = source('AM-1 @ada');
-		addComment(db, actor, labour.id, 'AM-1');
+	it('removes the Mentions a deleted Labour made', async () => {
+		const labour = await source('AM-1 @ada');
+		await addComment(db, actor, labour.id, 'AM-1');
 
-		deleteLabour(db, actor, labour.id);
+		await deleteLabour(db, actor, labour.id);
 
-		expect(allRows()).toEqual([]);
+		expect(await allRows()).toEqual([]);
 	});
 
-	it('removes the Mentions of a deleted Labour', () => {
-		const labour = source('AM-1');
-		const keeper = source('@ada');
+	it('removes the Mentions of a deleted Labour', async () => {
+		const labour = await source('AM-1');
+		const keeper = await source('@ada');
 
-		deleteLabour(db, actor, target.id);
+		await deleteLabour(db, actor, target.id);
 
-		expect(rowsFrom(labour.id)).toEqual([]);
-		expect(rowsFrom(keeper.id)).toHaveLength(1);
+		expect(await rowsFrom(labour.id)).toEqual([]);
+		expect(await rowsFrom(keeper.id)).toHaveLength(1);
 	});
 
-	it('removes the Mentions made by and of the Labours of a deleted Realm', () => {
-		const bl = seedRealm(db, 'BL');
-		const inBl = seedLabour(db, { realmId: bl.id, description: 'AM-1 @ada' });
-		const fromAm = source('BL-1');
-		const untouched = source('AM-1 @bob');
+	it('removes the Mentions made by and of the Labours of a deleted Realm', async () => {
+		const bl = await seedRealm(db, 'BL');
+		const inBl = await seedLabour(db, { realmId: bl.id, description: 'AM-1 @ada' });
+		const fromAm = await source('BL-1');
+		const untouched = await source('AM-1 @bob');
 
-		deleteRealm(db, actor, bl.id);
+		await deleteRealm(db, actor, bl.id);
 
-		expect(rowsFrom(inBl.id)).toEqual([]);
-		expect(rowsFrom(fromAm.id)).toEqual([]);
-		expect(rowsFrom(untouched.id)).toHaveLength(2);
+		expect(await rowsFrom(inBl.id)).toEqual([]);
+		expect(await rowsFrom(fromAm.id)).toEqual([]);
+		expect(await rowsFrom(untouched.id)).toHaveLength(2);
 	});
 });
 
 describe('readAppraisal mentions', () => {
-	function insertMention(row: {
+	async function insertMention(row: {
 		sourceLabourId: number;
 		commentId?: number | null;
 		labourId?: number | null;
@@ -589,24 +587,25 @@ describe('readAppraisal mentions', () => {
 		authorId: number;
 		firstSeenAt: Date;
 	}) {
-		return db
-			.insert(mentions)
-			.values({ commentId: null, labourId: null, userId: null, ...row })
-			.returning()
-			.get();
+		return (
+			await db
+				.insert(mentions)
+				.values({ commentId: null, labourId: null, userId: null, ...row })
+				.returning()
+		)[0];
 	}
 
-	it('is empty when nothing mentions the Labour', () => {
-		expect(readAppraisal(db, target.id).mentions).toEqual([]);
+	it('is empty when nothing mentions the Labour', async () => {
+		expect((await readAppraisal(db, target.id)).mentions).toEqual([]);
 	});
 
-	it('lists a description Mention and a Comment Mention of the Labour', () => {
-		const fromDescription = source('AM-1');
+	it('lists a description Mention and a Comment Mention of the Labour', async () => {
+		const fromDescription = await source('AM-1');
 		vi.setSystemTime(T2);
-		const host = source('plain');
-		const comment = addComment(db, { id: bob }, host.id, 'AM-1');
+		const host = await source('plain');
+		const comment = await addComment(db, { id: bob }, host.id, 'AM-1');
 
-		const found = readAppraisal(db, target.id).mentions;
+		const found = (await readAppraisal(db, target.id)).mentions;
 
 		expect(found).toEqual([
 			{ sourceLabourId: host.id, commentId: comment.id, authorId: bob, firstSeenAt: T2 },
@@ -615,57 +614,89 @@ describe('readAppraisal mentions', () => {
 		expect(found[0].firstSeenAt).toBeInstanceOf(Date);
 	});
 
-	it('leaves out Mentions of Users and Mentions the Labour itself makes', () => {
-		source('@ada');
-		const other = source('plain');
-		updateLabour(db, actor, target.id, { description: `@ada and ${labourKeyOf(db, other)}` });
+	it('leaves out Mentions of Users and Mentions the Labour itself makes', async () => {
+		await source('@ada');
+		const other = await source('plain');
+		await updateLabour(db, actor, target.id, {
+			description: `@ada and ${await labourKeyOf(db, other)}`
+		});
 
-		expect(readAppraisal(db, target.id).mentions).toEqual([]);
-		expect(readAppraisal(db, other.id).mentions).toHaveLength(1);
+		expect((await readAppraisal(db, target.id)).mentions).toEqual([]);
+		expect((await readAppraisal(db, other.id)).mentions).toHaveLength(1);
 	});
 
-	it('orders newest firstSeenAt first, whatever the row ids', () => {
-		const a = source('plain');
-		const b = source('plain');
-		const c = source('plain');
-		insertMention({ sourceLabourId: a.id, labourId: target.id, authorId: ada, firstSeenAt: T2 });
-		insertMention({ sourceLabourId: b.id, labourId: target.id, authorId: ada, firstSeenAt: T3 });
-		insertMention({ sourceLabourId: c.id, labourId: target.id, authorId: ada, firstSeenAt: T1 });
+	it('orders newest firstSeenAt first, whatever the row ids', async () => {
+		const a = await source('plain');
+		const b = await source('plain');
+		const c = await source('plain');
+		await insertMention({
+			sourceLabourId: a.id,
+			labourId: target.id,
+			authorId: ada,
+			firstSeenAt: T2
+		});
+		await insertMention({
+			sourceLabourId: b.id,
+			labourId: target.id,
+			authorId: ada,
+			firstSeenAt: T3
+		});
+		await insertMention({
+			sourceLabourId: c.id,
+			labourId: target.id,
+			authorId: ada,
+			firstSeenAt: T1
+		});
 
-		expect(readAppraisal(db, target.id).mentions.map((m) => m.sourceLabourId)).toEqual([
+		expect((await readAppraisal(db, target.id)).mentions.map((m) => m.sourceLabourId)).toEqual([
 			b.id,
 			a.id,
 			c.id
 		]);
 	});
 
-	it('breaks a firstSeenAt tie with the higher row id first', () => {
-		const a = source('plain');
-		const b = source('plain');
-		const c = source('plain');
-		insertMention({ sourceLabourId: b.id, labourId: target.id, authorId: ada, firstSeenAt: T2 });
-		insertMention({ sourceLabourId: c.id, labourId: target.id, authorId: ada, firstSeenAt: T2 });
-		insertMention({ sourceLabourId: a.id, labourId: target.id, authorId: ada, firstSeenAt: T2 });
+	it('breaks a firstSeenAt tie with the higher row id first', async () => {
+		const a = await source('plain');
+		const b = await source('plain');
+		const c = await source('plain');
+		await insertMention({
+			sourceLabourId: b.id,
+			labourId: target.id,
+			authorId: ada,
+			firstSeenAt: T2
+		});
+		await insertMention({
+			sourceLabourId: c.id,
+			labourId: target.id,
+			authorId: ada,
+			firstSeenAt: T2
+		});
+		await insertMention({
+			sourceLabourId: a.id,
+			labourId: target.id,
+			authorId: ada,
+			firstSeenAt: T2
+		});
 
-		expect(readAppraisal(db, target.id).mentions.map((m) => m.sourceLabourId)).toEqual([
+		expect((await readAppraisal(db, target.id)).mentions.map((m) => m.sourceLabourId)).toEqual([
 			a.id,
 			c.id,
 			b.id
 		]);
 	});
 
-	it('returns at most the 10 newest', () => {
-		const sources = Array.from({ length: 12 }, () => source('plain'));
-		sources.forEach((labour, index) => {
-			insertMention({
+	it('returns at most the 10 newest', async () => {
+		const sources = await Promise.all(Array.from({ length: 12 }, () => source('plain')));
+		for (const [index, labour] of sources.entries()) {
+			await insertMention({
 				sourceLabourId: labour.id,
 				labourId: target.id,
 				authorId: ada,
 				firstSeenAt: new Date(T1.getTime() + index * 1000)
 			});
-		});
+		}
 
-		const found = readAppraisal(db, target.id).mentions;
+		const found = (await readAppraisal(db, target.id)).mentions;
 
 		expect(found).toHaveLength(10);
 		expect(found.map((m) => m.sourceLabourId)).toEqual(

@@ -15,7 +15,7 @@ let client: Client;
 const clients: Client[] = [];
 
 beforeEach(async () => {
-	db = testDb();
+	db = await testDb();
 	admin = await createFirstAdmin(db, {
 		username: 'root',
 		displayName: 'Root',
@@ -26,7 +26,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	await Promise.all(clients.splice(0).map((c) => c.close()));
-	db.$client.close();
 });
 
 async function connect(actor: AuthUser): Promise<Client> {
@@ -58,7 +57,7 @@ async function refused(name: string, args: Record<string, unknown>, code: string
 	return result;
 }
 
-const lastSeq = () => eventWindow(db).last;
+const lastSeq = async () => (await eventWindow(db)).last;
 
 async function seedRealm(labourCount = 0): Promise<number[]> {
 	await ok('create_realm', { name: 'Atlas', key: 'am' });
@@ -208,9 +207,9 @@ describe('get_attributes', () => {
 		await ok('define_attribute', QUALITY);
 		await ok('define_attribute', AREA);
 		await ok('define_attribute', NOTE);
-		setValues(db, admin, one, { quality: 3, area: ['art', 'code'], note: 'hi' });
-		setValues(db, admin, two, { quality: 3, area: ['code'] });
-		setValues(db, admin, three, { quality: 5 });
+		await setValues(db, admin, one, { quality: 3, area: ['art', 'code'], note: 'hi' });
+		await setValues(db, admin, two, { quality: 3, area: ['code'] });
+		await setValues(db, admin, three, { quality: 5 });
 
 		const { attributes } = await ok('get_attributes', { realm: 'AM' });
 		const by = (key: string) => attributes.find((a: any) => a.key === key);
@@ -223,7 +222,7 @@ describe('get_attributes', () => {
 	it('counts a value as stale once its Attribute rubric is revised', async () => {
 		const [labour] = await seedRealm(1);
 		await ok('define_attribute', QUALITY);
-		setValues(db, admin, labour, { quality: 3 }, PAST);
+		await setValues(db, admin, labour, { quality: 3 }, PAST);
 
 		await ok('define_attribute', { realm: 'AM', key: 'quality', kind: 'scale', rubric: 'Sharper' });
 
@@ -463,7 +462,7 @@ describe('define_attribute', () => {
 	it('returns counts and stale for a held Attribute', async () => {
 		const [labour] = await seedRealm(1);
 		await ok('define_attribute', QUALITY);
-		setValues(db, admin, labour, { quality: 4 }, PAST);
+		await setValues(db, admin, labour, { quality: 4 }, PAST);
 
 		const result = await ok('define_attribute', {
 			realm: 'AM',
@@ -478,18 +477,18 @@ describe('define_attribute', () => {
 	it('clamps held values when a scale is narrowed', async () => {
 		const [labour] = await seedRealm(1);
 		await ok('define_attribute', { ...QUALITY, spec: { min: 1, max: 10 } });
-		setValues(db, admin, labour, { quality: 9 }, PAST);
+		await setValues(db, admin, labour, { quality: 9 }, PAST);
 
 		const result = await ok('define_attribute', { ...QUALITY, spec: { min: 1, max: 5 } });
 
 		expect(result.attribute.counts).toEqual({ '5': 1 });
-		expect(readValues(db, labour)[0]).toMatchObject({ value: 5 });
+		expect((await readValues(db, labour))[0]).toMatchObject({ value: 5 });
 	});
 
 	it('refuses lowering a max below a held value with conflict', async () => {
 		const [labour] = await seedRealm(1);
 		await ok('define_attribute', { ...NOTE, spec: { max: 100 } });
-		setValues(db, admin, labour, { note: 'twelve chars' }, PAST);
+		await setValues(db, admin, labour, { note: 'twelve chars' }, PAST);
 
 		await refused('define_attribute', { ...NOTE, spec: { max: 5 } }, 'conflict');
 
@@ -501,7 +500,7 @@ describe('define_attribute', () => {
 		const id = await realmId();
 		for (let i = 0; i < 32; i++) {
 			const { realm: _realm, ...input } = { ...QUALITY, key: `attr-${i}` };
-			defineAttribute(db, admin, id, input as never, PAST);
+			await defineAttribute(db, admin, id, input as never, PAST);
 		}
 
 		await refused('define_attribute', { ...QUALITY, key: 'one-more' }, 'conflict');
@@ -600,13 +599,13 @@ describe('define_attribute', () => {
 
 	it('records no Event', async () => {
 		await seedRealm(1);
-		const before = lastSeq();
+		const before = await lastSeq();
 
 		await ok('define_attribute', QUALITY);
 		await ok('define_attribute', { realm: 'AM', key: 'quality', kind: 'scale', rubric: 'Again' });
 		await refused('define_attribute', { ...QUALITY, key: 'rank' }, 'invalid');
 
-		expect(lastSeq()).toBe(before);
+		expect(await lastSeq()).toBe(before);
 	});
 });
 
@@ -628,11 +627,11 @@ describe('delete_attribute', () => {
 		const [labour] = await seedRealm(1);
 		await ok('define_attribute', QUALITY);
 		await ok('define_attribute', NOTE);
-		setValues(db, admin, labour, { quality: 2, note: 'hi' }, PAST);
+		await setValues(db, admin, labour, { quality: 2, note: 'hi' }, PAST);
 
 		await ok('delete_attribute', { realm: 'AM', key: 'quality' });
 
-		expect(readValues(db, labour).map((v) => v.key)).toEqual(['note']);
+		expect((await readValues(db, labour)).map((v) => v.key)).toEqual(['note']);
 	});
 
 	it('refuses an unknown key with not_found, changing nothing', async () => {
@@ -666,11 +665,11 @@ describe('delete_attribute', () => {
 	it('records no Event', async () => {
 		await seedRealm(1);
 		await ok('define_attribute', QUALITY);
-		const before = lastSeq();
+		const before = await lastSeq();
 
 		await ok('delete_attribute', { realm: 'AM', key: 'quality' });
 
-		expect(lastSeq()).toBe(before);
+		expect(await lastSeq()).toBe(before);
 	});
 });
 
@@ -780,11 +779,11 @@ describe('tune_realm', () => {
 
 	it('records no Event', async () => {
 		await seedRealm(1);
-		const before = lastSeq();
+		const before = await lastSeq();
 
 		await ok('tune_realm', { realm: 'AM', notes: 'n', loudness: 9 });
 		await refused('tune_realm', { realm: 'AM', loudness: 0 }, 'invalid');
 
-		expect(lastSeq()).toBe(before);
+		expect(await lastSeq()).toBe(before);
 	});
 });

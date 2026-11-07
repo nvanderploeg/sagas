@@ -26,7 +26,7 @@ export type LabourPage = { labours: LabourView[]; total: number };
 function conditions(filter: LabourFilter): SQL | undefined {
 	const where: SQL[] = [];
 	if (filter.realms !== undefined) {
-		where.push(filter.realms.length === 0 ? sql`0` : inArray(labours.realmId, filter.realms));
+		where.push(filter.realms.length === 0 ? sql`false` : inArray(labours.realmId, filter.realms));
 	}
 	if (filter.realmId !== undefined) where.push(eq(labours.realmId, filter.realmId));
 	if (filter.stateId !== undefined) where.push(eq(labours.stateId, filter.stateId));
@@ -48,18 +48,16 @@ function conditions(filter: LabourFilter): SQL | undefined {
 	if (filter.open !== undefined) where.push(eq(states.isOpen, filter.open));
 	if (filter.questId !== undefined) where.push(eq(questLabours.questId, filter.questId));
 	for (const label of filter.labels ?? []) {
-		where.push(
-			sql`exists (select 1 from json_each(${labours.labels}) where json_each.value = ${label})`
-		);
+		where.push(sql`${labours.labels} @> ${JSON.stringify([label])}::jsonb`);
 	}
 	return where.length > 0 ? and(...where) : undefined;
 }
 
-export function queryLabours(
+export async function queryLabours(
 	db: Handle,
 	filter: LabourFilter,
 	page: { offset: number; limit: number }
-): LabourPage {
+): Promise<LabourPage> {
 	const where = conditions(filter);
 	const inQuest = filter.questId !== undefined;
 
@@ -77,11 +75,16 @@ export function queryLabours(
 		.from(labours)
 		.innerJoin(states, eq(states.id, labours.stateId));
 	const total = inQuest
-		? counted.innerJoin(questLabours, eq(questLabours.labourId, labours.id)).where(where).get()
-		: counted.where(where).get();
+		? (
+				await counted
+					.innerJoin(questLabours, eq(questLabours.labourId, labours.id))
+					.where(where)
+					.limit(1)
+			)[0]
+		: (await counted.where(where).limit(1))[0];
 
 	return {
-		labours: rows.limit(page.limit).offset(page.offset).all().map(toLabourView),
+		labours: (await rows.limit(page.limit).offset(page.offset)).map(toLabourView),
 		total: total?.n ?? 0
 	};
 }

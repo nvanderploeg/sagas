@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { invalidateAll } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import Avatar from '#lib/components/Avatar.svelte';
 	import Secret from '#lib/components/Secret.svelte';
@@ -32,7 +32,7 @@
 	let confirmation = $state('');
 	let uploading = $state(false);
 	let importError = $state<string | null>(null);
-	let staged = $state(false);
+	let imported = $state(false);
 	let progress = $state(0);
 
 	const CHUNK = 256 * 1024;
@@ -69,8 +69,7 @@
 				progress = end / Math.max(bundle.size, 1);
 				if (end >= bundle.size) break;
 			}
-			staged = true;
-			await invalidateAll();
+			imported = true;
 		} catch {
 			importError = 'The upload did not finish. Check the connection and try again.';
 		} finally {
@@ -84,7 +83,6 @@
 		tables: { name: string; rows: number }[];
 		migrations: { tag: string; date: string }[];
 		buildMigrations: number;
-		attachments: { files: number; bytes: number };
 	} | null>(null);
 	let statsError = $state<string | null>(null);
 
@@ -201,8 +199,6 @@
 				<dd>v{stats.appVersion}</dd>
 				<dt class="text-muted">Database size</dt>
 				<dd data-testid="database-size">{bytes(stats.databaseBytes)}</dd>
-				<dt class="text-muted">Attachments on disk</dt>
-				<dd>{stats.attachments.files} files, {bytes(stats.attachments.bytes)}</dd>
 				<dt class="text-muted">Migrations</dt>
 				<dd data-testid="migrations">
 					{stats.migrations.length} applied of {stats.buildMigrations} in this build
@@ -245,9 +241,8 @@
 	<section class="panel grid gap-3 p-5" aria-labelledby="export-heading">
 		<h2 id="export-heading" class="text-lg font-bold tracking-tight">Export</h2>
 		<p class="text-sm text-muted">
-			Downloads one .zip: a consistent snapshot of the database, every attachment file stored on
-			this server, and a manifest with checksums. Webhook secrets stay encrypted; the new host needs
-			the same <code>WEBHOOK_KEY</code>.
+			Downloads one .zip: a consistent snapshot of the database and a manifest with checksums.
+			Webhook secrets stay encrypted; the new host needs the same <code>WEBHOOK_KEY</code>.
 		</p>
 		<form method="POST" action="/admin/export">
 			<button type="submit" class="btn btn-primary">Download export</button>
@@ -258,40 +253,10 @@
 		<h2 id="import-heading" class="text-lg font-bold tracking-tight">Import</h2>
 		<p class="rounded-xl border border-danger/50 bg-danger/10 p-3 text-sm" role="note">
 			<strong>Importing replaces all data on this server</strong>: Users, Realms, Labours, Scrolls,
-			API tokens, sessions and attachments. You will be signed out and must sign in as a User from
-			the bundle. A backup of the current data is kept in <code>backups/</code> beside the database. The
-			swap happens when the server next starts.
+			API tokens and sessions, in one step. You will be signed out and must sign in as a User from
+			the bundle. Nothing is kept of the data it replaces, so download an export first if you may
+			want it back. A bundle from the SQLite build imports too.
 		</p>
-		{#if data.pendingImport === 'corrupt'}
-			<div
-				class="grid gap-2 rounded-xl border border-danger/50 bg-danger/10 p-3"
-				data-testid="pending-import"
-				role="alert"
-			>
-				<p class="text-sm font-semibold">A staged import is unreadable and will not be applied.</p>
-				<form method="POST" action="?/discardImport" use:enhance>
-					<button type="submit" class="btn">Discard staged import</button>
-				</form>
-			</div>
-		{:else if data.pendingImport}
-			<div
-				class="grid gap-2 rounded-xl border border-gold/60 bg-gold/10 p-3"
-				data-testid="pending-import"
-				role="status"
-			>
-				<p class="text-sm font-semibold">An import is staged. Restart the server to apply it.</p>
-				<p class="text-sm text-muted">
-					Bundle from {data.pendingImport.bundleCreatedAt} (v{data.pendingImport.bundleAppVersion},
-					{data.pendingImport.bundleSchema.level} migrations), {data.pendingImport.files} files, {bytes(
-						data.pendingImport.bytes
-					)}. Until the restart this server keeps running on its current data, and anything written
-					meanwhile is lost.
-				</p>
-				<form method="POST" action="?/discardImport" use:enhance>
-					<button type="submit" class="btn">Discard staged import</button>
-				</form>
-			</div>
-		{/if}
 		<form onsubmit={upload} class="grid gap-3">
 			<label class="grid gap-1">
 				<span class="label">Export bundle (.zip, up to {bytes(data.importMaxBytes)})</span>
@@ -322,8 +287,8 @@
 				</button>
 			</div>
 			{#if importError}<p role="alert" class="error">{importError}</p>{/if}
-			{#if staged}<p role="status" class="text-sm font-semibold">
-					Bundle checked and staged. Restart the server to apply it.
+			{#if imported}<p role="status" class="text-sm font-semibold" data-testid="import-done">
+					Data replaced. <a href={resolve('/login')} class="underline">Sign in again</a>.
 				</p>{/if}
 		</form>
 	</section>

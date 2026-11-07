@@ -5,5 +5,5 @@ import { signedIn } from '#lib/server/ui/form.ts';
 import type { RequestHandler } from './$types';
 
 // The UI's Labour lookup, by key or title, behind the session like every page.
-export const GET: RequestHandler = ({ url, locals }) =>
-	json(toJson(searchLabours(getDb(), signedIn(locals), url.searchParams.get('q') ?? '')));
+export const GET: RequestHandler = async ({ url, locals }) =>
+	json(toJson(await searchLabours(getDb(), signedIn(locals), url.searchParams.get('q') ?? '')));

@@ -5,6 +5,7 @@ import { labourNeeds, skills, userSkills, users } from '../db/schema.ts';
 import { DomainError } from '../domain/errors.ts';
 import { requireMatch, STATE_KEY } from '../domain/validate.ts';
 import type { Actor } from '../domain/write.ts';
+import { transact } from '#lib/server/db/tx.ts';
 
 export type SkillView = {
 	id: number;
@@ -63,35 +64,36 @@ function normalizeRubric(value: unknown): string {
 	return rubric;
 }
 
-export function defineSkill(
+export async function defineSkill(
 	db: Db,
 	_actor: Actor,
 	input: SkillInput,
 	now: Date = new Date()
-): SkillView {
-	return db.transaction((tx) => {
+): Promise<SkillView> {
+	return transact(db, async (tx) => {
 		const key = normalizeKey(input.key);
 		requireMatch(
 			key,
 			STATE_KEY,
 			'Skill key must be lowercase letters, digits and hyphens, starting with a letter'
 		);
-		const existing = tx.select().from(skills).where(eq(skills.key, key)).get();
+		const existing = (await tx.select().from(skills).where(eq(skills.key, key)).limit(1))[0];
 
 		if (existing === undefined) {
 			if (input.label === undefined) invalid('Creating a Skill needs a label');
 			return viewOf(
-				tx
-					.insert(skills)
-					.values({
-						key,
-						label: normalizeLabel(input.label),
-						rubric: input.rubric === undefined ? '' : normalizeRubric(input.rubric),
-						createdAt: now,
-						updatedAt: now
-					})
-					.returning()
-					.get()
+				(
+					await tx
+						.insert(skills)
+						.values({
+							key,
+							label: normalizeLabel(input.label),
+							rubric: input.rubric === undefined ? '' : normalizeRubric(input.rubric),
+							createdAt: now,
+							updatedAt: now
+						})
+						.returning()
+				)[0]
 			);
 		}
 
@@ -99,43 +101,44 @@ export function defineSkill(
 		const rubric = input.rubric === undefined ? existing.rubric : normalizeRubric(input.rubric);
 		if (label === existing.label && rubric === existing.rubric) return viewOf(existing);
 		return viewOf(
-			tx
-				.update(skills)
-				.set({ label, rubric, updatedAt: now })
-				.where(eq(skills.id, existing.id))
-				.returning()
-				.get()
+			(
+				await tx
+					.update(skills)
+					.set({ label, rubric, updatedAt: now })
+					.where(eq(skills.id, existing.id))
+					.returning()
+			)[0]
 		);
 	});
 }
 
-export function listSkills(db: Handle): (SkillView & { holders: number })[] {
-	return db
-		.select({
-			row: skills,
-			holders: sql<number>`(SELECT count(*) FROM ${userSkills} WHERE ${userSkills.skillId} = ${skills.id})`
-		})
-		.from(skills)
-		.orderBy(asc(skills.key))
-		.all()
-		.map(({ row, holders }) => ({ ...viewOf(row), holders }));
+export async function listSkills(db: Handle): Promise<(SkillView & { holders: number })[]> {
+	return (
+		await db
+			.select({
+				row: skills,
+				holders: sql<number>`(SELECT count(*) FROM ${userSkills} WHERE ${userSkills.skillId} = ${skills.id})`
+			})
+			.from(skills)
+			.orderBy(asc(skills.key))
+	).map(({ row, holders }) => ({ ...viewOf(row), holders }));
 }
 
-export function readUserSkills(db: Handle, userId: number): Record<string, number> {
+export async function readUserSkills(db: Handle, userId: number): Promise<Record<string, number>> {
 	return Object.fromEntries(
-		db
-			.select({ key: skills.key, level: userSkills.level })
-			.from(userSkills)
-			.innerJoin(skills, eq(skills.id, userSkills.skillId))
-			.where(eq(userSkills.userId, userId))
-			.orderBy(asc(skills.key))
-			.all()
-			.map((row) => [row.key, row.level])
+		(
+			await db
+				.select({ key: skills.key, level: userSkills.level })
+				.from(userSkills)
+				.innerJoin(skills, eq(skills.id, userSkills.skillId))
+				.where(eq(userSkills.userId, userId))
+				.orderBy(asc(skills.key))
+		).map((row) => [row.key, row.level])
 	);
 }
 
-export function readNeeds(db: Handle, labourId: number): NeedView[] {
-	return db
+export async function readNeeds(db: Handle, labourId: number): Promise<NeedView[]> {
+	return await db
 		.select({
 			key: skills.key,
 			level: labourNeeds.level,
@@ -146,11 +149,13 @@ export function readNeeds(db: Handle, labourId: number): NeedView[] {
 		.from(labourNeeds)
 		.innerJoin(skills, eq(skills.id, labourNeeds.skillId))
 		.where(eq(labourNeeds.labourId, labourId))
-		.orderBy(asc(skills.key))
-		.all();
+		.orderBy(asc(skills.key));
 }
 
-function plan(tx: Handle, levels: Levels): { skillId: number; level: number | null }[] {
+async function plan(
+	tx: Handle,
+	levels: Levels
+): Promise<{ skillId: number; level: number | null }[]> {
 	if (levels === null || typeof levels !== 'object' || Array.isArray(levels)) {
 		invalid('Skills must be an object of Skill keys to levels');
 	}
@@ -166,17 +171,17 @@ function plan(tx: Handle, levels: Levels): { skillId: number; level: number | nu
 	const ids = new Map(
 		entries.length === 0
 			? []
-			: tx
-					.select({ key: skills.key, id: skills.id })
-					.from(skills)
-					.where(
-						inArray(
-							skills.key,
-							entries.map((entry) => entry.key)
+			: (
+					await tx
+						.select({ key: skills.key, id: skills.id })
+						.from(skills)
+						.where(
+							inArray(
+								skills.key,
+								entries.map((entry) => entry.key)
+							)
 						)
-					)
-					.all()
-					.map((row) => [row.key, row.id])
+				).map((row) => [row.key, row.id])
 	);
 	return entries.map(({ key, level }) => {
 		const skillId = ids.get(key);
@@ -185,57 +190,62 @@ function plan(tx: Handle, levels: Levels): { skillId: number; level: number | nu
 	});
 }
 
-export function setSkills(
+export async function setSkills(
 	db: Db,
 	actor: Actor,
 	userId: number,
 	levels: Levels,
 	now: Date = new Date()
-): Record<string, number> {
-	return db.transaction((tx) => {
-		if (tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).get() === undefined) {
+): Promise<Record<string, number>> {
+	return transact(db, async (tx) => {
+		if (
+			(await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1))[0] ===
+			undefined
+		) {
 			throw new DomainError('not_found', 'User not found');
 		}
-		for (const { skillId, level } of plan(tx, levels)) {
+		for (const { skillId, level } of await plan(tx, levels)) {
 			const match = and(eq(userSkills.userId, userId), eq(userSkills.skillId, skillId));
 			if (level === null) {
-				tx.delete(userSkills).where(match).run();
+				await tx.delete(userSkills).where(match);
 				continue;
 			}
 			const set = { level, setBy: actor.id, via: currentVia(), setAt: now };
-			tx.insert(userSkills)
+			await tx
+				.insert(userSkills)
 				.values({ userId, skillId, ...set })
-				.onConflictDoUpdate({ target: [userSkills.userId, userSkills.skillId], set })
-				.run();
+				.onConflictDoUpdate({ target: [userSkills.userId, userSkills.skillId], set });
 		}
 		return readUserSkills(tx, userId);
 	});
 }
 
 // Check the cap after the merge, never before: a clear in the same item frees a slot.
-export function writeNeeds(
+export async function writeNeeds(
 	tx: Handle,
 	userId: number,
 	labourId: number,
 	levels: Levels,
 	now: Date
-): void {
-	for (const { skillId, level } of plan(tx, levels)) {
+): Promise<void> {
+	for (const { skillId, level } of await plan(tx, levels)) {
 		const match = and(eq(labourNeeds.labourId, labourId), eq(labourNeeds.skillId, skillId));
 		if (level === null) {
-			tx.delete(labourNeeds).where(match).run();
+			await tx.delete(labourNeeds).where(match);
 			continue;
 		}
 		const set = { level, setBy: userId, via: currentVia(), setAt: now };
-		tx.insert(labourNeeds)
+		await tx
+			.insert(labourNeeds)
 			.values({ labourId, skillId, ...set })
-			.onConflictDoUpdate({ target: [labourNeeds.labourId, labourNeeds.skillId], set })
-			.run();
+			.onConflictDoUpdate({ target: [labourNeeds.labourId, labourNeeds.skillId], set });
 	}
-	const held = tx
-		.select({ n: sql<number>`count(*)` })
-		.from(labourNeeds)
-		.where(eq(labourNeeds.labourId, labourId))
-		.get()!.n;
+	const held = (
+		await tx
+			.select({ n: sql<number>`count(*)` })
+			.from(labourNeeds)
+			.where(eq(labourNeeds.labourId, labourId))
+			.limit(1)
+	)[0]!.n;
 	if (held > NEEDS_MAX) invalid(`A Labour needs at most ${NEEDS_MAX} Skills`);
 }

@@ -5,14 +5,14 @@ import { PEOPLE } from '#lib/ui/people.ts';
 import type { LayoutServerLoad } from './$types';
 
 // Users record no Events: the directory is as fresh as the last load of PEOPLE.
-export const load: LayoutServerLoad = ({ locals, depends }) => {
+export const load: LayoutServerLoad = async ({ locals, depends }) => {
 	depends(PEOPLE);
 	if (!locals.user) return { user: null, people: [], offers: 0 };
-	const people = listUsers(getDb()).map(({ id, kind, username, displayName }) => ({
+	const people = (await listUsers(getDb())).map(({ id, kind, username, displayName }) => ({
 		id,
 		kind,
 		username,
 		displayName
 	}));
-	return { user: locals.user, people, offers: listOffers(getDb(), locals.user.id).length };
+	return { user: locals.user, people, offers: (await listOffers(getDb(), locals.user.id)).length };
 };

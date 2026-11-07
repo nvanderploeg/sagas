@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { buildStormspire, type LabourName, type Stormspire } from '#lib/server/test/stormspire.ts';
@@ -20,13 +20,9 @@ import { createEmbeddingQueue } from '../vectors/index.ts';
 let db: Db;
 let spire: Stormspire;
 
-beforeEach(() => {
-	db = testDb();
-	spire = buildStormspire(db);
-});
-
-afterEach(() => {
-	db.$client.close();
+beforeEach(async () => {
+	db = await testDb();
+	spire = await buildStormspire(db);
 });
 
 const nameOf = (labourId: number) =>
@@ -80,8 +76,8 @@ function checkBossNotes(result: SurveyResult) {
 	expect(boss.pulses[1].evidence).toEqual([{ labour: spire.labours.dragon.id }]);
 }
 
-function report(surveyId: number, outcomes: [LabourName, Verdict][]) {
-	reportOutcomes(
+async function report(surveyId: number, outcomes: [LabourName, Verdict][]) {
+	await reportOutcomes(
 		db,
 		{ id: spire.users.rook },
 		surveyId,
@@ -90,9 +86,9 @@ function report(surveyId: number, outcomes: [LabourName, Verdict][]) {
 	);
 }
 
-const affinityOf = (who: 'ivy' | 'rook') =>
+const affinityOf = async (who: 'ivy' | 'rook') =>
 	Object.fromEntries(
-		readAffinity(db, spire.users[who], { now: spire.now }).keys.map((entry) => [
+		(await readAffinity(db, spire.users[who], { now: spire.now })).keys.map((entry) => [
 			entry.key,
 			{ volume: entry.volume, mood: entry.mood }
 		])
@@ -105,15 +101,15 @@ describe("the artist's biggest win today", () => {
 	// been breaking down into VFX and animation tasks that Rook has asked her about by name.
 	const WEIGHTS = { skill_fit: 3, impact: 2, pulled_in: 1, mentions: 1, pain: 1, effort: -1 };
 
-	it('puts her VFX and animation boss tasks on top, led by the glow she was asked about', () => {
-		const result = ask('ivy', { weights: WEIGHTS });
+	it('puts her VFX and animation boss tasks on top, led by the glow she was asked about', async () => {
+		const result = await ask('ivy', { weights: WEIGHTS });
 
 		expect(order(result).slice(0, 3)).toEqual(['glow', 'anticipation', 'embers']);
 		expect(result.ignored).toEqual([]);
 	});
 
-	it('ranks work only a programmer can do, and unrelated work, below her boss tasks', () => {
-		const result = ask('ivy', { weights: WEIGHTS });
+	it('ranks work only a programmer can do, and unrelated work, below her boss tasks', async () => {
+		const result = await ask('ivy', { weights: WEIGHTS });
 
 		for (const name of ['hitStop', 'hpRetune', 'saveMigration', 'oauth', 'typo', 'roar'] as const) {
 			expect(positionOf(result, name), name).toBeGreaterThan(positionOf(result, 'embers'));
@@ -121,8 +117,8 @@ describe("the artist's biggest win today", () => {
 		expect(order(result)).not.toContain('iFrames');
 	});
 
-	it('shows her Skills and the impact of the work driving the leaders', () => {
-		const result = ask('ivy', { weights: WEIGHTS });
+	it('shows her Skills and the impact of the work driving the leaders', async () => {
+		const result = await ask('ivy', { weights: WEIGHTS });
 
 		for (const name of ['glow', 'anticipation', 'embers'] as const) {
 			expect(strongest(result, name, 2), name).toEqual(['skill_fit', 'impact']);
@@ -131,13 +127,13 @@ describe("the artist's biggest win today", () => {
 		expect(itemOf(result, 'saveMigration').contributions.skill_fit ?? 0).toBeCloseTo(0);
 	});
 
-	it('lets player pain lift the boss VFX over a UI fix she is just as fit for', () => {
+	it('lets player pain lift the boss VFX over a UI fix she is just as fit for', async () => {
 		// The ember burst and the sort-button fix both need only Skills Ivy holds in full (fit 1),
 		// and impact minus effort comes out level: 1 - 1/2 for the embers, 1/2 - 0 for the button
 		// on the 1-5 scales. What separates them is the forum: area:boss is loud and angry,
 		// area:ui is quiet and mildly unhappy. `pain` is the whole margin, at the size the Realm's
 		// Sentiment says it should be.
-		const result = ask('ivy', { weights: WEIGHTS });
+		const result = await ask('ivy', { weights: WEIGHTS });
 		const embers = itemOf(result, 'embers').contributions;
 		const button = itemOf(result, 'sortButton').contributions;
 
@@ -153,17 +149,17 @@ describe("the artist's biggest win today", () => {
 		expect(positionOf(result, 'embers')).toBeLessThan(positionOf(result, 'sortButton'));
 	});
 
-	it('shows being pulled in only where people asked her, and mentions where they pointed at the work', () => {
-		const mentioned = ask('ivy', { weights: { mentions: 1 } });
+	it('shows being pulled in only where people asked her, and mentions where they pointed at the work', async () => {
+		const mentioned = await ask('ivy', { weights: { mentions: 1 } });
 		expect(scoreOf(mentioned, 'glow')).toBeGreaterThan(0);
 
-		const pulled = ask('ivy', { weights: { pulled_in: 1 } });
+		const pulled = await ask('ivy', { weights: { pulled_in: 1 } });
 		expect(order(pulled).slice(0, 3)).toEqual(['glow', 'anticipation', 'menuAnim']);
 		for (const name of order(pulled).slice(3)) expect(scoreOf(pulled, name), name).toBe(0);
 	});
 
-	it("carries the forum's notes on the boss, behind what players feel", () => {
-		const result = ask('ivy', { weights: WEIGHTS });
+	it("carries the forum's notes on the boss, behind what players feel", async () => {
+		const result = await ask('ivy', { weights: WEIGHTS });
 
 		const boss = sentimentOf(result, 'area:boss');
 		expect(boss.mood).toBeLessThan(-0.7);
@@ -171,8 +167,8 @@ describe("the artist's biggest win today", () => {
 		checkBossNotes(result);
 	});
 
-	it('is a different answer for the programmer with the same weights', () => {
-		const result = ask('rook', { weights: WEIGHTS });
+	it('is a different answer for the programmer with the same weights', async () => {
+		const result = await ask('rook', { weights: WEIGHTS });
 
 		expect(order(result)[0]).toBe('hpRetune');
 		for (const name of ['glow', 'anticipation', 'embers'] as const) {
@@ -207,8 +203,8 @@ describe("the programmer's ask: improve combat feel for boss fights", () => {
 		'saveMigration'
 	];
 
-	it('leads with the bullet-sponge report and the telegraph and damage designs', () => {
-		const result = ask('rook', { query: QUERY, weights: WEIGHTS });
+	it('leads with the bullet-sponge report and the telegraph and damage designs', async () => {
+		const result = await ask('rook', { query: QUERY, weights: WEIGHTS });
 
 		expect(new Set(order(result).slice(0, LEADERS.length))).toEqual(new Set(LEADERS));
 		expect(new Set(order(result).slice(0, 3))).toEqual(
@@ -216,8 +212,8 @@ describe("the programmer's ask: improve combat feel for boss fights", () => {
 		);
 	});
 
-	it('trails unrelated work, including UI and the positive dodge report', () => {
-		const result = ask('rook', { query: QUERY, weights: WEIGHTS });
+	it('trails unrelated work, including UI and the positive dodge report', async () => {
+		const result = await ask('rook', { query: QUERY, weights: WEIGHTS });
 
 		const lastLeader = Math.max(...LEADERS.map((name) => positionOf(result, name)));
 		for (const name of [...TRAILING, 'dodge'] as const) {
@@ -226,14 +222,11 @@ describe("the programmer's ask: improve combat feel for boss fights", () => {
 		expect(order(result)).not.toContain('iFrames');
 	});
 
-	it('explains the leaders by keywords and pain, and lifts the designs by the reports behind them', () => {
-		// Every leader shares words with the ask and every one is about bosses, so `keywords` and
-		// `pain` are present on all six; `pain` is the same for each since area:boss is their only
-		// angry key. `evidence` counts the reports linked as supporting a design: the sponge, dragon
-		// and slam reports support the telegraph design (3 / (3 + 2)), the sponge and dragon
-		// reports the damage design (2 / (2 + 2)). Without it the telegraph design would fall
-		// behind the slam report it answers.
-		const result = ask('rook', { query: QUERY, weights: WEIGHTS });
+	it('explains the leaders by keywords and pain, and lifts the designs by the reports behind them', async () => {
+		// `pain` is equal across the leaders: area:boss is their only angry key. `evidence` is the
+		// share of supporting reports: three of the telegraph design's five links, two of the
+		// damage design's four.
+		const result = await ask('rook', { query: QUERY, weights: WEIGHTS });
 		const bossPain = 2 * painOf(result, 'area:boss');
 
 		for (const name of LEADERS) {
@@ -248,20 +241,23 @@ describe("the programmer's ask: improve combat feel for boss fights", () => {
 		expect(itemOf(result, 'sponge').contributions.evidence ?? 0).toBe(0);
 		expect(itemOf(result, 'glow').contributions.evidence ?? 0).toBe(0);
 
-		const telegraph = itemOf(result, 'telegraph');
-		expect(positionOf(result, 'telegraph')).toBeLessThan(positionOf(result, 'cantTell'));
-		expect(telegraph.score - telegraph.contributions.evidence).toBeLessThan(
-			scoreOf(result, 'cantTell')
+		const withoutEvidence = await ask('rook', {
+			query: QUERY,
+			weights: { ...WEIGHTS, evidence: 0 }
+		});
+		expect(positionOf(withoutEvidence, 'telegraph')).toBeGreaterThan(
+			positionOf(withoutEvidence, 'sponge')
 		);
+		expect(positionOf(result, 'telegraph')).toBeLessThan(positionOf(result, 'sponge'));
 		expect(positionOf(result, 'damagePhases')).toBeLessThan(positionOf(result, 'hpRetune'));
 	});
 
-	it('gives no pain to combat work players are happy with', () => {
+	it('gives no pain to combat work players are happy with', async () => {
 		// area:combat is loud on the forum, but warm: the dodge roll feels great. Pain reads only
 		// unhappy keys, so the dodge report and the hit-stop task (both area:combat, neither
 		// area:boss) take none, while `delight` sees the same key.
-		const pain = ask('rook', { weights: { pain: 1 } });
-		const delight = ask('rook', { weights: { delight: 1 } });
+		const pain = await ask('rook', { weights: { pain: 1 } });
+		const delight = await ask('rook', { weights: { delight: 1 } });
 
 		for (const name of ['dodge', 'hitStop'] as const) {
 			expect(scoreOf(pain, name), name).toBe(0);
@@ -270,32 +266,32 @@ describe("the programmer's ask: improve combat feel for boss fights", () => {
 		expect(scoreOf(pain, 'sponge')).toBeGreaterThan(0.5);
 	});
 
-	it('carries the area:boss notes behind the pain', () => {
-		const result = ask('rook', { query: QUERY, weights: WEIGHTS });
+	it('carries the area:boss notes behind the pain', async () => {
+		const result = await ask('rook', { query: QUERY, weights: WEIGHTS });
 
 		expect(sentimentOf(result, 'area:boss').mood).toBeLessThan(-0.7);
 		checkBossNotes(result);
 		expect(result.coverage).toMatchObject({ candidates: 19, unappraised: 0, stale: 0 });
 	});
 
-	it('moves his Affinity when he picks the telegraph design and skips a UI report', () => {
-		const asked = ask('rook', { query: QUERY, weights: WEIGHTS });
-		const before = ask('rook', { weights: { affinity: 1 } });
+	it('moves his Affinity when he picks the telegraph design and skips a UI report', async () => {
+		const asked = await ask('rook', { query: QUERY, weights: WEIGHTS });
+		const before = await ask('rook', { weights: { affinity: 1 } });
 		expect(before.results.every((item) => item.score === 0)).toBe(true);
 
-		report(asked.surveyId, [
+		await report(asked.surveyId, [
 			['telegraph', 'picked'],
 			['stackCount', 'skipped']
 		]);
 
-		const affinity = affinityOf('rook');
+		const affinity = await affinityOf('rook');
 		expect(affinity['area:boss'].mood).toBe(1);
 		expect(affinity['area:vfx'].mood).toBe(1);
 		expect(affinity['kind:design'].mood).toBe(1);
 		expect(affinity['area:ui'].mood).toBe(-1);
 		expect(affinity['kind:report'].mood).toBe(-1);
 
-		const after = ask('rook', { query: QUERY, weights: { ...WEIGHTS, affinity: 2 } });
+		const after = await ask('rook', { query: QUERY, weights: { ...WEIGHTS, affinity: 2 } });
 		expect(itemOf(after, 'damagePhases').contributions.affinity).toBeGreaterThan(0.5);
 		expect(itemOf(after, 'sortButton').contributions.affinity).toBeLessThan(0);
 		expect(itemOf(after, 'oauth').contributions.affinity ?? 0).toBeLessThan(
@@ -313,13 +309,13 @@ describe("the programmer's ask: improve combat feel for boss fights", () => {
 describe('what each signal means on its own', () => {
 	// Single-weight Surveys: the score is the feature's value, with nothing else to carry it.
 
-	it('scores Skill fit by how much of each need is held, not by holding any of it', () => {
+	it('scores Skill fit by how much of each need is held, not by holding any of it', async () => {
 		// Ivy holds ui-art 2; the inventory layout needs ui-art 3, so she covers 2/3 of it. Rook
 		// holds audio 1; the roar cue needs audio 3, so he covers 1/3. A level above the need counts
 		// as the need (Ivy's vfx 4 against the glow's 3), and a Labour that needs nothing she holds
 		// fits not at all.
-		const ivy = ask('ivy', { weights: { skill_fit: 1 } });
-		const rook = ask('rook', { weights: { skill_fit: 1 } });
+		const ivy = await ask('ivy', { weights: { skill_fit: 1 } });
+		const rook = await ask('rook', { weights: { skill_fit: 1 } });
 
 		expect(scoreOf(ivy, 'inventoryLayout')).toBeCloseTo(2 / 3);
 		expect(scoreOf(ivy, 'glow')).toBeCloseTo(1);
@@ -330,21 +326,21 @@ describe('what each signal means on its own', () => {
 		expect(scoreOf(rook, 'glow')).toBe(0);
 	});
 
-	it('records each verdict at its own weight, scale keys included, and leaves other Users untouched', () => {
+	it('records each verdict at its own weight, scale keys included, and leaves other Users untouched', async () => {
 		// A verdict posts one Affinity Pulse per key the Labour holds, of amount base × reach:
 		// picked 1, done 2, skipped 0.5 (mood -1). The telegraph design (picked) alone is
 		// kind:design, the stack-count report (skipped) alone kind:report, the HP retune (done)
 		// alone kind:task. Scale keys post at their place on the scale: impact 4, 3 and 5 reach
 		// 3/4, 1/2 and 1; effort 4 and 2 reach 3/4 and 1/4, and the retune's effort 1 reaches
 		// nothing and posts nothing.
-		const asked = ask('rook', { weights: { impact: 1 } });
-		report(asked.surveyId, [
+		const asked = await ask('rook', { weights: { impact: 1 } });
+		await report(asked.surveyId, [
 			['telegraph', 'picked'],
 			['stackCount', 'skipped'],
 			['hpRetune', 'done']
 		]);
 
-		const rook = affinityOf('rook');
+		const rook = await affinityOf('rook');
 		expect(rook['kind:design'].volume).toBeCloseTo(1);
 		expect(rook['kind:report'].volume).toBeCloseTo(0.5);
 		expect(rook['kind:task'].volume).toBeCloseTo(2);
@@ -356,12 +352,12 @@ describe('what each signal means on its own', () => {
 		expect(rook.effort.volume).toBeCloseTo(3 / 4 + 1 / 8);
 		expect(rook.effort.mood).toBeCloseTo((3 / 4 - 1 / 8) / (3 / 4 + 1 / 8));
 
-		const forRook = ask('rook', { weights: { affinity: 1 } });
+		const forRook = await ask('rook', { weights: { affinity: 1 } });
 		expect(scoreOf(forRook, 'damagePhases')).toBeGreaterThan(0);
 
 		// The Outcomes were Rook's; Ivy's Affinity, and every Survey made for her, are untouched.
-		expect(affinityOf('ivy')).toEqual({});
-		const forIvy = ask('ivy', { weights: { affinity: 1 } });
+		expect(await affinityOf('ivy')).toEqual({});
+		const forIvy = await ask('ivy', { weights: { affinity: 1 } });
 		expect(forIvy.results.every((item) => item.score === 0)).toBe(true);
 	});
 });
@@ -411,8 +407,8 @@ describe.skipIf(!modelPresent)("the programmer's ask against the shipped model",
 
 	const similar = () => ask('rook', { query: QUERY, weights: { similarity: 1 } }, queryVector);
 
-	it('embeds every Labour and leads with the boss-fight reports and designs', () => {
-		const result = ask('rook', { query: QUERY, weights: WEIGHTS }, queryVector);
+	it('embeds every Labour and leads with the boss-fight reports and designs', async () => {
+		const result = await ask('rook', { query: QUERY, weights: WEIGHTS }, queryVector);
 
 		expect(result.coverage.unembedded).toBe(0);
 		expect(result.coverage.missing.similarity).toBeUndefined();
@@ -421,12 +417,12 @@ describe.skipIf(!modelPresent)("the programmer's ask against the shipped model",
 		);
 	});
 
-	it('separates the boss-fight work from the unrelated by meaning alone', () => {
+	it('separates the boss-fight work from the unrelated by meaning alone', async () => {
 		// Measured with the pinned model: the boss-fight five score about 0.36 to 0.61 and the
 		// unrelated seven at most about 0.13. The ratio of 2 and the bounds leave room for int8
 		// kernels that differ between CPUs, while still failing if every embedded Labour scored
 		// alike or the floor stopped holding the unrelated near 0.
-		const result = similar();
+		const result = await similar();
 		const lowestBossFight = Math.min(...BOSS_FIGHT.map((name) => scoreOf(result, name)));
 		const highestUnrelated = Math.max(...UNRELATED.map((name) => scoreOf(result, name)));
 
@@ -440,20 +436,20 @@ describe.skipIf(!modelPresent)("the programmer's ask against the shipped model",
 		expect(scoreOf(result, 'sortButton')).toBeLessThan(0.05);
 	});
 
-	it('finds combat-feel work the words of the query miss', () => {
+	it('finds combat-feel work the words of the query miss', async () => {
 		// The hit-stop task shares no word with the ask, so the lexical run gives it no `keywords`
 		// and it ties the save-migration crash on Skill fit alone. The model knows hit-stop is
 		// combat feel: alone it scores well clear of every unrelated Labour, and with the model in
 		// the ask it pulls ahead of the crash.
-		const lexical = ask('rook', { query: QUERY, weights: LEXICAL });
+		const lexical = await ask('rook', { query: QUERY, weights: LEXICAL });
 		expect(itemOf(lexical, 'hitStop').contributions.keywords).toBeUndefined();
 		expect(scoreOf(lexical, 'hitStop')).toBeCloseTo(scoreOf(lexical, 'saveMigration'));
 
-		const alone = similar();
+		const alone = await similar();
 		const highestUnrelated = Math.max(...UNRELATED.map((name) => scoreOf(alone, name)));
 		expect(scoreOf(alone, 'hitStop')).toBeGreaterThan(2 * highestUnrelated);
 
-		const result = ask('rook', { query: QUERY, weights: WEIGHTS }, queryVector);
+		const result = await ask('rook', { query: QUERY, weights: WEIGHTS }, queryVector);
 		expect(scoreOf(result, 'hitStop') - scoreOf(result, 'saveMigration')).toBeGreaterThan(0.5);
 		for (const name of UNRELATED) {
 			expect(positionOf(result, name), name).toBeGreaterThan(positionOf(result, 'dragon'));

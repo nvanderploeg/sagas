@@ -6,27 +6,27 @@ import { authenticate, changePassword, hasUsers, seedAdmin } from './users.ts';
 
 describe('seedAdmin', () => {
 	it('creates an Admin who must change the password, only on an empty database', async () => {
-		const db = testDb();
+		const db = await testDb();
 		const admin = await seedAdmin(db, { username: 'Boss', password: 'changeme' });
 		expect(admin).toMatchObject({ username: 'boss', isAdmin: true, mustChangePassword: true });
 		expect(await authenticate(db, 'boss', 'changeme')).not.toBeNull();
 
 		expect(await seedAdmin(db, { username: 'other', password: 'changeme' })).toBeNull();
-		expect(hasUsers(db)).toBe(true);
+		expect(await hasUsers(db)).toBe(true);
 	});
 });
 
 describe('changePassword', () => {
 	async function seeded() {
-		const db = testDb();
+		const db = await testDb();
 		const admin = (await seedAdmin(db, { username: 'boss', password: 'changeme' }))!;
 		return { db, admin };
 	}
 
 	it('sets the new password, clears the flag and ends the other sessions', async () => {
 		const { db, admin } = await seeded();
-		const here = createSession(db, admin.id);
-		const elsewhere = createSession(db, admin.id);
+		const here = await createSession(db, admin.id);
+		const elsewhere = await createSession(db, admin.id);
 		const hash = (await import('./secrets.ts')).hashSecret(here.token);
 
 		await changePassword(db, admin, {
@@ -39,8 +39,8 @@ describe('changePassword', () => {
 		expect(await authenticate(db, 'boss', 'a-better-one')).toMatchObject({
 			mustChangePassword: false
 		});
-		expect(resolveSession(db, here.token)).not.toBeNull();
-		expect(resolveSession(db, elsewhere.token)).toBeNull();
+		expect(await resolveSession(db, here.token)).not.toBeNull();
+		expect(await resolveSession(db, elsewhere.token)).toBeNull();
 	});
 
 	it('refuses a wrong current password, an unchanged password and a short one', async () => {

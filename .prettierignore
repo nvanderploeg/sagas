@@ -6,3 +6,4 @@ dist
 .claude/
 data/
 apps/web/drizzle/meta/
+apps/web/src/lib/server/mcp/ui/board.html

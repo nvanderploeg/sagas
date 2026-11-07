@@ -71,9 +71,10 @@ const create = async (args: Record<string, unknown> = {}, client = owner) =>
 		secret: string;
 	};
 
-const row = (id: number) => db.select().from(webhooks).where(eq(webhooks.id, id)).get()!;
-const realmIdOf = (key: string) =>
-	db.select().from(realmKeys).where(eq(realmKeys.key, key)).get()!.realmId;
+const row = async (id: number) =>
+	(await db.select().from(webhooks).where(eq(webhooks.id, id)).limit(1))[0]!;
+const realmIdOf = async (key: string) =>
+	(await db.select().from(realmKeys).where(eq(realmKeys.key, key)).limit(1))[0]!.realmId;
 
 function sign(secret: string, content: string): string {
 	const key = Buffer.from(secret.slice('whsec_'.length), 'base64');
@@ -89,20 +90,20 @@ function expectSignedBy(sent: { input: SafeFetchInput }, secrets: string[]) {
 }
 
 // A secret never leaves create/rotate: no field of that name, no whsec_ value, no sealed text.
-function expectNoSecret(result: CallToolResult, webhookId?: number) {
+async function expectNoSecret(result: CallToolResult, webhookId?: number) {
 	const body = JSON.stringify(result.structuredContent) + text(result);
 	expect(body).not.toContain('whsec_');
 	expect(body).not.toMatch(/secret/i);
 	if (webhookId !== undefined) {
-		const stored = row(webhookId);
+		const stored = await row(webhookId);
 		expect(body).not.toContain(stored.secret);
 		if (stored.previousSecret) expect(body).not.toContain(stored.previousSecret);
 	}
 }
 
-function seedDeliveries(webhookId: number, n: number) {
+async function seedDeliveries(webhookId: number, n: number) {
 	for (let i = 1; i <= n; i++) {
-		recordDelivery(db, {
+		await recordDelivery(db, {
 			webhookId,
 			attemptedAt: NOW + i * 1000,
 			messageId: `${webhookId}:${i}-${i}`,
@@ -119,10 +120,10 @@ function seedDeliveries(webhookId: number, n: number) {
 
 beforeEach(async () => {
 	setAccessEnforced(true);
-	db = testDb();
-	ada = seedHuman(db, 'ada');
-	bob = seedHuman(db, 'bob');
-	root = { ...seedHuman(db, 'root'), isAdmin: true };
+	db = await testDb();
+	ada = await seedHuman(db, 'ada');
+	bob = await seedHuman(db, 'bob');
+	root = { ...(await seedHuman(db, 'root')), isAdmin: true };
 	owner = await connect(ada);
 	stranger = await connect(bob);
 	admin = await connect(root);
@@ -143,7 +144,6 @@ afterEach(async () => {
 	setWebhookRuntime(null);
 	setAccessEnforced(false);
 	await Promise.all(clients.splice(0).map((client) => client.close()));
-	db.$client.close();
 });
 
 describe('tool registration', () => {
@@ -196,7 +196,7 @@ describe('without WEBHOOK_KEY', () => {
 			});
 		}
 		expect(calls).toHaveLength(0);
-		expect(row(id)).toBeDefined();
+		expect(await row(id)).toBeDefined();
 	});
 
 	it('answers invalid before resolving a User ref', async () => {
@@ -237,7 +237,7 @@ describe('create_webhook', () => {
 			realmIds: null,
 			status: 'active',
 			statusReason: null,
-			cursor: eventWindow(db).last,
+			cursor: (await eventWindow(db)).last,
 			createdAt: new Date(NOW).toISOString(),
 			updatedAt: new Date(NOW).toISOString(),
 			failingSince: null,
@@ -251,7 +251,7 @@ describe('create_webhook', () => {
 	it('stores the returned secret sealed under the key', async () => {
 		const { webhook, secret } = await create();
 
-		expect(open(row(webhook.id).secret, KEY)).toBe(secret);
+		expect(open((await row(webhook.id)).secret, KEY)).toBe(secret);
 	});
 
 	it('keeps the secret out of the text reply, one short line', async () => {
@@ -285,12 +285,12 @@ describe('create_webhook', () => {
 		const { webhook } = await create({ realms: ['am'] });
 
 		expect(webhook.realms).toEqual(['AM']);
-		expect(webhook.realmIds).toEqual([realmIdOf('AM')]);
-		expect(row(webhook.id).realmIds).toBe(JSON.stringify([realmIdOf('AM')]));
+		expect(webhook.realmIds).toEqual([await realmIdOf('AM')]);
+		expect((await row(webhook.id)).realmIds).toBe(JSON.stringify([await realmIdOf('AM')]));
 	});
 
 	it('takes a Realm id as a JSON number', async () => {
-		const id = realmIdOf('AM');
+		const id = await realmIdOf('AM');
 
 		const { webhook } = await create({ realms: [id] });
 
@@ -304,7 +304,7 @@ describe('create_webhook', () => {
 		const { webhook } = await create({ realms: ['AM'] });
 
 		expect(webhook.realms).toEqual(['ZZ']);
-		expect(webhook.realmIds).toEqual([realmIdOf('ZZ')]);
+		expect(webhook.realmIds).toEqual([await realmIdOf('ZZ')]);
 	});
 
 	it('keeps several Realms in the order given', async () => {
@@ -313,7 +313,7 @@ describe('create_webhook', () => {
 		const { webhook } = await create({ realms: ['bm', 'am'] });
 
 		expect(webhook.realms).toEqual(['BM', 'AM']);
-		expect(webhook.realmIds).toEqual([realmIdOf('BM'), realmIdOf('AM')]);
+		expect(webhook.realmIds).toEqual([await realmIdOf('BM'), await realmIdOf('AM')]);
 	});
 
 	it('answers a Realm the caller cannot see like one that does not exist', async () => {
@@ -322,7 +322,7 @@ describe('create_webhook', () => {
 		const byId = await fail(stranger, 'create_webhook', {
 			name: 'h',
 			url: URL,
-			realms: [realmIdOf('AM')]
+			realms: [await realmIdOf('AM')]
 		});
 
 		expect(unseen).toEqual({ code: 'not_found', message: 'No Realm has the key AM' });
@@ -371,7 +371,7 @@ describe('list_webhooks', () => {
 		const result = await call(owner, 'list_webhooks');
 
 		expect((result.structuredContent as any).webhooks).toEqual([a, b]);
-		expectNoSecret(result);
+		await expectNoSecret(result);
 	});
 
 	it('lists nothing for a User without Webhooks', async () => {
@@ -412,18 +412,19 @@ describe('list_webhooks', () => {
 	it("shows a deleted Realm's id in realmIds but not in realms", async () => {
 		await ok(owner, 'create_realm', { key: 'bm', name: 'Beta' });
 		await create({ realms: ['am', 'bm'] });
-		const gone = realmIdOf('BM');
+		const gone = await realmIdOf('BM');
 		await ok(owner, 'delete_realm', { realm: 'BM' });
 
 		const [webhook] = (await ok(owner, 'list_webhooks')).webhooks;
 
-		expect(webhook.realmIds).toEqual([realmIdOf('AM'), gone]);
+		expect(webhook.realmIds).toEqual([await realmIdOf('AM'), gone]);
 		expect(webhook.realms).toEqual(['AM']);
 	});
 
 	it('shows the status, reason, failingSince and nextAttemptAt as ISO strings', async () => {
 		const { webhook } = await create();
-		db.update(webhooks)
+		await db
+			.update(webhooks)
 			.set({
 				status: 'disabled',
 				statusReason: 'failing',
@@ -431,8 +432,7 @@ describe('list_webhooks', () => {
 				nextAttemptAt: new Date(NOW + 2000),
 				cursor: 9
 			})
-			.where(eq(webhooks.id, webhook.id))
-			.run();
+			.where(eq(webhooks.id, webhook.id));
 
 		const [listed] = (await ok(owner, 'list_webhooks')).webhooks;
 
@@ -460,7 +460,7 @@ describe('update_webhook', () => {
 			updatedAt: new Date(NOW + HOUR).toISOString()
 		});
 		expect(Object.keys(result.structuredContent as object)).toEqual(['webhook']);
-		expectNoSecret(result, webhook.id);
+		await expectNoSecret(result, webhook.id);
 	});
 
 	it('changes the url', async () => {
@@ -471,7 +471,7 @@ describe('update_webhook', () => {
 		).webhook;
 
 		expect(updated.url).toBe('https://example.org/x');
-		expect(row(webhook.id).url).toBe('https://example.org/x');
+		expect((await row(webhook.id)).url).toBe('https://example.org/x');
 	});
 
 	it('refuses an invalid url, changing nothing', async () => {
@@ -480,7 +480,7 @@ describe('update_webhook', () => {
 		expect(
 			(await fail(owner, 'update_webhook', { webhook: webhook.id, url: 'ftp://x/y' })).code
 		).toBe('invalid');
-		expect(row(webhook.id).url).toBe(URL);
+		expect((await row(webhook.id)).url).toBe(URL);
 	});
 
 	it('sets and clears eventTypes', async () => {
@@ -505,7 +505,7 @@ describe('update_webhook', () => {
 			.webhook;
 
 		expect(set.realms).toEqual(['AM']);
-		expect(set.realmIds).toEqual([realmIdOf('AM')]);
+		expect(set.realmIds).toEqual([await realmIdOf('AM')]);
 		expect(cleared.realms).toBeNull();
 		expect(cleared.realmIds).toBeNull();
 	});
@@ -516,18 +516,18 @@ describe('update_webhook', () => {
 		const error = await fail(stranger, 'update_webhook', { webhook: webhook.id, realms: ['AM'] });
 
 		expect(error).toEqual({ code: 'not_found', message: 'No Realm has the key AM' });
-		expect(row(webhook.id).realmIds).toBeNull();
+		expect((await row(webhook.id)).realmIds).toBeNull();
 	});
 
 	it('does not move the cursor on a filter change', async () => {
 		const { webhook } = await create();
-		db.update(webhooks).set({ cursor: 5 }).where(eq(webhooks.id, webhook.id)).run();
+		await db.update(webhooks).set({ cursor: 5 }).where(eq(webhooks.id, webhook.id));
 
 		const updated = (await ok(owner, 'update_webhook', { webhook: webhook.id, realms: ['am'] }))
 			.webhook;
 
 		expect(updated.cursor).toBe(5);
-		expect(row(webhook.id).cursor).toBe(5);
+		expect((await row(webhook.id)).cursor).toBe(5);
 	});
 
 	it('pauses an active Webhook', async () => {
@@ -542,7 +542,8 @@ describe('update_webhook', () => {
 
 	it('resumes a disabled Webhook: active, reason cleared, cursor untouched', async () => {
 		const { webhook } = await create();
-		db.update(webhooks)
+		await db
+			.update(webhooks)
 			.set({
 				status: 'disabled',
 				statusReason: 'failing',
@@ -551,8 +552,7 @@ describe('update_webhook', () => {
 				failingSince: new Date(NOW),
 				nextAttemptAt: new Date(NOW + 1000)
 			})
-			.where(eq(webhooks.id, webhook.id))
-			.run();
+			.where(eq(webhooks.id, webhook.id));
 
 		const updated = (await ok(owner, 'update_webhook', { webhook: webhook.id, status: 'active' }))
 			.webhook;
@@ -563,7 +563,7 @@ describe('update_webhook', () => {
 			cursor: 7,
 			failingSince: null
 		});
-		expect(row(webhook.id)).toMatchObject({
+		expect(await row(webhook.id)).toMatchObject({
 			status: 'active',
 			statusReason: null,
 			cursor: 7,
@@ -584,17 +584,17 @@ describe('update_webhook', () => {
 
 	it('refuses to resume after a key change until the secret is rotated', async () => {
 		const { webhook } = await create();
-		db.update(webhooks)
+		await db
+			.update(webhooks)
 			.set({ status: 'paused', statusReason: 'key_changed' })
-			.where(eq(webhooks.id, webhook.id))
-			.run();
+			.where(eq(webhooks.id, webhook.id));
 		env.key = OTHER_KEY;
 
 		expect(await fail(owner, 'update_webhook', { webhook: webhook.id, status: 'active' })).toEqual({
 			code: 'conflict',
 			message: 'rotate the secret first'
 		});
-		expect(row(webhook.id)).toMatchObject({ status: 'paused', statusReason: 'key_changed' });
+		expect(await row(webhook.id)).toMatchObject({ status: 'paused', statusReason: 'key_changed' });
 
 		await ok(owner, 'rotate_webhook_secret', { webhook: webhook.id });
 		const resumed = (await ok(owner, 'update_webhook', { webhook: webhook.id, status: 'active' }))
@@ -609,7 +609,7 @@ describe('update_webhook', () => {
 		const result = await call(owner, 'update_webhook', { webhook: webhook.id, status: 'disabled' });
 
 		expect(result.isError).toBe(true);
-		expect(row(webhook.id).status).toBe('active');
+		expect((await row(webhook.id)).status).toBe('active');
 	});
 
 	it('refuses a webhook that is not a positive integer', async () => {
@@ -629,7 +629,7 @@ describe('update_webhook', () => {
 		expect((await fail(owner, 'update_webhook', { webhook: 999, name: 'x' })).code).toBe(
 			'not_found'
 		);
-		expect(row(webhook.id).name).toBe('hook');
+		expect((await row(webhook.id)).name).toBe('hook');
 	});
 
 	it('lets an Admin change any Webhook', async () => {
@@ -652,7 +652,7 @@ describe('rotate_webhook_secret', () => {
 
 		expect(rotated).toEqual({ secret: expect.stringMatching(/^whsec_/) });
 		expect(rotated.secret).not.toBe(secret);
-		expect(open(row(webhook.id).secret, KEY)).toBe(rotated.secret);
+		expect(open((await row(webhook.id)).secret, KEY)).toBe(rotated.secret);
 	});
 
 	it('keeps the old secret through the overlap', async () => {
@@ -660,7 +660,7 @@ describe('rotate_webhook_secret', () => {
 
 		await ok(owner, 'rotate_webhook_secret', { webhook: webhook.id });
 
-		const stored = row(webhook.id);
+		const stored = await row(webhook.id);
 		expect(open(stored.previousSecret!, KEY)).toBe(secret);
 	});
 
@@ -681,7 +681,7 @@ describe('rotate_webhook_secret', () => {
 		expect((await fail(stranger, 'rotate_webhook_secret', { webhook: webhook.id })).code).toBe(
 			'not_found'
 		);
-		expect(open(row(webhook.id).secret, KEY)).toBe(secret);
+		expect(open((await row(webhook.id)).secret, KEY)).toBe(secret);
 	});
 
 	it('lets an Admin rotate', async () => {
@@ -712,7 +712,7 @@ describe('test_webhook', () => {
 		expect(calls[0]!.input.headers['webhook-id']).toBe(`${webhook.id}:ping-${timestamp}`);
 		expect(calls[0]!.input.headers['webhook-timestamp']).toBe(timestamp);
 		expectSignedBy(calls[0]!, [secret]);
-		expectNoSecret(result, webhook.id);
+		await expectNoSecret(result, webhook.id);
 		expect(summary(result).trim()).not.toBe('');
 	});
 
@@ -747,21 +747,21 @@ describe('test_webhook', () => {
 
 	it('moves nothing on the Webhook', async () => {
 		const { webhook } = await create();
-		db.update(webhooks)
+		await db
+			.update(webhooks)
 			.set({
 				cursor: 11,
 				attempts: 2,
 				failingSince: new Date(NOW),
 				nextAttemptAt: new Date(NOW + 5000)
 			})
-			.where(eq(webhooks.id, webhook.id))
-			.run();
-		const before = row(webhook.id);
+			.where(eq(webhooks.id, webhook.id));
+		const before = await row(webhook.id);
 		env.now = NOW + HOUR;
 
 		await ok(owner, 'test_webhook', { webhook: webhook.id });
 
-		expect(row(webhook.id)).toEqual(before);
+		expect(await row(webhook.id)).toEqual(before);
 	});
 
 	it.each([
@@ -769,17 +769,17 @@ describe('test_webhook', () => {
 		['disabled', 'failing']
 	] as const)('works on a %s Webhook without changing it', async (status, reason) => {
 		const { webhook } = await create();
-		db.update(webhooks)
+		await db
+			.update(webhooks)
 			.set({ status, statusReason: reason })
-			.where(eq(webhooks.id, webhook.id))
-			.run();
-		const before = row(webhook.id);
+			.where(eq(webhooks.id, webhook.id));
+		const before = await row(webhook.id);
 
 		const { attempt } = await ok(owner, 'test_webhook', { webhook: webhook.id });
 
 		expect(attempt.ok).toBe(true);
 		expect(calls).toHaveLength(1);
-		expect(row(webhook.id)).toEqual(before);
+		expect(await row(webhook.id)).toEqual(before);
 	});
 
 	it('reports ok:false from fetch as an attempt, not an error', async () => {
@@ -854,12 +854,14 @@ describe('test_webhook', () => {
 describe('delete_webhook', () => {
 	it('deletes the Webhook and answers with its id', async () => {
 		const { webhook } = await create();
-		seedDeliveries(webhook.id, 2);
+		await seedDeliveries(webhook.id, 2);
 
 		const result = await call(owner, 'delete_webhook', { webhook: webhook.id });
 
 		expect(result.structuredContent).toEqual({ deleted: webhook.id });
-		expect(db.select().from(webhooks).where(eq(webhooks.id, webhook.id)).get()).toBeUndefined();
+		expect(
+			(await db.select().from(webhooks).where(eq(webhooks.id, webhook.id)).limit(1))[0]
+		).toBeUndefined();
 		expect(await ok(owner, 'list_webhooks')).toEqual({ webhooks: [] });
 		expect((await fail(owner, 'list_webhook_deliveries', { webhook: webhook.id })).code).toBe(
 			'not_found'
@@ -872,7 +874,7 @@ describe('delete_webhook', () => {
 		expect((await fail(stranger, 'delete_webhook', { webhook: webhook.id })).code).toBe(
 			'not_found'
 		);
-		expect(row(webhook.id)).toBeDefined();
+		expect(await row(webhook.id)).toBeDefined();
 	});
 
 	it('answers not_found the second time', async () => {
@@ -894,7 +896,7 @@ describe('delete_webhook', () => {
 describe('list_webhook_deliveries', () => {
 	it('lists newest first with the delivery shape and no secret', async () => {
 		const { webhook } = await create();
-		seedDeliveries(webhook.id, 3);
+		await seedDeliveries(webhook.id, 3);
 
 		const result = await call(owner, 'list_webhook_deliveries', { webhook: webhook.id });
 		const { deliveries, nextBefore } = result.structuredContent as any;
@@ -914,7 +916,7 @@ describe('list_webhook_deliveries', () => {
 			responseBody: 'body 3'
 		});
 		expect(deliveries[0].id).toBeGreaterThan(deliveries[1].id);
-		expectNoSecret(result, webhook.id);
+		await expectNoSecret(result, webhook.id);
 	});
 
 	it('answers an empty list with a null nextBefore', async () => {
@@ -928,7 +930,7 @@ describe('list_webhook_deliveries', () => {
 
 	it('pages with limit and before until nextBefore is null', async () => {
 		const { webhook } = await create();
-		seedDeliveries(webhook.id, 5);
+		await seedDeliveries(webhook.id, 5);
 		const seen: number[] = [];
 
 		const first = await ok(owner, 'list_webhook_deliveries', { webhook: webhook.id, limit: 2 });
@@ -957,7 +959,7 @@ describe('list_webhook_deliveries', () => {
 
 	it('has no nextBefore when the page holds everything', async () => {
 		const { webhook } = await create();
-		seedDeliveries(webhook.id, 2);
+		await seedDeliveries(webhook.id, 2);
 
 		const page = await ok(owner, 'list_webhook_deliveries', { webhook: webhook.id, limit: 2 });
 
@@ -968,8 +970,8 @@ describe('list_webhook_deliveries', () => {
 	it("lists only the given Webhook's deliveries", async () => {
 		const { webhook } = await create();
 		const other = (await create({ name: 'other' })).webhook;
-		seedDeliveries(webhook.id, 2);
-		seedDeliveries(other.id, 3);
+		await seedDeliveries(webhook.id, 2);
+		await seedDeliveries(other.id, 3);
 
 		const page = await ok(owner, 'list_webhook_deliveries', { webhook: webhook.id });
 
@@ -1002,7 +1004,7 @@ describe('list_webhook_deliveries', () => {
 
 	it('answers not_found to another User and for a missing Webhook', async () => {
 		const { webhook } = await create();
-		seedDeliveries(webhook.id, 1);
+		await seedDeliveries(webhook.id, 1);
 
 		expect(await fail(stranger, 'list_webhook_deliveries', { webhook: webhook.id })).toEqual({
 			code: 'not_found',
@@ -1013,7 +1015,7 @@ describe('list_webhook_deliveries', () => {
 
 	it("lets an Admin read any Webhook's deliveries", async () => {
 		const { webhook } = await create();
-		seedDeliveries(webhook.id, 2);
+		await seedDeliveries(webhook.id, 2);
 
 		expect(
 			(await ok(admin, 'list_webhook_deliveries', { webhook: webhook.id })).deliveries

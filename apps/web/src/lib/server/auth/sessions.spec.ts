@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { sessions } from '#lib/server/db/schema.ts';
 import { testDb } from '#lib/server/test/db.ts';
@@ -9,7 +9,7 @@ let db: Db;
 let admin: AuthUser;
 
 beforeEach(async () => {
-	db = testDb();
+	db = await testDb();
 	admin = await createFirstAdmin(db, {
 		username: 'root',
 		displayName: 'Root',
@@ -17,49 +17,41 @@ beforeEach(async () => {
 	});
 });
 
-afterEach(() => {
-	db.$client.close();
-});
-
 describe('sessions', () => {
-	it('resolves a session token to its User', () => {
-		const { token } = createSession(db, admin.id);
+	it('resolves a session token to its User', async () => {
+		const { token } = await createSession(db, admin.id);
 
-		expect(resolveSession(db, token)?.id).toBe(admin.id);
+		expect((await resolveSession(db, token))?.id).toBe(admin.id);
 	});
 
-	it('stores a hash of the token, never the token', () => {
-		const { token } = createSession(db, admin.id);
+	it('stores a hash of the token, never the token', async () => {
+		const { token } = await createSession(db, admin.id);
 
-		const ids = db
-			.select({ id: sessions.id })
-			.from(sessions)
-			.all()
-			.map((row) => row.id);
+		const ids = (await db.select({ id: sessions.id }).from(sessions)).map((row) => row.id);
 
 		expect(ids).toHaveLength(1);
 		expect(ids[0]).not.toBe(token);
 		expect(ids[0]).toMatch(/^[0-9a-f]{64}$/);
 	});
 
-	it('expires after 30 days and removes the expired row', () => {
+	it('expires after 30 days and removes the expired row', async () => {
 		const start = new Date('2026-01-01T00:00:00Z');
-		const { token, expiresAt } = createSession(db, admin.id, start);
+		const { token, expiresAt } = await createSession(db, admin.id, start);
 
-		expect(resolveSession(db, token, new Date(expiresAt.getTime() - 1))?.id).toBe(admin.id);
-		expect(resolveSession(db, token, expiresAt)).toBeNull();
-		expect(db.select().from(sessions).all()).toEqual([]);
+		expect((await resolveSession(db, token, new Date(expiresAt.getTime() - 1)))?.id).toBe(admin.id);
+		expect(await resolveSession(db, token, expiresAt)).toBeNull();
+		expect(await db.select().from(sessions)).toEqual([]);
 	});
 
-	it('ends with deleteSession', () => {
-		const { token } = createSession(db, admin.id);
+	it('ends with deleteSession', async () => {
+		const { token } = await createSession(db, admin.id);
 
-		deleteSession(db, token);
+		await deleteSession(db, token);
 
-		expect(resolveSession(db, token)).toBeNull();
+		expect(await resolveSession(db, token)).toBeNull();
 	});
 
-	it('rejects an unknown token', () => {
-		expect(resolveSession(db, 'wls_unknown')).toBeNull();
+	it('rejects an unknown token', async () => {
+		expect(await resolveSession(db, 'wls_unknown')).toBeNull();
 	});
 });

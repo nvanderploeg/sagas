@@ -30,6 +30,7 @@ import {
 	userRef,
 	type Tools
 } from '../tool.ts';
+import { filterAsync } from '#lib/server/async.ts';
 
 const LABELS_HELP =
 	'Labels: lowercase letters, digits and : . _ - (1 to 40 characters, e.g. "wayfinder:map"), at most 20 per Labour';
@@ -42,8 +43,8 @@ function pageLine(total: number, offset: number, end: number, next: number | nul
 	return `Labours ${offset + 1}-${end} of ${total}${more}`;
 }
 
-function labourReply(present: Presenter, labourId: number) {
-	const labour = present.detail(readLabour(present.db, labourId));
+async function labourReply(present: Presenter, labourId: number) {
+	const labour = await present.detail(await readLabour(present.db, labourId));
 	return reply({ labour }, labourLine(labour));
 }
 
@@ -56,8 +57,10 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 				'Find the Labour a Labour key names. Keys are accepted in any case, and a former key (an Alias left by a move or a Realm key rename) resolves forever to the same Labour. Returns the Labour with its current key.',
 			input: { labour: labourRef }
 		},
-		(args, present) => {
-			const labour = present.labour(readLabour(db, refs.labourId(db, args.labour, actor)));
+		async (args, present) => {
+			const labour = await present.labour(
+				await readLabour(db, await refs.labourId(db, args.labour, actor))
+			);
 			const given = typeof args.labour === 'string' ? args.labour.toUpperCase() : labour.key;
 			const alias = given !== labour.key;
 			const note = alias ? `${given} is an Alias of ` : '';
@@ -97,34 +100,38 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 				...pageShape
 			}
 		},
-		(args, present) => {
-			const realmId = args.realm === undefined ? undefined : refs.realmId(db, args.realm, actor);
-			const stateId = args.state === undefined ? undefined : refs.stateId(db, realmId, args.state);
-			const page = queryLabours(
+		async (args, present) => {
+			const realmId =
+				args.realm === undefined ? undefined : await refs.realmId(db, args.realm, actor);
+			const stateId =
+				args.state === undefined ? undefined : await refs.stateId(db, realmId, args.state);
+			const page = await queryLabours(
 				db,
 				{
-					realms: visibleRealmIds(db, actor) ?? undefined,
+					realms: (await visibleRealmIds(db, actor)) ?? undefined,
 					realmId,
 					stateId,
 					substateId:
-						args.substate === undefined ? undefined : refs.substateId(db, stateId, args.substate),
-					ownerId: args.owner === undefined ? undefined : refs.userId(db, args.owner, actor),
+						args.substate === undefined
+							? undefined
+							: await refs.substateId(db, stateId, args.substate),
+					ownerId: args.owner === undefined ? undefined : await refs.userId(db, args.owner, actor),
 					assigneeId:
 						args.assignee == null
 							? (args.assignee as null | undefined)
-							: refs.userId(db, args.assignee, actor),
+							: await refs.userId(db, args.assignee, actor),
 					parentId:
 						args.parent == null
 							? (args.parent as null | undefined)
-							: refs.labourId(db, args.parent, actor),
+							: await refs.labourId(db, args.parent, actor),
 					closed: args.closed,
 					open: args.open,
 					labels: args.labels === undefined ? undefined : normalizeLabels(args.labels),
-					questId: args.quest === undefined ? undefined : refs.questId(db, args.quest, actor)
+					questId: args.quest === undefined ? undefined : await refs.questId(db, args.quest, actor)
 				},
 				{ offset: args.offset, limit: args.limit }
 			);
-			const labours = present.labours(page.labours);
+			const labours = await present.labours(page.labours);
 			const end = args.offset + labours.length;
 			const nextOffset = end < page.total ? end : null;
 			return reply(
@@ -142,17 +149,23 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 				'Get one Labour with its description, Labels, former keys (aliases), Parent, Children, the Quests it is in and its Links (blocks, evidence, relates, duplicates; change them with link_labours).',
 			input: { labour: labourRef }
 		},
-		({ labour }, present) => {
-			const labourId = refs.labourId(db, labour, actor);
-			const detail = present.detail(readLabour(db, labourId));
-			const links = readLinks(db, labourId)
-				.filter((link) => canSeeLabour(db, actor, link.from) && canSeeLabour(db, actor, link.to))
-				.map((link) => ({
+		async ({ labour }, present) => {
+			const labourId = await refs.labourId(db, labour, actor);
+			const detail = await present.detail(await readLabour(db, labourId));
+			const links = await Promise.all(
+				(
+					await filterAsync(
+						await readLinks(db, labourId),
+						async (link) =>
+							(await canSeeLabour(db, actor, link.from)) && (await canSeeLabour(db, actor, link.to))
+					)
+				).map(async (link) => ({
 					type: link.type,
-					from: refs.labourKey(db, link.from),
-					to: refs.labourKey(db, link.to),
+					from: await refs.labourKey(db, link.from),
+					to: await refs.labourKey(db, link.to),
 					note: link.note
-				}));
+				}))
+			);
 			return reply({ labour: detail, links }, labourLine(detail));
 		}
 	);
@@ -178,27 +191,29 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 				...placementShape
 			}
 		},
-		(args, present) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			const stateId = args.state === undefined ? undefined : refs.stateId(db, realmId, args.state);
-			const created = createLabour(db, actor, {
+		async (args, present) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			const stateId =
+				args.state === undefined ? undefined : await refs.stateId(db, realmId, args.state);
+			const created = await createLabour(db, actor, {
 				realmId,
 				title: args.title,
 				description: args.description,
-				ownerId: args.owner === undefined ? actor.id : refs.userId(db, args.owner, actor),
-				assigneeId: args.assignee === undefined ? null : refs.userId(db, args.assignee, actor),
+				ownerId: args.owner === undefined ? actor.id : await refs.userId(db, args.owner, actor),
+				assigneeId:
+					args.assignee === undefined ? null : await refs.userId(db, args.assignee, actor),
 				stateId,
 				substateId:
 					args.substate === undefined
 						? undefined
-						: refs.substateId(
+						: await refs.substateId(
 								db,
-								stateId ?? getRealm(db, realmId).initialStateId ?? undefined,
+								stateId ?? (await getRealm(db, realmId)).initialStateId ?? undefined,
 								args.substate
 							),
-				parentId: args.parent === undefined ? null : refs.labourId(db, args.parent, actor),
+				parentId: args.parent === undefined ? null : await refs.labourId(db, args.parent, actor),
 				labels: args.labels,
-				placement: refs.placement(db, args, actor)
+				placement: await refs.placement(db, args, actor)
 			});
 			return labourReply(present, created.id);
 		}
@@ -227,28 +242,28 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 				...placementShape
 			}
 		},
-		(args, present) => {
-			const labourId = refs.labourId(db, args.labour, actor);
-			const current = getLabour(db, labourId);
+		async (args, present) => {
+			const labourId = await refs.labourId(db, args.labour, actor);
+			const current = await getLabour(db, labourId);
 			const stateId =
-				args.state === undefined ? undefined : refs.stateId(db, current.realmId, args.state);
-			updateLabour(db, actor, labourId, {
+				args.state === undefined ? undefined : await refs.stateId(db, current.realmId, args.state);
+			await updateLabour(db, actor, labourId, {
 				title: args.title,
 				description: args.description,
-				ownerId: args.owner === undefined ? undefined : refs.userId(db, args.owner, actor),
+				ownerId: args.owner === undefined ? undefined : await refs.userId(db, args.owner, actor),
 				assigneeId:
 					args.assignee == null
 						? (args.assignee as null | undefined)
-						: refs.userId(db, args.assignee, actor),
+						: await refs.userId(db, args.assignee, actor),
 				stateId,
 				substateId:
 					args.substate == null
 						? (args.substate as null | undefined)
-						: refs.substateId(db, stateId ?? current.stateId, args.substate),
+						: await refs.substateId(db, stateId ?? current.stateId, args.substate),
 				labels: args.labels,
 				addLabels: args.add_labels,
 				removeLabels: args.remove_labels,
-				placement: refs.placement(db, args, actor)
+				placement: await refs.placement(db, args, actor)
 			});
 			return labourReply(present, labourId);
 		}
@@ -268,24 +283,25 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 				...placementShape
 			}
 		},
-		(args, present) => {
-			const labourId = refs.labourId(db, args.labour, actor);
-			const realmId = refs.realmId(db, args.realm, actor);
-			const stateId = args.state === undefined ? undefined : refs.stateId(db, realmId, args.state);
-			const landing = () => {
-				if (readLabour(db, labourId).closed) {
-					return listStates(db, realmId).find((s) => s.isClosed)?.id;
+		async (args, present) => {
+			const labourId = await refs.labourId(db, args.labour, actor);
+			const realmId = await refs.realmId(db, args.realm, actor);
+			const stateId =
+				args.state === undefined ? undefined : await refs.stateId(db, realmId, args.state);
+			const landing = async () => {
+				if ((await readLabour(db, labourId)).closed) {
+					return (await listStates(db, realmId)).find((s) => s.isClosed)?.id;
 				}
-				return getRealm(db, realmId).initialStateId ?? undefined;
+				return (await getRealm(db, realmId)).initialStateId ?? undefined;
 			};
-			moveLabour(db, actor, labourId, {
+			await moveLabour(db, actor, labourId, {
 				realmId,
 				stateId,
 				substateId:
 					args.substate === undefined
 						? undefined
-						: refs.substateId(db, stateId ?? landing(), args.substate),
-				placement: refs.placement(db, args, actor)
+						: await refs.substateId(db, stateId ?? (await landing()), args.substate),
+				placement: await refs.placement(db, args, actor)
 			});
 			return labourReply(present, labourId);
 		}
@@ -299,13 +315,13 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 				"Set a Labour's Rank: its position within its State's board column, top first, as people order the board. Give exactly one of position, before or after; before and after name a Labour in the same column.",
 			input: { labour: labourRef, ...placementShape }
 		},
-		(args, present) => {
-			const labourId = refs.labourId(db, args.labour, actor);
-			const placement = refs.placement(db, args, actor);
+		async (args, present) => {
+			const labourId = await refs.labourId(db, args.labour, actor);
+			const placement = await refs.placement(db, args, actor);
 			if (placement === undefined) {
 				throw new DomainError('invalid', 'Give one of position, before or after');
 			}
-			rankLabour(db, actor, labourId, placement);
+			await rankLabour(db, actor, labourId, placement);
 			return labourReply(present, labourId);
 		}
 	);
@@ -321,13 +337,13 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 				parent: labourRef.nullable().describe('The new Parent, or null to clear it')
 			}
 		},
-		(args, present) => {
-			const labourId = refs.labourId(db, args.labour, actor);
-			setParent(
+		async (args, present) => {
+			const labourId = await refs.labourId(db, args.labour, actor);
+			await setParent(
 				db,
 				actor,
 				labourId,
-				args.parent === null ? null : refs.labourId(db, args.parent, actor)
+				args.parent === null ? null : await refs.labourId(db, args.parent, actor)
 			);
 			return labourReply(present, labourId);
 		}
@@ -341,9 +357,9 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 				'Add a Comment to a Labour, as you. Only the author can edit or delete one with update_comment and delete_comment, and they go when the Labour does. Use one to record why a Labour was resolved before you close it.',
 			input: { labour: labourRef, body: z.string().describe('Markdown, 1 to 20000 characters') }
 		},
-		(args, present) => {
-			const labourId = refs.labourId(db, args.labour, actor);
-			const comment = present.comment(addComment(db, actor, labourId, args.body));
+		async (args, present) => {
+			const labourId = await refs.labourId(db, args.labour, actor);
+			const comment = await present.comment(await addComment(db, actor, labourId, args.body));
 			return reply({ comment }, `Commented on ${comment.labour} as ${comment.author}`);
 		}
 	);
@@ -359,8 +375,8 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 				body: z.string().describe('Markdown, 1 to 20000 characters')
 			}
 		},
-		(args, present) => {
-			const comment = present.comment(editComment(db, actor, args.comment, args.body));
+		async (args, present) => {
+			const comment = await present.comment(await editComment(db, actor, args.comment, args.body));
 			return reply({ comment }, `Edited Comment ${comment.id} on ${comment.labour}`);
 		}
 	);
@@ -372,8 +388,8 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 			description: 'Delete a Comment you wrote for good. Only its author can delete it.',
 			input: { comment: z.number().int().describe('Comment id') }
 		},
-		(args, present) => {
-			const comment = present.comment(deleteComment(db, actor, args.comment));
+		async (args, present) => {
+			const comment = await present.comment(await deleteComment(db, actor, args.comment));
 			return reply(
 				{ deleted: { id: comment.id, labour: comment.labour } },
 				`Deleted Comment ${comment.id} on ${comment.labour}`
@@ -388,9 +404,11 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 			description: "List a Labour's Comments, oldest first, each with its author and time.",
 			input: { labour: labourRef }
 		},
-		(args, present) => {
-			const labour = readLabour(db, refs.labourId(db, args.labour, actor));
-			const comments = listComments(db, labour.id).map((c) => present.comment(c));
+		async (args, present) => {
+			const labour = await readLabour(db, await refs.labourId(db, args.labour, actor));
+			const comments = await Promise.all(
+				(await listComments(db, labour.id)).map((c) => present.comment(c))
+			);
 			return reply({ comments }, `${labour.key}: ${count(comments.length, 'Comment')}`);
 		}
 	);
@@ -403,9 +421,9 @@ export function registerLabourTools({ db, actor, define }: Tools): void {
 				'Delete a Labour for good. Its Children lose their Parent and it leaves every Quest. Its number is never reused.',
 			input: { labour: labourRef }
 		},
-		(args) => {
-			const labour = readLabour(db, refs.labourId(db, args.labour, actor));
-			deleteLabour(db, actor, labour.id);
+		async (args) => {
+			const labour = await readLabour(db, await refs.labourId(db, args.labour, actor));
+			await deleteLabour(db, actor, labour.id);
 			return reply({ deleted: { id: labour.id, key: labour.key } }, `Deleted ${labour.key}`);
 		}
 	);

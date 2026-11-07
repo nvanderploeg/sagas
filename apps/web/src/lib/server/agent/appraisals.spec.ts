@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { asc, eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { comments, events, labours } from '#lib/server/db/schema.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
@@ -25,22 +25,21 @@ let db: Db;
 let actor: Actor;
 let other: Actor;
 
-beforeEach(() => {
-	db = testDb();
-	actor = seedActor(db);
-	other = { id: seedUser(db, 'other') };
-});
-
-afterEach(() => {
-	db.$client.close();
+beforeEach(async () => {
+	db = await testDb();
+	actor = await seedActor(db);
+	other = { id: await seedUser(db, 'other') };
 });
 
 const day = (n: number) => new Date(Date.UTC(2030, 0, n));
 
-function expectDomainError(action: () => unknown, code: DomainError['code']): DomainError {
+async function expectDomainError(
+	action: () => unknown,
+	code: DomainError['code']
+): Promise<DomainError> {
 	let thrown: unknown;
 	try {
-		action();
+		await action();
 	} catch (error) {
 		thrown = error;
 	}
@@ -77,20 +76,21 @@ const define = (realmId: number, input: AttributeInput, now = day(1)) =>
 const reviseRubric = (realmId: number, key: string, kind: 'scale' | 'text', now: Date) =>
 	defineAttribute(db, actor, realmId, { key, kind, rubric: `Rubric at ${now.toISOString()}` }, now);
 
-const version = (realmId: number) => readRealmAgent(db, realmId).version;
+const version = async (realmId: number) => (await readRealmAgent(db, realmId)).version;
 
-const closedOf = (realmId: number) => listStates(db, realmId).find((s) => s.isClosed)!;
+const closedOf = async (realmId: number) =>
+	(await listStates(db, realmId)).find((s) => s.isClosed)!;
 
 // Independent of contentHash: built from the stored rows, in the contract's key order.
-function expectedHash(labourId: number): string {
-	const row = db.select().from(labours).where(eq(labours.id, labourId)).get()!;
-	const bodies = db
-		.select({ body: comments.body })
-		.from(comments)
-		.where(eq(comments.labourId, labourId))
-		.orderBy(asc(comments.id))
-		.all()
-		.map((c) => c.body);
+async function expectedHash(labourId: number): Promise<string> {
+	const row = (await db.select().from(labours).where(eq(labours.id, labourId)).limit(1))[0]!;
+	const bodies = (
+		await db
+			.select({ body: comments.body })
+			.from(comments)
+			.where(eq(comments.labourId, labourId))
+			.orderBy(asc(comments.id))
+	).map((c) => c.body);
 	return sha256(
 		JSON.stringify({
 			title: row.title,
@@ -103,205 +103,209 @@ function expectedHash(labourId: number): string {
 
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 
-function stamped(labourId: number, now = day(2), by = actor) {
-	return appraise(db, by, [{ labourId, stamp: contentHash(db, labourId) }], now);
+async function stamped(labourId: number, now = day(2), by = actor) {
+	return appraise(db, by, [{ labourId, stamp: await contentHash(db, labourId) }], now);
 }
 
 describe('contentHash', () => {
-	it('is the SHA-256 of title, description, labels and comment bodies, in that key order', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, {
+	it('is the SHA-256 of title, description, labels and comment bodies, in that key order', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, {
 			realmId: realm.id,
 			title: 'Fix login',
 			description: 'Broken on mobile',
 			labels: ['bug', 'ui']
 		});
-		addComment(db, actor, labour.id, 'first');
-		addComment(db, actor, labour.id, 'second');
+		await addComment(db, actor, labour.id, 'first');
+		await addComment(db, actor, labour.id, 'second');
 
-		expect(contentHash(db, labour.id)).toBe(
+		expect(await contentHash(db, labour.id)).toBe(
 			sha256(
 				'{"title":"Fix login","description":"Broken on mobile","labels":["bug","ui"],"comments":["first","second"]}'
 			)
 		);
 	});
 
-	it('hashes a bare Labour with an empty description, no Labels and no Comments', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id, title: 'Bare' });
+	it('hashes a bare Labour with an empty description, no Labels and no Comments', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id, title: 'Bare' });
 
-		expect(contentHash(db, labour.id)).toBe(
+		expect(await contentHash(db, labour.id)).toBe(
 			sha256('{"title":"Bare","description":"","labels":[],"comments":[]}')
 		);
 	});
 
-	it('is 64 lowercase hex characters', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('is 64 lowercase hex characters', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		expect(contentHash(db, labour.id)).toMatch(/^[0-9a-f]{64}$/);
+		expect(await contentHash(db, labour.id)).toMatch(/^[0-9a-f]{64}$/);
 	});
 
-	it('hashes Labels as stored, sorted', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id, title: 'T', labels: ['zeta', 'alpha'] });
+	it('hashes Labels as stored, sorted', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, {
+			realmId: realm.id,
+			title: 'T',
+			labels: ['zeta', 'alpha']
+		});
 
-		expect(contentHash(db, labour.id)).toBe(
+		expect(await contentHash(db, labour.id)).toBe(
 			sha256('{"title":"T","description":"","labels":["alpha","zeta"],"comments":[]}')
 		);
 	});
 
-	it('orders Comment bodies by Comment id, so editing one keeps its place', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id, title: 'T' });
-		const first = addComment(db, actor, labour.id, 'one');
-		addComment(db, actor, labour.id, 'two');
+	it('orders Comment bodies by Comment id, so editing one keeps its place', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id, title: 'T' });
+		const first = await addComment(db, actor, labour.id, 'one');
+		await addComment(db, actor, labour.id, 'two');
 
-		editComment(db, actor, first.id, 'one, revised');
+		await editComment(db, actor, first.id, 'one, revised');
 
-		expect(contentHash(db, labour.id)).toBe(
+		expect(await contentHash(db, labour.id)).toBe(
 			sha256('{"title":"T","description":"","labels":[],"comments":["one, revised","two"]}')
 		);
 	});
 
-	it('is the same for two Labours with the same content', () => {
-		const realm = seedRealm(db, 'AM');
-		const a = seedLabour(db, { realmId: realm.id, title: 'Same', description: 'd' });
-		const b = seedLabour(db, { realmId: realm.id, title: 'Same', description: 'd' });
+	it('is the same for two Labours with the same content', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const a = await seedLabour(db, { realmId: realm.id, title: 'Same', description: 'd' });
+		const b = await seedLabour(db, { realmId: realm.id, title: 'Same', description: 'd' });
 
-		expect(contentHash(db, a.id)).toBe(contentHash(db, b.id));
+		expect(await contentHash(db, a.id)).toBe(await contentHash(db, b.id));
 	});
 
-	it('ignores Comments on other Labours', () => {
-		const realm = seedRealm(db, 'AM');
-		const a = seedLabour(db, { realmId: realm.id, title: 'A' });
-		const b = seedLabour(db, { realmId: realm.id, title: 'B' });
-		const before = contentHash(db, a.id);
+	it('ignores Comments on other Labours', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const a = await seedLabour(db, { realmId: realm.id, title: 'A' });
+		const b = await seedLabour(db, { realmId: realm.id, title: 'B' });
+		const before = await contentHash(db, a.id);
 
-		addComment(db, actor, b.id, 'elsewhere');
+		await addComment(db, actor, b.id, 'elsewhere');
 
-		expect(contentHash(db, a.id)).toBe(before);
+		expect(await contentHash(db, a.id)).toBe(before);
 	});
 
-	it('refuses an unknown Labour as not_found', () => {
-		expectDomainError(() => contentHash(db, 999), 'not_found');
+	it('refuses an unknown Labour as not_found', async () => {
+		await expectDomainError(() => contentHash(db, 999), 'not_found');
 	});
 
-	describe.each<[string, (id: number) => void]>([
+	describe.each<[string, (id: number) => Promise<unknown>]>([
 		['the title', (id) => updateLabour(db, actor, id, { title: 'Renamed' })],
 		['the description', (id) => updateLabour(db, actor, id, { description: 'Changed' })],
 		['a Label added', (id) => updateLabour(db, actor, id, { addLabels: ['bug'] })],
-		['a Comment added', (id) => void addComment(db, actor, id, 'a note')]
+		['a Comment added', (id) => addComment(db, actor, id, 'a note')]
 	])('changes when %s changes', (_name, change) => {
-		it('moves the hash to the hash of the new content', () => {
-			const realm = seedRealm(db, 'AM');
-			const labour = seedLabour(db, { realmId: realm.id, title: 'Original' });
-			const before = contentHash(db, labour.id);
+		it('moves the hash to the hash of the new content', async () => {
+			const realm = await seedRealm(db, 'AM');
+			const labour = await seedLabour(db, { realmId: realm.id, title: 'Original' });
+			const before = await contentHash(db, labour.id);
 
-			change(labour.id);
+			await change(labour.id);
 
-			const after = contentHash(db, labour.id);
+			const after = await contentHash(db, labour.id);
 			expect(after).not.toBe(before);
-			expect(after).toBe(expectedHash(labour.id));
+			expect(after).toBe(await expectedHash(labour.id));
 		});
 	});
 
-	it('changes when a Label is removed', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id, labels: ['bug'] });
-		const before = contentHash(db, labour.id);
+	it('changes when a Label is removed', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id, labels: ['bug'] });
+		const before = await contentHash(db, labour.id);
 
-		updateLabour(db, actor, labour.id, { removeLabels: ['bug'] });
+		await updateLabour(db, actor, labour.id, { removeLabels: ['bug'] });
 
-		expect(contentHash(db, labour.id)).not.toBe(before);
-		expect(contentHash(db, labour.id)).toBe(expectedHash(labour.id));
+		expect(await contentHash(db, labour.id)).not.toBe(before);
+		expect(await contentHash(db, labour.id)).toBe(await expectedHash(labour.id));
 	});
 
-	it('changes when a Comment is edited', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		const comment = addComment(db, actor, labour.id, 'before');
-		const before = contentHash(db, labour.id);
+	it('changes when a Comment is edited', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		const comment = await addComment(db, actor, labour.id, 'before');
+		const before = await contentHash(db, labour.id);
 
-		editComment(db, actor, comment.id, 'after');
+		await editComment(db, actor, comment.id, 'after');
 
-		expect(contentHash(db, labour.id)).not.toBe(before);
-		expect(contentHash(db, labour.id)).toBe(expectedHash(labour.id));
+		expect(await contentHash(db, labour.id)).not.toBe(before);
+		expect(await contentHash(db, labour.id)).toBe(await expectedHash(labour.id));
 	});
 
-	it('changes when a Comment is deleted, and returns to the hash from before it was added', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		const bare = contentHash(db, labour.id);
-		const comment = addComment(db, actor, labour.id, 'gone soon');
-		expect(contentHash(db, labour.id)).not.toBe(bare);
+	it('changes when a Comment is deleted, and returns to the hash from before it was added', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		const bare = await contentHash(db, labour.id);
+		const comment = await addComment(db, actor, labour.id, 'gone soon');
+		expect(await contentHash(db, labour.id)).not.toBe(bare);
 
-		deleteComment(db, actor, comment.id);
+		await deleteComment(db, actor, comment.id);
 
-		expect(contentHash(db, labour.id)).toBe(bare);
+		expect(await contentHash(db, labour.id)).toBe(bare);
 	});
 
 	describe('does not change on', () => {
-		it('a move to another Realm', () => {
-			const am = seedRealm(db, 'AM');
-			const bl = seedRealm(db, 'BL');
-			const labour = seedLabour(db, { realmId: am.id, title: 'Mover', labels: ['x'] });
-			addComment(db, actor, labour.id, 'note');
-			const before = contentHash(db, labour.id);
+		it('a move to another Realm', async () => {
+			const am = await seedRealm(db, 'AM');
+			const bl = await seedRealm(db, 'BL');
+			const labour = await seedLabour(db, { realmId: am.id, title: 'Mover', labels: ['x'] });
+			await addComment(db, actor, labour.id, 'note');
+			const before = await contentHash(db, labour.id);
 
-			moveLabour(db, actor, labour.id, { realmId: bl.id });
+			await moveLabour(db, actor, labour.id, { realmId: bl.id });
 
-			expect(contentHash(db, labour.id)).toBe(before);
+			expect(await contentHash(db, labour.id)).toBe(before);
 		});
 
-		it('a State change, including Closed', () => {
-			const realm = seedRealm(db, 'AM');
-			const labour = seedLabour(db, { realmId: realm.id });
-			const before = contentHash(db, labour.id);
-			const doing = createState(db, actor, realm.id, {
+		it('a State change, including Closed', async () => {
+			const realm = await seedRealm(db, 'AM');
+			const labour = await seedLabour(db, { realmId: realm.id });
+			const before = await contentHash(db, labour.id);
+			const doing = await createState(db, actor, realm.id, {
 				key: 'doing',
 				label: 'Doing',
 				color: '#000000',
 				icon: 'play'
 			});
 
-			updateLabour(db, actor, labour.id, { stateId: doing.id });
-			expect(contentHash(db, labour.id)).toBe(before);
-			updateLabour(db, actor, labour.id, { stateId: closedOf(realm.id).id });
-			expect(contentHash(db, labour.id)).toBe(before);
+			await updateLabour(db, actor, labour.id, { stateId: doing.id });
+			expect(await contentHash(db, labour.id)).toBe(before);
+			await updateLabour(db, actor, labour.id, { stateId: (await closedOf(realm.id)).id });
+			expect(await contentHash(db, labour.id)).toBe(before);
 		});
 
-		it('a Rank change', () => {
-			const realm = seedRealm(db, 'AM');
-			const labour = seedLabour(db, { realmId: realm.id });
-			seedLabour(db, { realmId: realm.id });
-			const before = contentHash(db, labour.id);
+		it('a Rank change', async () => {
+			const realm = await seedRealm(db, 'AM');
+			const labour = await seedLabour(db, { realmId: realm.id });
+			await seedLabour(db, { realmId: realm.id });
+			const before = await contentHash(db, labour.id);
 
-			rankLabour(db, actor, labour.id, 'bottom');
-			rankLabour(db, actor, labour.id, 'top');
+			await rankLabour(db, actor, labour.id, 'bottom');
+			await rankLabour(db, actor, labour.id, 'top');
 
-			expect(contentHash(db, labour.id)).toBe(before);
+			expect(await contentHash(db, labour.id)).toBe(before);
 		});
 
-		it('an Assignee or Owner change', () => {
-			const realm = seedRealm(db, 'AM');
-			const labour = seedLabour(db, { realmId: realm.id });
-			const before = contentHash(db, labour.id);
+		it('an Assignee or Owner change', async () => {
+			const realm = await seedRealm(db, 'AM');
+			const labour = await seedLabour(db, { realmId: realm.id });
+			const before = await contentHash(db, labour.id);
 
-			updateLabour(db, actor, labour.id, { assigneeId: other.id });
-			updateLabour(db, actor, labour.id, { ownerId: other.id });
+			await updateLabour(db, actor, labour.id, { assigneeId: other.id });
+			await updateLabour(db, actor, labour.id, { ownerId: other.id });
 
-			expect(contentHash(db, labour.id)).toBe(before);
+			expect(await contentHash(db, labour.id)).toBe(before);
 		});
 
-		it('any agent layer write', () => {
-			const realm = seedRealm(db, 'AM');
-			const labour = seedLabour(db, { realmId: realm.id });
-			const peer = seedLabour(db, { realmId: realm.id });
-			define(realm.id, IMPACT);
-			const before = contentHash(db, labour.id);
+		it('any agent layer write', async () => {
+			const realm = await seedRealm(db, 'AM');
+			const labour = await seedLabour(db, { realmId: realm.id });
+			const peer = await seedLabour(db, { realmId: realm.id });
+			await define(realm.id, IMPACT);
+			const before = await contentHash(db, labour.id);
 
-			appraise(
+			await appraise(
 				db,
 				actor,
 				[
@@ -317,23 +321,23 @@ describe('contentHash', () => {
 				day(2)
 			);
 
-			expect(contentHash(db, labour.id)).toBe(before);
+			expect(await contentHash(db, labour.id)).toBe(before);
 		});
 	});
 });
 
 describe('appraise: batch shape', () => {
-	it('returns one result per item, in item order, with the Labour id', () => {
-		const realm = seedRealm(db, 'AM');
-		const a = seedLabour(db, { realmId: realm.id });
-		const b = seedLabour(db, { realmId: realm.id });
-		const c = seedLabour(db, { realmId: realm.id });
+	it('returns one result per item, in item order, with the Labour id', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const a = await seedLabour(db, { realmId: realm.id });
+		const b = await seedLabour(db, { realmId: realm.id });
+		const c = await seedLabour(db, { realmId: realm.id });
 
-		const results = appraise(
+		const results = await appraise(
 			db,
 			actor,
 			[
-				{ labourId: c.id, stamp: contentHash(db, c.id) },
+				{ labourId: c.id, stamp: await contentHash(db, c.id) },
 				{ labourId: a.id, brief: 'just a brief' },
 				{ labourId: b.id, stamp: 'not-the-hash' }
 			],
@@ -347,14 +351,14 @@ describe('appraise: batch shape', () => {
 		]);
 	});
 
-	it('accepts an item that names nothing, and writes nothing for it', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('accepts an item that names nothing, and writes nothing for it', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		const results = appraise(db, actor, [{ labourId: labour.id }], day(2));
+		const results = await appraise(db, actor, [{ labourId: labour.id }], day(2));
 
 		expect(results).toEqual([{ labourId: labour.id, stamped: false }]);
-		expect(readAppraisal(db, labour.id)).toMatchObject({
+		expect(await readAppraisal(db, labour.id)).toMatchObject({
 			brief: '',
 			refs: [],
 			setBy: null,
@@ -367,49 +371,53 @@ describe('appraise: batch shape', () => {
 		});
 	});
 
-	it('accepts an item that names only a stamp', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('accepts an item that names only a stamp', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		const results = stamped(labour.id);
+		const results = await stamped(labour.id);
 
 		expect(results).toEqual([{ labourId: labour.id, stamped: true }]);
 	});
 
-	it('accepts 50 items', () => {
-		const realm = seedRealm(db, 'AM');
-		const items: AppraiseItem[] = Array.from({ length: 50 }, (_, i) => ({
-			labourId: seedLabour(db, { realmId: realm.id, title: `L${i}` }).id,
-			brief: `brief ${i}`
-		}));
+	it('accepts 50 items', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const items: AppraiseItem[] = await Promise.all(
+			Array.from({ length: 50 }, async (_, i) => ({
+				labourId: (await seedLabour(db, { realmId: realm.id, title: `L${i}` })).id,
+				brief: `brief ${i}`
+			}))
+		);
 
-		const results = appraise(db, actor, items, day(2));
+		const results = await appraise(db, actor, items, day(2));
 
 		expect(results).toHaveLength(50);
-		expect(readAppraisal(db, items[49].labourId).brief).toBe('brief 49');
+		expect((await readAppraisal(db, items[49].labourId)).brief).toBe('brief 49');
 	});
 
-	it('refuses 51 items as invalid, writing none', () => {
-		const realm = seedRealm(db, 'AM');
-		const items: AppraiseItem[] = Array.from({ length: 51 }, (_, i) => ({
-			labourId: seedLabour(db, { realmId: realm.id, title: `L${i}` }).id,
-			brief: 'x'
-		}));
+	it('refuses 51 items as invalid, writing none', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const items: AppraiseItem[] = await Promise.all(
+			Array.from({ length: 51 }, async (_, i) => ({
+				labourId: (await seedLabour(db, { realmId: realm.id, title: `L${i}` })).id,
+				brief: 'x'
+			}))
+		);
 
-		expectDomainError(() => appraise(db, actor, items, day(2)), 'invalid');
+		await expectDomainError(() => appraise(db, actor, items, day(2)), 'invalid');
 
-		expect(readAppraisal(db, items[0].labourId).brief).toBe('');
+		expect((await readAppraisal(db, items[0].labourId)).brief).toBe('');
 	});
 
-	it('refuses an empty batch as invalid', () => {
-		expectDomainError(() => appraise(db, actor, [], day(2)), 'invalid');
+	it('refuses an empty batch as invalid', async () => {
+		await expectDomainError(() => appraise(db, actor, [], day(2)), 'invalid');
 	});
 
-	it('refuses the same Labour twice in one batch as invalid, writing neither item', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('refuses the same Labour twice in one batch as invalid, writing neither item', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		expectDomainError(
+		await expectDomainError(
 			() =>
 				appraise(
 					db,
@@ -423,11 +431,11 @@ describe('appraise: batch shape', () => {
 			'invalid'
 		);
 
-		expect(readAppraisal(db, labour.id).brief).toBe('');
+		expect((await readAppraisal(db, labour.id)).brief).toBe('');
 	});
 
-	it('refuses an unknown Labour as not_found', () => {
-		expectDomainError(
+	it('refuses an unknown Labour as not_found', async () => {
+		await expectDomainError(
 			() => appraise(db, actor, [{ labourId: 999, brief: 'x' }], day(2)),
 			'not_found'
 		);
@@ -435,73 +443,78 @@ describe('appraise: batch shape', () => {
 });
 
 describe('appraise: brief', () => {
-	it('stores the Brief trimmed', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('stores the Brief trimmed', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		appraise(db, actor, [{ labourId: labour.id, brief: '  Needs a design pass \n' }], day(2));
+		await appraise(db, actor, [{ labourId: labour.id, brief: '  Needs a design pass \n' }], day(2));
 
-		expect(readAppraisal(db, labour.id).brief).toBe('Needs a design pass');
+		expect((await readAppraisal(db, labour.id)).brief).toBe('Needs a design pass');
 	});
 
-	it('accepts 400 characters, and counts them after trimming', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('accepts 400 characters, and counts them after trimming', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		appraise(db, actor, [{ labourId: labour.id, brief: `  ${'a'.repeat(400)}  ` }], day(2));
+		await appraise(db, actor, [{ labourId: labour.id, brief: `  ${'a'.repeat(400)}  ` }], day(2));
 
-		expect(readAppraisal(db, labour.id).brief).toBe('a'.repeat(400));
+		expect((await readAppraisal(db, labour.id)).brief).toBe('a'.repeat(400));
 	});
 
-	it('refuses 401 characters as invalid', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('refuses 401 characters as invalid', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		expectDomainError(
+		await expectDomainError(
 			() => appraise(db, actor, [{ labourId: labour.id, brief: 'a'.repeat(401) }], day(2)),
 			'invalid'
 		);
 	});
 
-	it('replaces the previous Brief', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		appraise(db, actor, [{ labourId: labour.id, brief: 'old' }], day(2));
+	it('replaces the previous Brief', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await appraise(db, actor, [{ labourId: labour.id, brief: 'old' }], day(2));
 
-		appraise(db, actor, [{ labourId: labour.id, brief: 'new' }], day(3));
+		await appraise(db, actor, [{ labourId: labour.id, brief: 'new' }], day(3));
 
-		expect(readAppraisal(db, labour.id).brief).toBe('new');
+		expect((await readAppraisal(db, labour.id)).brief).toBe('new');
 	});
 
-	it('clears the Brief with an empty string', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		appraise(db, actor, [{ labourId: labour.id, brief: 'something' }], day(2));
+	it('clears the Brief with an empty string', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await appraise(db, actor, [{ labourId: labour.id, brief: 'something' }], day(2));
 
-		appraise(db, actor, [{ labourId: labour.id, brief: '' }], day(3));
+		await appraise(db, actor, [{ labourId: labour.id, brief: '' }], day(3));
 
-		expect(readAppraisal(db, labour.id).brief).toBe('');
+		expect((await readAppraisal(db, labour.id)).brief).toBe('');
 	});
 
-	it('leaves the Brief alone when the item does not name it', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		appraise(db, actor, [{ labourId: labour.id, brief: 'kept' }], day(2));
+	it('leaves the Brief alone when the item does not name it', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await appraise(db, actor, [{ labourId: labour.id, brief: 'kept' }], day(2));
 
-		appraise(db, actor, [{ labourId: labour.id, refs: [{ href: 'https://a.test' }] }], day(3));
+		await appraise(
+			db,
+			actor,
+			[{ labourId: labour.id, refs: [{ href: 'https://a.test' }] }],
+			day(3)
+		);
 
-		expect(readAppraisal(db, labour.id).brief).toBe('kept');
+		expect((await readAppraisal(db, labour.id)).brief).toBe('kept');
 	});
 });
 
 describe('appraise: refs', () => {
 	const href = (n: number) => `https://example.com/${n}`;
 
-	it('stores References in order, a missing, null or empty label as null', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('stores References in order, a missing, null or empty label as null', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		appraise(
+		await appraise(
 			db,
 			actor,
 			[
@@ -518,7 +531,7 @@ describe('appraise: refs', () => {
 			day(2)
 		);
 
-		expect(readAppraisal(db, labour.id).refs).toEqual([
+		expect((await readAppraisal(db, labour.id)).refs).toEqual([
 			{ href: href(1), label: 'Spec' },
 			{ href: href(2), label: null },
 			{ href: href(3), label: null },
@@ -526,60 +539,62 @@ describe('appraise: refs', () => {
 		]);
 	});
 
-	it('trims href and label', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('trims href and label', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		appraise(
+		await appraise(
 			db,
 			actor,
 			[{ labourId: labour.id, refs: [{ href: '  src/a.ts  ', label: '  The file ' }] }],
 			day(2)
 		);
 
-		expect(readAppraisal(db, labour.id).refs).toEqual([{ href: 'src/a.ts', label: 'The file' }]);
+		expect((await readAppraisal(db, labour.id)).refs).toEqual([
+			{ href: 'src/a.ts', label: 'The file' }
+		]);
 	});
 
-	it('replaces the whole list, and clears it with an empty array', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		appraise(
+	it('replaces the whole list, and clears it with an empty array', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await appraise(
 			db,
 			actor,
 			[{ labourId: labour.id, refs: [{ href: href(1) }, { href: href(2) }] }],
 			day(2)
 		);
 
-		appraise(db, actor, [{ labourId: labour.id, refs: [{ href: href(3) }] }], day(3));
-		expect(readAppraisal(db, labour.id).refs).toEqual([{ href: href(3), label: null }]);
+		await appraise(db, actor, [{ labourId: labour.id, refs: [{ href: href(3) }] }], day(3));
+		expect((await readAppraisal(db, labour.id)).refs).toEqual([{ href: href(3), label: null }]);
 
-		appraise(db, actor, [{ labourId: labour.id, refs: [] }], day(4));
-		expect(readAppraisal(db, labour.id).refs).toEqual([]);
+		await appraise(db, actor, [{ labourId: labour.id, refs: [] }], day(4));
+		expect((await readAppraisal(db, labour.id)).refs).toEqual([]);
 	});
 
-	it('leaves References alone when the item does not name them', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		appraise(db, actor, [{ labourId: labour.id, refs: [{ href: href(1) }] }], day(2));
+	it('leaves References alone when the item does not name them', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await appraise(db, actor, [{ labourId: labour.id, refs: [{ href: href(1) }] }], day(2));
 
-		appraise(db, actor, [{ labourId: labour.id, brief: 'x' }], day(3));
+		await appraise(db, actor, [{ labourId: labour.id, brief: 'x' }], day(3));
 
-		expect(readAppraisal(db, labour.id).refs).toEqual([{ href: href(1), label: null }]);
+		expect((await readAppraisal(db, labour.id)).refs).toEqual([{ href: href(1), label: null }]);
 	});
 
-	it('accepts 20 References and refuses 21 as invalid', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('accepts 20 References and refuses 21 as invalid', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		appraise(
+		await appraise(
 			db,
 			actor,
 			[{ labourId: labour.id, refs: Array.from({ length: 20 }, (_, i) => ({ href: href(i) })) }],
 			day(2)
 		);
-		expect(readAppraisal(db, labour.id).refs).toHaveLength(20);
+		expect((await readAppraisal(db, labour.id)).refs).toHaveLength(20);
 
-		expectDomainError(
+		await expectDomainError(
 			() =>
 				appraise(
 					db,
@@ -591,46 +606,46 @@ describe('appraise: refs', () => {
 				),
 			'invalid'
 		);
-		expect(readAppraisal(db, labour.id).refs).toHaveLength(20);
+		expect((await readAppraisal(db, labour.id)).refs).toHaveLength(20);
 	});
 
-	it('accepts an href of 500 characters and refuses 501 as invalid', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('accepts an href of 500 characters and refuses 501 as invalid', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		appraise(db, actor, [{ labourId: labour.id, refs: [{ href: 'h'.repeat(500) }] }], day(2));
-		expect(readAppraisal(db, labour.id).refs[0].href).toHaveLength(500);
+		await appraise(db, actor, [{ labourId: labour.id, refs: [{ href: 'h'.repeat(500) }] }], day(2));
+		expect((await readAppraisal(db, labour.id)).refs[0].href).toHaveLength(500);
 
-		expectDomainError(
+		await expectDomainError(
 			() =>
 				appraise(db, actor, [{ labourId: labour.id, refs: [{ href: 'h'.repeat(501) }] }], day(3)),
 			'invalid'
 		);
 	});
 
-	it.each(['', '   '])('refuses an empty href %j as invalid', (empty) => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it.each(['', '   '])('refuses an empty href %j as invalid', async (empty) => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		expectDomainError(
+		await expectDomainError(
 			() => appraise(db, actor, [{ labourId: labour.id, refs: [{ href: empty }] }], day(2)),
 			'invalid'
 		);
 	});
 
-	it('accepts a label of 120 characters and refuses 121 as invalid', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('accepts a label of 120 characters and refuses 121 as invalid', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		appraise(
+		await appraise(
 			db,
 			actor,
 			[{ labourId: labour.id, refs: [{ href: href(1), label: 'l'.repeat(120) }] }],
 			day(2)
 		);
-		expect(readAppraisal(db, labour.id).refs[0].label).toHaveLength(120);
+		expect((await readAppraisal(db, labour.id)).refs[0].label).toHaveLength(120);
 
-		expectDomainError(
+		await expectDomainError(
 			() =>
 				appraise(
 					db,
@@ -642,11 +657,11 @@ describe('appraise: refs', () => {
 		);
 	});
 
-	it('refuses the same href twice in one list as invalid, whatever the labels', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('refuses the same href twice in one list as invalid, whatever the labels', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		expectDomainError(
+		await expectDomainError(
 			() =>
 				appraise(
 					db,
@@ -666,12 +681,12 @@ describe('appraise: refs', () => {
 		);
 	});
 
-	it('accepts the same href on different Labours', () => {
-		const realm = seedRealm(db, 'AM');
-		const a = seedLabour(db, { realmId: realm.id });
-		const b = seedLabour(db, { realmId: realm.id });
+	it('accepts the same href on different Labours', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const a = await seedLabour(db, { realmId: realm.id });
+		const b = await seedLabour(db, { realmId: realm.id });
 
-		appraise(
+		await appraise(
 			db,
 			actor,
 			[
@@ -681,65 +696,65 @@ describe('appraise: refs', () => {
 			day(2)
 		);
 
-		expect(readAppraisal(db, a.id).refs).toHaveLength(1);
-		expect(readAppraisal(db, b.id).refs).toHaveLength(1);
+		expect((await readAppraisal(db, a.id)).refs).toHaveLength(1);
+		expect((await readAppraisal(db, b.id)).refs).toHaveLength(1);
 	});
 });
 
 describe('appraise: setBy and setAt', () => {
-	it('records who last wrote the Brief and when', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('records who last wrote the Brief and when', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		appraise(db, other, [{ labourId: labour.id, brief: 'hi' }], day(2));
+		await appraise(db, other, [{ labourId: labour.id, brief: 'hi' }], day(2));
 
-		expect(readAppraisal(db, labour.id)).toMatchObject({
+		expect(await readAppraisal(db, labour.id)).toMatchObject({
 			setBy: other.id,
 			via: null,
 			setAt: day(2)
 		});
 	});
 
-	it('records who last wrote the References and when', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('records who last wrote the References and when', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		appraise(db, other, [{ labourId: labour.id, refs: [{ href: 'a' }] }], day(2));
+		await appraise(db, other, [{ labourId: labour.id, refs: [{ href: 'a' }] }], day(2));
 
-		expect(readAppraisal(db, labour.id)).toMatchObject({
+		expect(await readAppraisal(db, labour.id)).toMatchObject({
 			setBy: other.id,
 			via: null,
 			setAt: day(2)
 		});
 	});
 
-	it('rewrites them on each later Brief or References write, clearing included', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		appraise(db, actor, [{ labourId: labour.id, brief: 'one' }], day(2));
+	it('rewrites them on each later Brief or References write, clearing included', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await appraise(db, actor, [{ labourId: labour.id, brief: 'one' }], day(2));
 
-		appraise(db, other, [{ labourId: labour.id, refs: [] }], day(3));
-		expect(readAppraisal(db, labour.id)).toMatchObject({
+		await appraise(db, other, [{ labourId: labour.id, refs: [] }], day(3));
+		expect(await readAppraisal(db, labour.id)).toMatchObject({
 			setBy: other.id,
 			via: null,
 			setAt: day(3)
 		});
 
-		appraise(db, actor, [{ labourId: labour.id, brief: '' }], day(4));
-		expect(readAppraisal(db, labour.id)).toMatchObject({
+		await appraise(db, actor, [{ labourId: labour.id, brief: '' }], day(4));
+		expect(await readAppraisal(db, labour.id)).toMatchObject({
 			setBy: actor.id,
 			via: null,
 			setAt: day(4)
 		});
 	});
 
-	it('leaves them null when only values, links or a stamp are written', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		const peer = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT);
+	it('leaves them null when only values, links or a stamp are written', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		const peer = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT);
 
-		appraise(
+		await appraise(
 			db,
 			actor,
 			[
@@ -747,23 +762,27 @@ describe('appraise: setBy and setAt', () => {
 					labourId: labour.id,
 					values: { impact: 2 },
 					links: [{ type: 'relates', to: peer.id }],
-					stamp: contentHash(db, labour.id)
+					stamp: await contentHash(db, labour.id)
 				}
 			],
 			day(2)
 		);
 
-		expect(readAppraisal(db, labour.id)).toMatchObject({ setBy: null, via: null, setAt: null });
+		expect(await readAppraisal(db, labour.id)).toMatchObject({
+			setBy: null,
+			via: null,
+			setAt: null
+		});
 	});
 
-	it('leaves them unchanged when only values, links or a stamp are written later', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		const peer = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT);
-		appraise(db, actor, [{ labourId: labour.id, brief: 'mine' }], day(2));
+	it('leaves them unchanged when only values, links or a stamp are written later', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		const peer = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT);
+		await appraise(db, actor, [{ labourId: labour.id, brief: 'mine' }], day(2));
 
-		appraise(
+		await appraise(
 			db,
 			other,
 			[
@@ -771,13 +790,13 @@ describe('appraise: setBy and setAt', () => {
 					labourId: labour.id,
 					values: { impact: 2 },
 					links: [{ type: 'relates', to: peer.id }],
-					stamp: contentHash(db, labour.id)
+					stamp: await contentHash(db, labour.id)
 				}
 			],
 			day(3)
 		);
 
-		expect(readAppraisal(db, labour.id)).toMatchObject({
+		expect(await readAppraisal(db, labour.id)).toMatchObject({
 			setBy: actor.id,
 			via: null,
 			setAt: day(2)
@@ -786,22 +805,22 @@ describe('appraise: setBy and setAt', () => {
 });
 
 describe('appraise: values', () => {
-	it('sets values exactly as setValues does, stamping setBy and setAt', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT);
-		define(realm.id, NOTES);
-		define(realm.id, AREAS);
+	it('sets values exactly as setValues does, stamping setBy and setAt', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT);
+		await define(realm.id, NOTES);
+		await define(realm.id, AREAS);
 
-		appraise(
+		await appraise(
 			db,
 			other,
 			[{ labourId: labour.id, values: { impact: 4, notes: '  wide  ', areas: ['ui', 'api'] } }],
 			day(2)
 		);
 
-		expect(readAppraisal(db, labour.id).values).toEqual(readValues(db, labour.id));
-		expect(readValues(db, labour.id)).toEqual([
+		expect((await readAppraisal(db, labour.id)).values).toEqual(await readValues(db, labour.id));
+		expect(await readValues(db, labour.id)).toEqual([
 			{
 				key: 'impact',
 				kind: 'scale',
@@ -832,28 +851,28 @@ describe('appraise: values', () => {
 		]);
 	});
 
-	it('clears a value with null', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT);
-		setValues(db, actor, labour.id, { impact: 3 }, day(2));
+	it('clears a value with null', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT);
+		await setValues(db, actor, labour.id, { impact: 3 }, day(2));
 
-		appraise(db, actor, [{ labourId: labour.id, values: { impact: null } }], day(3));
+		await appraise(db, actor, [{ labourId: labour.id, values: { impact: null } }], day(3));
 
-		expect(readValues(db, labour.id)).toEqual([]);
+		expect(await readValues(db, labour.id)).toEqual([]);
 	});
 
-	it('rewrites setBy and setAt on a re-set value, which makes a stale one current', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT, day(1));
-		setValues(db, actor, labour.id, { impact: 3 }, day(2));
-		reviseRubric(realm.id, 'impact', 'scale', day(3));
-		expect(readValues(db, labour.id)[0].stale).toBe(true);
+	it('rewrites setBy and setAt on a re-set value, which makes a stale one current', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT, day(1));
+		await setValues(db, actor, labour.id, { impact: 3 }, day(2));
+		await reviseRubric(realm.id, 'impact', 'scale', day(3));
+		expect((await readValues(db, labour.id))[0].stale).toBe(true);
 
-		appraise(db, other, [{ labourId: labour.id, values: { impact: 3 } }], day(4));
+		await appraise(db, other, [{ labourId: labour.id, values: { impact: 3 } }], day(4));
 
-		expect(readValues(db, labour.id)).toEqual([
+		expect(await readValues(db, labour.id)).toEqual([
 			{
 				key: 'impact',
 				kind: 'scale',
@@ -866,48 +885,48 @@ describe('appraise: values', () => {
 		]);
 	});
 
-	it('refuses an unknown Attribute key as invalid', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('refuses an unknown Attribute key as invalid', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		expectDomainError(
+		await expectDomainError(
 			() => appraise(db, actor, [{ labourId: labour.id, values: { nope: 1 } }], day(2)),
 			'invalid'
 		);
 	});
 
-	it('refuses a value outside the Attribute spec as invalid', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT);
+	it('refuses a value outside the Attribute spec as invalid', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT);
 
-		expectDomainError(
+		await expectDomainError(
 			() => appraise(db, actor, [{ labourId: labour.id, values: { impact: 6 } }], day(2)),
 			'invalid'
 		);
 	});
 
-	it("refuses another Realm's Attribute key as invalid", () => {
-		const am = seedRealm(db, 'AM');
-		const bl = seedRealm(db, 'BL');
-		const labour = seedLabour(db, { realmId: am.id });
-		define(bl.id, IMPACT);
+	it("refuses another Realm's Attribute key as invalid", async () => {
+		const am = await seedRealm(db, 'AM');
+		const bl = await seedRealm(db, 'BL');
+		const labour = await seedLabour(db, { realmId: am.id });
+		await define(bl.id, IMPACT);
 
-		expectDomainError(
+		await expectDomainError(
 			() => appraise(db, actor, [{ labourId: labour.id, values: { impact: 3 } }], day(2)),
 			'invalid'
 		);
 	});
 
-	it('leaves values alone when the item does not name them', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT);
-		setValues(db, actor, labour.id, { impact: 3 }, day(2));
+	it('leaves values alone when the item does not name them', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT);
+		await setValues(db, actor, labour.id, { impact: 3 }, day(2));
 
-		appraise(db, other, [{ labourId: labour.id, brief: 'x' }], day(3));
+		await appraise(db, other, [{ labourId: labour.id, brief: 'x' }], day(3));
 
-		expect(readValues(db, labour.id)).toEqual([
+		expect(await readValues(db, labour.id)).toEqual([
 			{
 				key: 'impact',
 				kind: 'scale',
@@ -922,14 +941,14 @@ describe('appraise: values', () => {
 });
 
 describe('appraise: Realm version', () => {
-	it('bumps a Realm once for a batch that sets values on two of its Labours', () => {
-		const realm = seedRealm(db, 'AM');
-		const a = seedLabour(db, { realmId: realm.id });
-		const b = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT);
-		const before = version(realm.id);
+	it('bumps a Realm once for a batch that sets values on two of its Labours', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const a = await seedLabour(db, { realmId: realm.id });
+		const b = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT);
+		const before = await version(realm.id);
 
-		appraise(
+		await appraise(
 			db,
 			actor,
 			[
@@ -939,31 +958,31 @@ describe('appraise: Realm version', () => {
 			day(2)
 		);
 
-		expect(version(realm.id)).toBe(before + 1);
+		expect(await version(realm.id)).toBe(before + 1);
 	});
 
-	it('bumps a Realm once however many values one Labour sets', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT);
-		define(realm.id, NOTES);
-		const before = version(realm.id);
+	it('bumps a Realm once however many values one Labour sets', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT);
+		await define(realm.id, NOTES);
+		const before = await version(realm.id);
 
-		appraise(db, actor, [{ labourId: labour.id, values: { impact: 1, notes: 'n' } }], day(2));
+		await appraise(db, actor, [{ labourId: labour.id, values: { impact: 1, notes: 'n' } }], day(2));
 
-		expect(version(realm.id)).toBe(before + 1);
+		expect(await version(realm.id)).toBe(before + 1);
 	});
 
-	it('bumps each of two Realms once', () => {
-		const am = seedRealm(db, 'AM');
-		const bl = seedRealm(db, 'BL');
-		const a = seedLabour(db, { realmId: am.id });
-		const b = seedLabour(db, { realmId: bl.id });
-		define(am.id, IMPACT);
-		define(bl.id, IMPACT);
-		const [beforeAm, beforeBl] = [version(am.id), version(bl.id)];
+	it('bumps each of two Realms once', async () => {
+		const am = await seedRealm(db, 'AM');
+		const bl = await seedRealm(db, 'BL');
+		const a = await seedLabour(db, { realmId: am.id });
+		const b = await seedLabour(db, { realmId: bl.id });
+		await define(am.id, IMPACT);
+		await define(bl.id, IMPACT);
+		const [beforeAm, beforeBl] = [await version(am.id), await version(bl.id)];
 
-		appraise(
+		await appraise(
 			db,
 			actor,
 			[
@@ -973,20 +992,20 @@ describe('appraise: Realm version', () => {
 			day(2)
 		);
 
-		expect(version(am.id)).toBe(beforeAm + 1);
-		expect(version(bl.id)).toBe(beforeBl + 1);
+		expect(await version(am.id)).toBe(beforeAm + 1);
+		expect(await version(bl.id)).toBe(beforeBl + 1);
 	});
 
-	it('bumps only the Realm whose values changed', () => {
-		const am = seedRealm(db, 'AM');
-		const bl = seedRealm(db, 'BL');
-		const a = seedLabour(db, { realmId: am.id });
-		const b = seedLabour(db, { realmId: bl.id });
-		define(am.id, IMPACT);
-		define(bl.id, IMPACT);
-		const beforeBl = version(bl.id);
+	it('bumps only the Realm whose values changed', async () => {
+		const am = await seedRealm(db, 'AM');
+		const bl = await seedRealm(db, 'BL');
+		const a = await seedLabour(db, { realmId: am.id });
+		const b = await seedLabour(db, { realmId: bl.id });
+		await define(am.id, IMPACT);
+		await define(bl.id, IMPACT);
+		const beforeBl = await version(bl.id);
 
-		appraise(
+		await appraise(
 			db,
 			actor,
 			[
@@ -996,29 +1015,29 @@ describe('appraise: Realm version', () => {
 			day(2)
 		);
 
-		expect(version(bl.id)).toBe(beforeBl);
+		expect(await version(bl.id)).toBe(beforeBl);
 	});
 
-	it('bumps when a value is cleared', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT);
-		setValues(db, actor, labour.id, { impact: 2 }, day(2));
-		const before = version(realm.id);
+	it('bumps when a value is cleared', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT);
+		await setValues(db, actor, labour.id, { impact: 2 }, day(2));
+		const before = await version(realm.id);
 
-		appraise(db, actor, [{ labourId: labour.id, values: { impact: null } }], day(3));
+		await appraise(db, actor, [{ labourId: labour.id, values: { impact: null } }], day(3));
 
-		expect(version(realm.id)).toBe(before + 1);
+		expect(await version(realm.id)).toBe(before + 1);
 	});
 
-	it('does not bump for a Brief, References, Links or a stamp', () => {
-		const realm = seedRealm(db, 'AM');
-		const a = seedLabour(db, { realmId: realm.id });
-		const b = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT);
-		const before = version(realm.id);
+	it('does not bump for a Brief, References, Links or a stamp', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const a = await seedLabour(db, { realmId: realm.id });
+		const b = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT);
+		const before = await version(realm.id);
 
-		appraise(
+		await appraise(
 			db,
 			actor,
 			[
@@ -1027,14 +1046,14 @@ describe('appraise: Realm version', () => {
 					brief: 'b',
 					refs: [{ href: 'x' }],
 					links: [{ type: 'evidence', to: b.id }],
-					stamp: contentHash(db, a.id)
+					stamp: await contentHash(db, a.id)
 				},
-				{ labourId: b.id, stamp: contentHash(db, b.id) }
+				{ labourId: b.id, stamp: await contentHash(db, b.id) }
 			],
 			day(2)
 		);
 
-		expect(version(realm.id)).toBe(before);
+		expect(await version(realm.id)).toBe(before);
 	});
 });
 
@@ -1081,62 +1100,69 @@ describe('appraise: all or nothing', () => {
 		['the first Labour again', (v) => ({ labourId: v, brief: 'again' }), 'invalid']
 	];
 
-	it.each(bad)('writes nothing of an earlier item when a later one has %s', (_name, make, code) => {
-		const am = seedRealm(db, 'AM');
-		const bl = seedRealm(db, 'BL');
-		const first = seedLabour(db, { realmId: am.id });
-		const second = seedLabour(db, { realmId: bl.id });
-		const target = seedLabour(db, { realmId: am.id });
-		define(am.id, IMPACT);
-		define(bl.id, IMPACT);
-		const versions = [version(am.id), version(bl.id)];
+	it.each(bad)(
+		'writes nothing of an earlier item when a later one has %s',
+		async (_name, make, code) => {
+			const am = await seedRealm(db, 'AM');
+			const bl = await seedRealm(db, 'BL');
+			const first = await seedLabour(db, { realmId: am.id });
+			const second = await seedLabour(db, { realmId: bl.id });
+			const target = await seedLabour(db, { realmId: am.id });
+			await define(am.id, IMPACT);
+			await define(bl.id, IMPACT);
+			const versions = [await version(am.id), await version(bl.id)];
 
-		expectDomainError(
-			() =>
-				appraise(
-					db,
-					actor,
-					[
-						{
-							labourId: first.id,
-							brief: 'would be kept',
-							refs: [{ href: 'https://a.test' }],
-							values: { impact: 3 },
-							links: [{ type: 'evidence', to: target.id }],
-							stamp: contentHash(db, first.id)
-						},
-						make(first.id, second.id)
-					],
-					day(2)
-				),
-			code
-		);
+			await expectDomainError(
+				async () =>
+					appraise(
+						db,
+						actor,
+						[
+							{
+								labourId: first.id,
+								brief: 'would be kept',
+								refs: [{ href: 'https://a.test' }],
+								values: { impact: 3 },
+								links: [{ type: 'evidence', to: target.id }],
+								stamp: await contentHash(db, first.id)
+							},
+							make(first.id, second.id)
+						],
+						day(2)
+					),
+				code
+			);
 
-		expect(readAppraisal(db, first.id)).toMatchObject({
-			brief: '',
-			refs: [],
-			setBy: null,
-			via: null,
-			setAt: null,
-			stamp: null,
-			unappraised: true,
-			values: [],
-			links: []
-		});
-		expect(readAppraisal(db, second.id)).toMatchObject({ brief: '', values: [], links: [] });
-		expect(readLinks(db, target.id)).toEqual([]);
-		expect([version(am.id), version(bl.id)]).toEqual(versions);
-	});
+			expect(await readAppraisal(db, first.id)).toMatchObject({
+				brief: '',
+				refs: [],
+				setBy: null,
+				via: null,
+				setAt: null,
+				stamp: null,
+				unappraised: true,
+				values: [],
+				links: []
+			});
+			expect(await readAppraisal(db, second.id)).toMatchObject({
+				brief: '',
+				values: [],
+				links: []
+			});
+			expect(await readLinks(db, target.id)).toEqual([]);
+			expect([await version(am.id), await version(bl.id)]).toEqual(versions);
+		}
+	);
 
-	it('does not disturb what was already stored', () => {
-		const realm = seedRealm(db, 'AM');
-		const a = seedLabour(db, { realmId: realm.id });
-		const b = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT);
-		appraise(db, actor, [{ labourId: a.id, brief: 'stored', values: { impact: 2 } }], day(2));
-		const before = readAppraisal(db, a.id);
+	it('does not disturb what was already stored', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const a = await seedLabour(db, { realmId: realm.id });
+		const b = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT);
+		await appraise(db, actor, [{ labourId: a.id, brief: 'stored', values: { impact: 2 } }], day(2));
+		const before = await readAppraisal(db, a.id);
 
-		expectDomainError(
+		await expectDomainError(
 			() =>
 				appraise(
 					db,
@@ -1150,33 +1176,33 @@ describe('appraise: all or nothing', () => {
 			'invalid'
 		);
 
-		expect(readAppraisal(db, a.id)).toEqual(before);
+		expect(await readAppraisal(db, a.id)).toEqual(before);
 	});
 });
 
 describe('appraise: stamp', () => {
-	it('stamps with the current hash, the actor and now when the stamp matches', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id, title: 'Stamped' });
-		const hash = expectedHash(labour.id);
+	it('stamps with the current hash, the actor and now when the stamp matches', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id, title: 'Stamped' });
+		const hash = await expectedHash(labour.id);
 
-		const [result] = appraise(db, other, [{ labourId: labour.id, stamp: hash }], day(2));
+		const [result] = await appraise(db, other, [{ labourId: labour.id, stamp: hash }], day(2));
 
 		expect(result).toEqual({ labourId: labour.id, stamped: true });
-		expect(readAppraisal(db, labour.id)).toMatchObject({
+		expect(await readAppraisal(db, labour.id)).toMatchObject({
 			stamp: { contentHash: hash, appraisedBy: other.id, appraisedVia: null, appraisedAt: day(2) },
 			unappraised: false,
 			stale: false
 		});
 	});
 
-	it('stamps in the same item as the other writes, which are not part of the hash', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT);
-		const hash = contentHash(db, labour.id);
+	it('stamps in the same item as the other writes, which are not part of the hash', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT);
+		const hash = await contentHash(db, labour.id);
 
-		const [result] = appraise(
+		const [result] = await appraise(
 			db,
 			actor,
 			[{ labourId: labour.id, brief: 'b', values: { impact: 2 }, stamp: hash }],
@@ -1184,39 +1210,44 @@ describe('appraise: stamp', () => {
 		);
 
 		expect(result.stamped).toBe(true);
-		expect(readAppraisal(db, labour.id)).toMatchObject({ brief: 'b', stale: false });
+		expect(await readAppraisal(db, labour.id)).toMatchObject({ brief: 'b', stale: false });
 	});
 
-	it('reports stamped false and writes no stamp when the stamp differs', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('reports stamped false and writes no stamp when the stamp differs', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		const [result] = appraise(db, actor, [{ labourId: labour.id, stamp: 'f'.repeat(64) }], day(2));
+		const [result] = await appraise(
+			db,
+			actor,
+			[{ labourId: labour.id, stamp: 'f'.repeat(64) }],
+			day(2)
+		);
 
 		expect(result).toEqual({ labourId: labour.id, stamped: false });
-		expect(readAppraisal(db, labour.id)).toMatchObject({ stamp: null, unappraised: true });
+		expect(await readAppraisal(db, labour.id)).toMatchObject({ stamp: null, unappraised: true });
 	});
 
-	it('reports stamped false for an empty stamp', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('reports stamped false for an empty stamp', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		const [result] = appraise(db, actor, [{ labourId: labour.id, stamp: '' }], day(2));
+		const [result] = await appraise(db, actor, [{ labourId: labour.id, stamp: '' }], day(2));
 
 		expect(result.stamped).toBe(false);
-		expect(readAppraisal(db, labour.id).stamp).toBeNull();
+		expect((await readAppraisal(db, labour.id)).stamp).toBeNull();
 	});
 
-	it('still writes every other field of the item when the stamp differs', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		const peer = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT);
-		const stale = contentHash(db, labour.id);
-		updateLabour(db, actor, labour.id, { title: 'Edited after reading' });
-		const before = version(realm.id);
+	it('still writes every other field of the item when the stamp differs', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		const peer = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT);
+		const stale = await contentHash(db, labour.id);
+		await updateLabour(db, actor, labour.id, { title: 'Edited after reading' });
+		const before = await version(realm.id);
 
-		const [result] = appraise(
+		const [result] = await appraise(
 			db,
 			actor,
 			[
@@ -1233,23 +1264,23 @@ describe('appraise: stamp', () => {
 		);
 
 		expect(result.stamped).toBe(false);
-		const view = readAppraisal(db, labour.id);
+		const view = await readAppraisal(db, labour.id);
 		expect(view.brief).toBe('written anyway');
 		expect(view.refs).toEqual([{ href: 'https://a.test', label: 'A' }]);
 		expect(view.values).toMatchObject([{ key: 'impact', value: 3 }]);
 		expect(view.links).toMatchObject([{ type: 'evidence', to: peer.id, note: 'still lands' }]);
 		expect(view.stamp).toBeNull();
-		expect(version(realm.id)).toBe(before + 1);
+		expect(await version(realm.id)).toBe(before + 1);
 	});
 
-	it('leaves an earlier stamp as it was when a later stamp differs', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		stamped(labour.id, day(2), actor);
-		const first = readAppraisal(db, labour.id).stamp;
-		updateLabour(db, actor, labour.id, { description: 'new content' });
+	it('leaves an earlier stamp as it was when a later stamp differs', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await stamped(labour.id, day(2), actor);
+		const first = (await readAppraisal(db, labour.id)).stamp;
+		await updateLabour(db, actor, labour.id, { description: 'new content' });
 
-		const [result] = appraise(
+		const [result] = await appraise(
 			db,
 			other,
 			[{ labourId: labour.id, stamp: first!.contentHash }],
@@ -1257,35 +1288,35 @@ describe('appraise: stamp', () => {
 		);
 
 		expect(result.stamped).toBe(false);
-		expect(readAppraisal(db, labour.id).stamp).toEqual(first);
-		expect(readAppraisal(db, labour.id).stale).toBe(true);
+		expect((await readAppraisal(db, labour.id)).stamp).toEqual(first);
+		expect((await readAppraisal(db, labour.id)).stale).toBe(true);
 	});
 
-	it('leaves an earlier stamp as it was when the item has no stamp', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		stamped(labour.id, day(2), actor);
-		const first = readAppraisal(db, labour.id).stamp;
+	it('leaves an earlier stamp as it was when the item has no stamp', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await stamped(labour.id, day(2), actor);
+		const first = (await readAppraisal(db, labour.id)).stamp;
 
-		const [result] = appraise(db, other, [{ labourId: labour.id, brief: 'x' }], day(3));
+		const [result] = await appraise(db, other, [{ labourId: labour.id, brief: 'x' }], day(3));
 
 		expect(result.stamped).toBe(false);
-		expect(readAppraisal(db, labour.id).stamp).toEqual(first);
+		expect((await readAppraisal(db, labour.id)).stamp).toEqual(first);
 	});
 
-	it('re-stamps with the new hash, actor and time once the content has changed', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		stamped(labour.id, day(2), actor);
-		updateLabour(db, actor, labour.id, { title: 'Changed' });
-		expect(readAppraisal(db, labour.id).stale).toBe(true);
+	it('re-stamps with the new hash, actor and time once the content has changed', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await stamped(labour.id, day(2), actor);
+		await updateLabour(db, actor, labour.id, { title: 'Changed' });
+		expect((await readAppraisal(db, labour.id)).stale).toBe(true);
 
-		const [result] = stamped(labour.id, day(3), other);
+		const [result] = await stamped(labour.id, day(3), other);
 
 		expect(result.stamped).toBe(true);
-		expect(readAppraisal(db, labour.id)).toMatchObject({
+		expect(await readAppraisal(db, labour.id)).toMatchObject({
 			stamp: {
-				contentHash: expectedHash(labour.id),
+				contentHash: await expectedHash(labour.id),
 				appraisedBy: other.id,
 				appraisedVia: null,
 				appraisedAt: day(3)
@@ -1294,15 +1325,15 @@ describe('appraise: stamp', () => {
 		});
 	});
 
-	it('re-stamps unchanged content, moving appraisedBy and appraisedAt', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		stamped(labour.id, day(2), actor);
+	it('re-stamps unchanged content, moving appraisedBy and appraisedAt', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await stamped(labour.id, day(2), actor);
 
-		stamped(labour.id, day(5), other);
+		await stamped(labour.id, day(5), other);
 
-		expect(readAppraisal(db, labour.id).stamp).toEqual({
-			contentHash: expectedHash(labour.id),
+		expect((await readAppraisal(db, labour.id)).stamp).toEqual({
+			contentHash: await expectedHash(labour.id),
 			appraisedBy: other.id,
 			appraisedVia: null,
 			appraisedAt: day(5)
@@ -1311,18 +1342,18 @@ describe('appraise: stamp', () => {
 });
 
 describe('readAppraisal', () => {
-	it('reads a Labour with no agent layer as empty and unappraised', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id, title: 'Fresh' });
+	it('reads a Labour with no agent layer as empty and unappraised', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id, title: 'Fresh' });
 
-		expect(readAppraisal(db, labour.id)).toEqual({
+		expect(await readAppraisal(db, labour.id)).toEqual({
 			labourId: labour.id,
 			brief: '',
 			refs: [],
 			setBy: null,
 			via: null,
 			setAt: null,
-			contentHash: expectedHash(labour.id),
+			contentHash: await expectedHash(labour.id),
 			stamp: null,
 			unappraised: true,
 			stale: false,
@@ -1333,14 +1364,14 @@ describe('readAppraisal', () => {
 		});
 	});
 
-	it('reads the whole agent layer: Brief, References, values and Links from either end', () => {
-		const am = seedRealm(db, 'AM');
-		const bl = seedRealm(db, 'BL');
-		const labour = seedLabour(db, { realmId: am.id });
-		const out = seedLabour(db, { realmId: bl.id });
-		const into = seedLabour(db, { realmId: am.id });
-		define(am.id, IMPACT);
-		appraise(
+	it('reads the whole agent layer: Brief, References, values and Links from either end', async () => {
+		const am = await seedRealm(db, 'AM');
+		const bl = await seedRealm(db, 'BL');
+		const labour = await seedLabour(db, { realmId: am.id });
+		const out = await seedLabour(db, { realmId: bl.id });
+		const into = await seedLabour(db, { realmId: am.id });
+		await define(am.id, IMPACT);
+		await appraise(
 			db,
 			actor,
 			[
@@ -1350,14 +1381,14 @@ describe('readAppraisal', () => {
 					refs: [{ href: 'https://a.test', label: 'A' }],
 					values: { impact: 5 },
 					links: [{ type: 'evidence', to: out.id, note: 'supports' }],
-					stamp: contentHash(db, labour.id)
+					stamp: await contentHash(db, labour.id)
 				},
 				{ labourId: into.id, links: [{ type: 'blocks', to: labour.id }] }
 			],
 			day(2)
 		);
 
-		const view = readAppraisal(db, labour.id);
+		const view = await readAppraisal(db, labour.id);
 
 		expect(view).toMatchObject({
 			labourId: labour.id,
@@ -1366,9 +1397,9 @@ describe('readAppraisal', () => {
 			setBy: actor.id,
 			via: null,
 			setAt: day(2),
-			contentHash: expectedHash(labour.id),
+			contentHash: await expectedHash(labour.id),
 			stamp: {
-				contentHash: expectedHash(labour.id),
+				contentHash: await expectedHash(labour.id),
 				appraisedBy: actor.id,
 				appraisedVia: null,
 				appraisedAt: day(2)
@@ -1376,136 +1407,142 @@ describe('readAppraisal', () => {
 			unappraised: false,
 			stale: false
 		});
-		expect(view.values).toEqual(readValues(db, labour.id));
-		expect(view.links).toEqual(readLinks(db, labour.id));
+		expect(view.values).toEqual(await readValues(db, labour.id));
+		expect(view.links).toEqual(await readLinks(db, labour.id));
 		expect(view.links.map((l) => [l.type, l.from, l.to])).toEqual([
 			['evidence', labour.id, out.id],
 			['blocks', into.id, labour.id]
 		]);
 	});
 
-	it('refuses an unknown Labour as not_found', () => {
-		expectDomainError(() => readAppraisal(db, 999), 'not_found');
+	it('refuses an unknown Labour as not_found', async () => {
+		await expectDomainError(() => readAppraisal(db, 999), 'not_found');
 	});
 
-	it('is not stale while it has never been stamped, even after the content changes', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('is not stale while it has never been stamped, even after the content changes', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		updateLabour(db, actor, labour.id, { title: 'Changed' });
+		await updateLabour(db, actor, labour.id, { title: 'Changed' });
 
-		expect(readAppraisal(db, labour.id)).toMatchObject({ unappraised: true, stale: false });
+		expect(await readAppraisal(db, labour.id)).toMatchObject({ unappraised: true, stale: false });
 	});
 
-	describe.each<[string, (id: number) => void]>([
+	describe.each<[string, (id: number) => Promise<unknown>]>([
 		['the title changes', (id) => updateLabour(db, actor, id, { title: 'Renamed' })],
 		['the description changes', (id) => updateLabour(db, actor, id, { description: 'More' })],
 		['a Label is added', (id) => updateLabour(db, actor, id, { addLabels: ['bug'] })],
-		['a Comment is added', (id) => void addComment(db, actor, id, 'late news')]
+		['a Comment is added', (id) => addComment(db, actor, id, 'late news')]
 	])('goes stale when %s', (_name, change) => {
-		it('shows the stamp unchanged and the current hash moved on', () => {
-			const realm = seedRealm(db, 'AM');
-			const labour = seedLabour(db, { realmId: realm.id });
-			stamped(labour.id);
-			const stamp = readAppraisal(db, labour.id).stamp;
+		it('shows the stamp unchanged and the current hash moved on', async () => {
+			const realm = await seedRealm(db, 'AM');
+			const labour = await seedLabour(db, { realmId: realm.id });
+			await stamped(labour.id);
+			const stamp = (await readAppraisal(db, labour.id)).stamp;
 
-			change(labour.id);
+			await change(labour.id);
 
-			const view = readAppraisal(db, labour.id);
+			const view = await readAppraisal(db, labour.id);
 			expect(view.stale).toBe(true);
 			expect(view.unappraised).toBe(false);
 			expect(view.stamp).toEqual(stamp);
-			expect(view.contentHash).toBe(expectedHash(labour.id));
+			expect(view.contentHash).toBe(await expectedHash(labour.id));
 			expect(view.contentHash).not.toBe(stamp!.contentHash);
 		});
 	});
 
-	it('goes stale when a Label is removed', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id, labels: ['bug'] });
-		stamped(labour.id);
+	it('goes stale when a Label is removed', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id, labels: ['bug'] });
+		await stamped(labour.id);
 
-		updateLabour(db, actor, labour.id, { removeLabels: ['bug'] });
+		await updateLabour(db, actor, labour.id, { removeLabels: ['bug'] });
 
-		expect(readAppraisal(db, labour.id).stale).toBe(true);
+		expect((await readAppraisal(db, labour.id)).stale).toBe(true);
 	});
 
-	it('goes stale when a Comment is edited or deleted', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		const comment = addComment(db, actor, labour.id, 'before');
-		stamped(labour.id);
+	it('goes stale when a Comment is edited or deleted', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		const comment = await addComment(db, actor, labour.id, 'before');
+		await stamped(labour.id);
 
-		editComment(db, actor, comment.id, 'after');
-		expect(readAppraisal(db, labour.id).stale).toBe(true);
+		await editComment(db, actor, comment.id, 'after');
+		expect((await readAppraisal(db, labour.id)).stale).toBe(true);
 
-		stamped(labour.id, day(3));
-		expect(readAppraisal(db, labour.id).stale).toBe(false);
+		await stamped(labour.id, day(3));
+		expect((await readAppraisal(db, labour.id)).stale).toBe(false);
 
-		deleteComment(db, actor, comment.id);
-		expect(readAppraisal(db, labour.id).stale).toBe(true);
+		await deleteComment(db, actor, comment.id);
+		expect((await readAppraisal(db, labour.id)).stale).toBe(true);
 	});
 
-	it('is current again after a change is reverted', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id, title: 'Original' });
-		stamped(labour.id);
+	it('is current again after a change is reverted', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id, title: 'Original' });
+		await stamped(labour.id);
 
-		updateLabour(db, actor, labour.id, { title: 'Detour' });
-		updateLabour(db, actor, labour.id, { title: 'Original' });
+		await updateLabour(db, actor, labour.id, { title: 'Detour' });
+		await updateLabour(db, actor, labour.id, { title: 'Original' });
 
-		expect(readAppraisal(db, labour.id).stale).toBe(false);
+		expect((await readAppraisal(db, labour.id)).stale).toBe(false);
 	});
 
 	describe('stays current after', () => {
-		it('a move to another Realm', () => {
-			const am = seedRealm(db, 'AM');
-			const bl = seedRealm(db, 'BL');
-			const labour = seedLabour(db, { realmId: am.id });
-			stamped(labour.id);
+		it('a move to another Realm', async () => {
+			const am = await seedRealm(db, 'AM');
+			const bl = await seedRealm(db, 'BL');
+			const labour = await seedLabour(db, { realmId: am.id });
+			await stamped(labour.id);
 
-			moveLabour(db, actor, labour.id, { realmId: bl.id });
+			await moveLabour(db, actor, labour.id, { realmId: bl.id });
 
-			expect(readAppraisal(db, labour.id)).toMatchObject({ stale: false, unappraised: false });
+			expect(await readAppraisal(db, labour.id)).toMatchObject({
+				stale: false,
+				unappraised: false
+			});
 		});
 
-		it('a State change and closing', () => {
-			const realm = seedRealm(db, 'AM');
-			const labour = seedLabour(db, { realmId: realm.id });
-			stamped(labour.id);
-			const doing = createState(db, actor, realm.id, {
+		it('a State change and closing', async () => {
+			const realm = await seedRealm(db, 'AM');
+			const labour = await seedLabour(db, { realmId: realm.id });
+			await stamped(labour.id);
+			const doing = await createState(db, actor, realm.id, {
 				key: 'doing',
 				label: 'Doing',
 				color: '#000000',
 				icon: 'play'
 			});
 
-			updateLabour(db, actor, labour.id, { stateId: doing.id });
-			updateLabour(db, actor, labour.id, { stateId: closedOf(realm.id).id });
+			await updateLabour(db, actor, labour.id, { stateId: doing.id });
+			await updateLabour(db, actor, labour.id, { stateId: (await closedOf(realm.id)).id });
 
-			expect(readAppraisal(db, labour.id)).toMatchObject({ stale: false, unappraised: false });
+			expect(await readAppraisal(db, labour.id)).toMatchObject({
+				stale: false,
+				unappraised: false
+			});
 		});
 
-		it('a Rank, Assignee or Owner change', () => {
-			const realm = seedRealm(db, 'AM');
-			const labour = seedLabour(db, { realmId: realm.id });
-			seedLabour(db, { realmId: realm.id });
-			stamped(labour.id);
+		it('a Rank, Assignee or Owner change', async () => {
+			const realm = await seedRealm(db, 'AM');
+			const labour = await seedLabour(db, { realmId: realm.id });
+			await seedLabour(db, { realmId: realm.id });
+			await stamped(labour.id);
 
-			rankLabour(db, actor, labour.id, 'bottom');
-			updateLabour(db, actor, labour.id, { assigneeId: other.id, ownerId: other.id });
+			await rankLabour(db, actor, labour.id, 'bottom');
+			await updateLabour(db, actor, labour.id, { assigneeId: other.id, ownerId: other.id });
 
-			expect(readAppraisal(db, labour.id).stale).toBe(false);
+			expect((await readAppraisal(db, labour.id)).stale).toBe(false);
 		});
 
-		it('an agent write that does not stamp', () => {
-			const realm = seedRealm(db, 'AM');
-			const labour = seedLabour(db, { realmId: realm.id });
-			const peer = seedLabour(db, { realmId: realm.id });
-			define(realm.id, IMPACT);
-			stamped(labour.id);
+		it('an agent write that does not stamp', async () => {
+			const realm = await seedRealm(db, 'AM');
+			const labour = await seedLabour(db, { realmId: realm.id });
+			const peer = await seedLabour(db, { realmId: realm.id });
+			await define(realm.id, IMPACT);
+			await stamped(labour.id);
 
-			appraise(
+			await appraise(
 				db,
 				other,
 				[
@@ -1520,23 +1557,26 @@ describe('readAppraisal', () => {
 				day(3)
 			);
 
-			expect(readAppraisal(db, labour.id)).toMatchObject({ stale: false, unappraised: false });
+			expect(await readAppraisal(db, labour.id)).toMatchObject({
+				stale: false,
+				unappraised: false
+			});
 		});
 	});
 });
 
 describe('appraise: isolation from the board', () => {
-	it('records no Event and changes no column of any Labour row', () => {
-		const am = seedRealm(db, 'AM');
-		const bl = seedRealm(db, 'BL');
-		const a = seedLabour(db, { realmId: am.id });
-		const b = seedLabour(db, { realmId: bl.id });
-		define(am.id, IMPACT);
-		define(bl.id, IMPACT);
-		const eventsBefore = db.select().from(events).all();
-		const laboursBefore = db.select().from(labours).orderBy(asc(labours.id)).all();
+	it('records no Event and changes no column of any Labour row', async () => {
+		const am = await seedRealm(db, 'AM');
+		const bl = await seedRealm(db, 'BL');
+		const a = await seedLabour(db, { realmId: am.id });
+		const b = await seedLabour(db, { realmId: bl.id });
+		await define(am.id, IMPACT);
+		await define(bl.id, IMPACT);
+		const eventsBefore = await db.select().from(events);
+		const laboursBefore = await db.select().from(labours).orderBy(asc(labours.id));
 
-		appraise(
+		await appraise(
 			db,
 			actor,
 			[
@@ -1550,7 +1590,7 @@ describe('appraise: isolation from the board', () => {
 						{ type: 'blocks', from: b.id },
 						{ type: 'relates', to: b.id, note: 'n' }
 					],
-					stamp: contentHash(db, a.id)
+					stamp: await contentHash(db, a.id)
 				},
 				{
 					labourId: b.id,
@@ -1561,8 +1601,8 @@ describe('appraise: isolation from the board', () => {
 			new Date(Date.UTC(2031, 5, 1))
 		);
 
-		expect(db.select().from(events).all()).toEqual(eventsBefore);
-		expect(db.select().from(labours).orderBy(asc(labours.id)).all()).toEqual(laboursBefore);
+		expect(await db.select().from(events)).toEqual(eventsBefore);
+		expect(await db.select().from(labours).orderBy(asc(labours.id))).toEqual(laboursBefore);
 	});
 });
 
@@ -1570,172 +1610,175 @@ describe('listUnappraised', () => {
 	const page = { offset: 0, limit: 50 };
 	const list = (filter: { realmId?: number; includeClosed?: boolean } = {}, p = page) =>
 		listUnappraised(db, filter, p);
-	const close = (realmId: number, id: number) =>
-		updateLabour(db, actor, id, { stateId: closedOf(realmId).id });
+	const close = async (realmId: number, id: number) =>
+		updateLabour(db, actor, id, { stateId: (await closedOf(realmId)).id });
 
-	it('lists a Labour never stamped as unappraised', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('lists a Labour never stamped as unappraised', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		expect(list()).toEqual({ items: [{ labourId: labour.id, reason: 'unappraised' }], total: 1 });
+		expect(await list()).toEqual({
+			items: [{ labourId: labour.id, reason: 'unappraised' }],
+			total: 1
+		});
 	});
 
-	it('does not list a Labour whose stamp is current', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		stamped(labour.id);
+	it('does not list a Labour whose stamp is current', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await stamped(labour.id);
 
-		expect(list()).toEqual({ items: [], total: 0 });
+		expect(await list()).toEqual({ items: [], total: 0 });
 	});
 
-	it('lists a Labour written to with a wrong stamp as unappraised', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		appraise(
+	it('lists a Labour written to with a wrong stamp as unappraised', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await appraise(
 			db,
 			actor,
 			[{ labourId: labour.id, brief: 'read, not stamped', stamp: 'wrong' }],
 			day(2)
 		);
 
-		expect(list().items).toEqual([{ labourId: labour.id, reason: 'unappraised' }]);
+		expect((await list()).items).toEqual([{ labourId: labour.id, reason: 'unappraised' }]);
 	});
 
-	it('lists a stamped Labour as content once its content has changed', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		stamped(labour.id);
+	it('lists a stamped Labour as content once its content has changed', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await stamped(labour.id);
 
-		addComment(db, actor, labour.id, 'new info');
+		await addComment(db, actor, labour.id, 'new info');
 
-		expect(list().items).toEqual([{ labourId: labour.id, reason: 'content' }]);
+		expect((await list()).items).toEqual([{ labourId: labour.id, reason: 'content' }]);
 	});
 
-	it('drops a Labour from the list when it is stamped against its current content', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		stamped(labour.id);
-		updateLabour(db, actor, labour.id, { title: 'Changed' });
-		expect(list().total).toBe(1);
+	it('drops a Labour from the list when it is stamped against its current content', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await stamped(labour.id);
+		await updateLabour(db, actor, labour.id, { title: 'Changed' });
+		expect((await list()).total).toBe(1);
 
-		stamped(labour.id, day(3));
+		await stamped(labour.id, day(3));
 
-		expect(list()).toEqual({ items: [], total: 0 });
+		expect(await list()).toEqual({ items: [], total: 0 });
 	});
 
-	it('does not list a stamped Labour after a move or a Rank change', () => {
-		const am = seedRealm(db, 'AM');
-		const bl = seedRealm(db, 'BL');
-		const moved = seedLabour(db, { realmId: am.id });
-		const ranked = seedLabour(db, { realmId: bl.id });
-		const unread = seedLabour(db, { realmId: bl.id });
-		stamped(moved.id);
-		stamped(ranked.id);
+	it('does not list a stamped Labour after a move or a Rank change', async () => {
+		const am = await seedRealm(db, 'AM');
+		const bl = await seedRealm(db, 'BL');
+		const moved = await seedLabour(db, { realmId: am.id });
+		const ranked = await seedLabour(db, { realmId: bl.id });
+		const unread = await seedLabour(db, { realmId: bl.id });
+		await stamped(moved.id);
+		await stamped(ranked.id);
 
-		moveLabour(db, actor, moved.id, { realmId: bl.id });
-		rankLabour(db, actor, ranked.id, 'bottom');
+		await moveLabour(db, actor, moved.id, { realmId: bl.id });
+		await rankLabour(db, actor, ranked.id, 'bottom');
 
-		expect(list({ includeClosed: true })).toEqual({
+		expect(await list({ includeClosed: true })).toEqual({
 			items: [{ labourId: unread.id, reason: 'unappraised' }],
 			total: 1
 		});
 	});
 
-	it('does not list a stamped Labour after it is closed', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		stamped(labour.id);
+	it('does not list a stamped Labour after it is closed', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await stamped(labour.id);
 
-		close(realm.id, labour.id);
+		await close(realm.id, labour.id);
 
-		expect(list({ includeClosed: true })).toEqual({ items: [], total: 0 });
+		expect(await list({ includeClosed: true })).toEqual({ items: [], total: 0 });
 	});
 
-	it('lists a stamped Labour as values when a value was set before its Attribute was revised', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT, day(1));
-		setValues(db, actor, labour.id, { impact: 3 }, day(2));
-		stamped(labour.id, day(2));
-		expect(list().total).toBe(0);
+	it('lists a stamped Labour as values when a value was set before its Attribute was revised', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT, day(1));
+		await setValues(db, actor, labour.id, { impact: 3 }, day(2));
+		await stamped(labour.id, day(2));
+		expect((await list()).total).toBe(0);
 
-		reviseRubric(realm.id, 'impact', 'scale', day(3));
+		await reviseRubric(realm.id, 'impact', 'scale', day(3));
 
-		expect(list().items).toEqual([{ labourId: labour.id, reason: 'values' }]);
+		expect((await list()).items).toEqual([{ labourId: labour.id, reason: 'values' }]);
 	});
 
-	it('does not list a Labour with no value for the revised Attribute', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT, day(1));
-		stamped(labour.id, day(2));
+	it('does not list a Labour with no value for the revised Attribute', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT, day(1));
+		await stamped(labour.id, day(2));
 
-		reviseRubric(realm.id, 'impact', 'scale', day(3));
+		await reviseRubric(realm.id, 'impact', 'scale', day(3));
 
-		expect(list().total).toBe(0);
+		expect((await list()).total).toBe(0);
 	});
 
-	it('stops listing a values Labour once the stale value is set again', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT, day(1));
-		setValues(db, actor, labour.id, { impact: 3 }, day(2));
-		stamped(labour.id, day(2));
-		reviseRubric(realm.id, 'impact', 'scale', day(3));
-		expect(list().total).toBe(1);
+	it('stops listing a values Labour once the stale value is set again', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT, day(1));
+		await setValues(db, actor, labour.id, { impact: 3 }, day(2));
+		await stamped(labour.id, day(2));
+		await reviseRubric(realm.id, 'impact', 'scale', day(3));
+		expect((await list()).total).toBe(1);
 
-		appraise(db, actor, [{ labourId: labour.id, values: { impact: 3 } }], day(4));
+		await appraise(db, actor, [{ labourId: labour.id, values: { impact: 3 } }], day(4));
 
-		expect(list().total).toBe(0);
+		expect((await list()).total).toBe(0);
 	});
 
-	it('stops listing a values Labour once the stale value is cleared', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT, day(1));
-		setValues(db, actor, labour.id, { impact: 3 }, day(2));
-		stamped(labour.id, day(2));
-		reviseRubric(realm.id, 'impact', 'scale', day(3));
+	it('stops listing a values Labour once the stale value is cleared', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT, day(1));
+		await setValues(db, actor, labour.id, { impact: 3 }, day(2));
+		await stamped(labour.id, day(2));
+		await reviseRubric(realm.id, 'impact', 'scale', day(3));
 
-		appraise(db, actor, [{ labourId: labour.id, values: { impact: null } }], day(4));
+		await appraise(db, actor, [{ labourId: labour.id, values: { impact: null } }], day(4));
 
-		expect(list().total).toBe(0);
+		expect((await list()).total).toBe(0);
 	});
 
-	it('names one reason per Labour, the first that applies: unappraised before content', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT, day(1));
-		setValues(db, actor, labour.id, { impact: 3 }, day(2));
-		reviseRubric(realm.id, 'impact', 'scale', day(3));
+	it('names one reason per Labour, the first that applies: unappraised before content', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT, day(1));
+		await setValues(db, actor, labour.id, { impact: 3 }, day(2));
+		await reviseRubric(realm.id, 'impact', 'scale', day(3));
 
-		expect(list().items).toEqual([{ labourId: labour.id, reason: 'unappraised' }]);
+		expect((await list()).items).toEqual([{ labourId: labour.id, reason: 'unappraised' }]);
 	});
 
-	it('names content before values for a Labour with both', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
-		define(realm.id, IMPACT, day(1));
-		setValues(db, actor, labour.id, { impact: 3 }, day(2));
-		stamped(labour.id, day(2));
-		reviseRubric(realm.id, 'impact', 'scale', day(3));
-		updateLabour(db, actor, labour.id, { title: 'Changed' });
+	it('names content before values for a Labour with both', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await define(realm.id, IMPACT, day(1));
+		await setValues(db, actor, labour.id, { impact: 3 }, day(2));
+		await stamped(labour.id, day(2));
+		await reviseRubric(realm.id, 'impact', 'scale', day(3));
+		await updateLabour(db, actor, labour.id, { title: 'Changed' });
 
-		expect(list()).toEqual({ items: [{ labourId: labour.id, reason: 'content' }], total: 1 });
+		expect(await list()).toEqual({ items: [{ labourId: labour.id, reason: 'content' }], total: 1 });
 	});
 
-	it('orders all unappraised, then all content, then all values, newest Labour first in each', () => {
-		const realm = seedRealm(db, 'AM');
-		define(realm.id, IMPACT, day(1));
-		const l = Array.from({ length: 6 }, (_, i) =>
-			seedLabour(db, { realmId: realm.id, title: `L${i}` })
+	it('orders all unappraised, then all content, then all values, newest Labour first in each', async () => {
+		const realm = await seedRealm(db, 'AM');
+		await define(realm.id, IMPACT, day(1));
+		const l = await Promise.all(
+			Array.from({ length: 6 }, (_, i) => seedLabour(db, { realmId: realm.id, title: `L${i}` }))
 		);
-		for (const i of [1, 2, 4, 5]) setValues(db, actor, l[i].id, { impact: 2 }, day(2));
-		for (const i of [1, 2, 4, 5]) stamped(l[i].id, day(2));
-		reviseRubric(realm.id, 'impact', 'scale', day(3));
-		for (const i of [1, 4]) updateLabour(db, actor, l[i].id, { title: `Edited ${i}` });
+		for (const i of [1, 2, 4, 5]) await setValues(db, actor, l[i].id, { impact: 2 }, day(2));
+		for (const i of [1, 2, 4, 5]) await stamped(l[i].id, day(2));
+		await reviseRubric(realm.id, 'impact', 'scale', day(3));
+		for (const i of [1, 4]) await updateLabour(db, actor, l[i].id, { title: `Edited ${i}` });
 
-		expect(list().items).toEqual([
+		expect((await list()).items).toEqual([
 			{ labourId: l[3].id, reason: 'unappraised' },
 			{ labourId: l[0].id, reason: 'unappraised' },
 			{ labourId: l[4].id, reason: 'content' },
@@ -1743,86 +1786,91 @@ describe('listUnappraised', () => {
 			{ labourId: l[5].id, reason: 'values' },
 			{ labourId: l[2].id, reason: 'values' }
 		]);
-		expect(list().total).toBe(6);
+		expect((await list()).total).toBe(6);
 	});
 
-	it('limits to one Realm with realmId, and counts only that Realm in total', () => {
-		const am = seedRealm(db, 'AM');
-		const bl = seedRealm(db, 'BL');
-		const a1 = seedLabour(db, { realmId: am.id });
-		const a2 = seedLabour(db, { realmId: am.id });
-		const b1 = seedLabour(db, { realmId: bl.id });
+	it('limits to one Realm with realmId, and counts only that Realm in total', async () => {
+		const am = await seedRealm(db, 'AM');
+		const bl = await seedRealm(db, 'BL');
+		const a1 = await seedLabour(db, { realmId: am.id });
+		const a2 = await seedLabour(db, { realmId: am.id });
+		const b1 = await seedLabour(db, { realmId: bl.id });
 
-		expect(list({ realmId: am.id })).toEqual({
+		expect(await list({ realmId: am.id })).toEqual({
 			items: [
 				{ labourId: a2.id, reason: 'unappraised' },
 				{ labourId: a1.id, reason: 'unappraised' }
 			],
 			total: 2
 		});
-		expect(list({ realmId: bl.id })).toEqual({
+		expect(await list({ realmId: bl.id })).toEqual({
 			items: [{ labourId: b1.id, reason: 'unappraised' }],
 			total: 1
 		});
-		expect(list().total).toBe(3);
+		expect((await list()).total).toBe(3);
 	});
 
-	it('lists nothing for a Realm with no Labours', () => {
-		const realm = seedRealm(db, 'AM');
+	it('lists nothing for a Realm with no Labours', async () => {
+		const realm = await seedRealm(db, 'AM');
 
-		expect(list({ realmId: realm.id })).toEqual({ items: [], total: 0 });
+		expect(await list({ realmId: realm.id })).toEqual({ items: [], total: 0 });
 	});
 
-	it('leaves out Closed Labours by default and when includeClosed is false', () => {
-		const realm = seedRealm(db, 'AM');
-		const open = seedLabour(db, { realmId: realm.id });
-		const closed = seedLabour(db, { realmId: realm.id });
-		close(realm.id, closed.id);
+	it('leaves out Closed Labours by default and when includeClosed is false', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const open = await seedLabour(db, { realmId: realm.id });
+		const closed = await seedLabour(db, { realmId: realm.id });
+		await close(realm.id, closed.id);
 
-		expect(list()).toEqual({ items: [{ labourId: open.id, reason: 'unappraised' }], total: 1 });
-		expect(list({ includeClosed: false }).total).toBe(1);
+		expect(await list()).toEqual({
+			items: [{ labourId: open.id, reason: 'unappraised' }],
+			total: 1
+		});
+		expect((await list({ includeClosed: false })).total).toBe(1);
 	});
 
-	it('includes Closed Labours when includeClosed is true, whatever their reason', () => {
-		const realm = seedRealm(db, 'AM');
-		const never = seedLabour(db, { realmId: realm.id });
-		const changed = seedLabour(db, { realmId: realm.id });
-		stamped(changed.id);
-		updateLabour(db, actor, changed.id, { title: 'Edited' });
-		close(realm.id, never.id);
-		close(realm.id, changed.id);
+	it('includes Closed Labours when includeClosed is true, whatever their reason', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const never = await seedLabour(db, { realmId: realm.id });
+		const changed = await seedLabour(db, { realmId: realm.id });
+		await stamped(changed.id);
+		await updateLabour(db, actor, changed.id, { title: 'Edited' });
+		await close(realm.id, never.id);
+		await close(realm.id, changed.id);
 
-		expect(list({ includeClosed: true })).toEqual({
+		expect(await list({ includeClosed: true })).toEqual({
 			items: [
 				{ labourId: never.id, reason: 'unappraised' },
 				{ labourId: changed.id, reason: 'content' }
 			],
 			total: 2
 		});
-		expect(list().total).toBe(0);
+		expect((await list()).total).toBe(0);
 	});
 
-	it('combines the Realm filter with includeClosed', () => {
-		const am = seedRealm(db, 'AM');
-		const bl = seedRealm(db, 'BL');
-		const closedAm = seedLabour(db, { realmId: am.id });
-		seedLabour(db, { realmId: bl.id });
-		close(am.id, closedAm.id);
+	it('combines the Realm filter with includeClosed', async () => {
+		const am = await seedRealm(db, 'AM');
+		const bl = await seedRealm(db, 'BL');
+		const closedAm = await seedLabour(db, { realmId: am.id });
+		await seedLabour(db, { realmId: bl.id });
+		await close(am.id, closedAm.id);
 
-		expect(list({ realmId: am.id, includeClosed: true }).items).toEqual([
+		expect((await list({ realmId: am.id, includeClosed: true })).items).toEqual([
 			{ labourId: closedAm.id, reason: 'unappraised' }
 		]);
-		expect(list({ realmId: am.id }).total).toBe(0);
+		expect((await list({ realmId: am.id })).total).toBe(0);
 	});
 
-	it('pages the ordered list, with total counting every page', () => {
-		const realm = seedRealm(db, 'AM');
-		const l = Array.from({ length: 5 }, () => seedLabour(db, { realmId: realm.id }));
+	it('pages the ordered list, with total counting every page', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const l = await Promise.all(
+			Array.from({ length: 5 }, () => seedLabour(db, { realmId: realm.id }))
+		);
 		const newestFirst = l.map((x) => x.id).reverse();
 
-		const first = list({}, { offset: 0, limit: 2 });
-		const second = list({}, { offset: 2, limit: 2 });
-		const last = list({}, { offset: 4, limit: 2 });
+		const first = await list({}, { offset: 0, limit: 2 });
+		const second = await list({}, { offset: 2, limit: 2 });
+		const last = await list({}, { offset: 4, limit: 2 });
 
 		expect(first.items.map((i) => i.labourId)).toEqual(newestFirst.slice(0, 2));
 		expect(second.items.map((i) => i.labourId)).toEqual(newestFirst.slice(2, 4));
@@ -1830,27 +1878,27 @@ describe('listUnappraised', () => {
 		expect([first.total, second.total, last.total]).toEqual([5, 5, 5]);
 	});
 
-	it('pages across the boundary between reason groups', () => {
-		const realm = seedRealm(db, 'AM');
-		const old = seedLabour(db, { realmId: realm.id });
-		stamped(old.id);
-		updateLabour(db, actor, old.id, { title: 'Edited' });
-		const fresh = seedLabour(db, { realmId: realm.id });
+	it('pages across the boundary between reason groups', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const old = await seedLabour(db, { realmId: realm.id });
+		await stamped(old.id);
+		await updateLabour(db, actor, old.id, { title: 'Edited' });
+		const fresh = await seedLabour(db, { realmId: realm.id });
 
-		expect(list({}, { offset: 0, limit: 1 }).items).toEqual([
+		expect((await list({}, { offset: 0, limit: 1 })).items).toEqual([
 			{ labourId: fresh.id, reason: 'unappraised' }
 		]);
-		expect(list({}, { offset: 1, limit: 1 })).toEqual({
+		expect(await list({}, { offset: 1, limit: 1 })).toEqual({
 			items: [{ labourId: old.id, reason: 'content' }],
 			total: 2
 		});
 	});
 
-	it('returns no items, and the full total, for an offset past the end', () => {
-		const realm = seedRealm(db, 'AM');
-		seedLabour(db, { realmId: realm.id });
-		seedLabour(db, { realmId: realm.id });
+	it('returns no items, and the full total, for an offset past the end', async () => {
+		const realm = await seedRealm(db, 'AM');
+		await seedLabour(db, { realmId: realm.id });
+		await seedLabour(db, { realmId: realm.id });
 
-		expect(list({}, { offset: 10, limit: 5 })).toEqual({ items: [], total: 2 });
+		expect(await list({}, { offset: 10, limit: 5 })).toEqual({ items: [], total: 2 });
 	});
 });

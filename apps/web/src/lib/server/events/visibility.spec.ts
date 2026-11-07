@@ -24,36 +24,35 @@ let bob: { id: number };
 let secret: number;
 let shared: number;
 
-const seen = (viewer: { id: number }) =>
-	eventsSince(db, 0)
-		.map((event) => eventForViewer(db, event, viewer))
+const seen = async (viewer: { id: number }) =>
+	(await Promise.all((await eventsSince(db, 0)).map((event) => eventForViewer(db, event, viewer))))
 		.filter((event) => event !== null)
 		.map((event) => event.type);
 
-beforeEach(() => {
+beforeEach(async () => {
 	setAccessEnforced(true);
-	db = testDb();
-	ada = { id: seedUser(db, 'ada') };
-	bob = { id: seedUser(db, 'bob') };
-	secret = createRealm(db, ada, { name: 'Secret', key: 'SE', initialState: TODO }).id;
-	shared = createRealm(db, ada, { name: 'Shared', key: 'SH', initialState: TODO }).id;
-	offerMembership(db, ada, shared, bob.id, 'editor');
-	acceptOffer(db, bob, shared);
+	db = await testDb();
+	ada = { id: await seedUser(db, 'ada') };
+	bob = { id: await seedUser(db, 'bob') };
+	secret = (await createRealm(db, ada, { name: 'Secret', key: 'SE', initialState: TODO })).id;
+	shared = (await createRealm(db, ada, { name: 'Shared', key: 'SH', initialState: TODO })).id;
+	await offerMembership(db, ada, shared, bob.id, 'editor');
+	await acceptOffer(db, bob, shared);
 });
 
 afterEach(() => setAccessEnforced(false));
 
 describe('eventForViewer', () => {
-	it("sends a Realm's Scroll Events only to its members", () => {
+	it("sends a Realm's Scroll Events only to its members", async () => {
 		for (const realmId of [secret, shared]) {
-			const scroll = createScroll(db, ada, { realmId, title: 'Home' });
-			updateScroll(db, ada, scroll.id, { body: 'x' });
-			const other = createScroll(db, ada, { realmId, title: 'Other' });
-			moveScroll(db, ada, other.id, { parentId: scroll.id });
-			deleteScroll(db, ada, scroll.id, new Map([[other.id, 'delete']]));
+			const scroll = await createScroll(db, ada, { realmId, title: 'Home' });
+			await updateScroll(db, ada, scroll.id, { body: 'x' });
+			const other = await createScroll(db, ada, { realmId, title: 'Other' });
+			await moveScroll(db, ada, other.id, { parentId: scroll.id });
+			await deleteScroll(db, ada, scroll.id, new Map([[other.id, 'delete']]));
 		}
-		const scrollTypes = (viewer: { id: number }) =>
-			seen(viewer).filter((t) => t.startsWith('scroll.'));
+		const scrollTypes = async (viewer: { id: number }) =>
+			(await seen(viewer)).filter((t) => t.startsWith('scroll.'));
 		const once = [
 			'scroll.created',
 			'scroll.updated',
@@ -62,48 +61,60 @@ describe('eventForViewer', () => {
 			'scroll.deleted'
 		];
 
-		expect(scrollTypes(bob)).toEqual(once);
-		expect(scrollTypes(ada)).toEqual([...once, ...once]);
+		expect(await scrollTypes(bob)).toEqual(once);
+		expect(await scrollTypes(ada)).toEqual([...once, ...once]);
 	});
 
-	it("hides a private Realm's Events, its Labours and Comments from a non-member", () => {
-		const labour = createLabour(db, ada, { realmId: secret, title: 'Hidden', ownerId: ada.id });
-		addComment(db, ada, labour.id, 'private note');
+	it("hides a private Realm's Events, its Labours and Comments from a non-member", async () => {
+		const labour = await createLabour(db, ada, {
+			realmId: secret,
+			title: 'Hidden',
+			ownerId: ada.id
+		});
+		await addComment(db, ada, labour.id, 'private note');
 
-		const types = seen(bob);
+		const types = await seen(bob);
 
 		expect(types).toContain('realm.created');
-		expect(eventsSince(db, 0).filter((e) => e.type === 'realm.created')).toHaveLength(2);
+		expect((await eventsSince(db, 0)).filter((e) => e.type === 'realm.created')).toHaveLength(2);
 		expect(types.filter((t) => t === 'realm.created')).toHaveLength(1);
 		expect(types).not.toContain('labour.created');
 		expect(types).not.toContain('labour.commented');
-		expect(seen(ada)).toContain('labour.commented');
+		expect(await seen(ada)).toContain('labour.commented');
 	});
 
-	it('shows a Labour moved out of sight as deleted, and one moved in as moved', () => {
-		const labour = createLabour(db, ada, { realmId: shared, title: 'Travels', ownerId: ada.id });
+	it('shows a Labour moved out of sight as deleted, and one moved in as moved', async () => {
+		const labour = await createLabour(db, ada, {
+			realmId: shared,
+			title: 'Travels',
+			ownerId: ada.id
+		});
 
-		moveLabour(db, ada, labour.id, { realmId: secret });
-		const out = eventsSince(db, 0)
-			.filter((e) => e.type === 'labour.moved')
-			.map((e) => eventForViewer(db, e, bob));
+		await moveLabour(db, ada, labour.id, { realmId: secret });
+		const out = await Promise.all(
+			(await eventsSince(db, 0))
+				.filter((e) => e.type === 'labour.moved')
+				.map((e) => eventForViewer(db, e, bob))
+		);
 		expect(out.map((e) => [e?.type, e && 'id' in e.data ? e.data.id : null])).toEqual([
 			['labour.deleted', labour.id]
 		]);
 	});
 
-	it('trims a Quest to the Labours in Realms the viewer can see, and recounts its progress', () => {
-		const open = createLabour(db, ada, { realmId: shared, title: 'Open', ownerId: ada.id });
-		const hidden = createLabour(db, ada, { realmId: secret, title: 'Hidden', ownerId: ada.id });
-		const quest = createQuest(db, ada, { realmId: shared, name: 'Q', ownerId: ada.id });
-		addQuestLabour(db, ada, quest.id, open.id);
-		addQuestLabour(db, ada, quest.id, hidden.id);
+	it('trims a Quest to the Labours in Realms the viewer can see, and recounts its progress', async () => {
+		const open = await createLabour(db, ada, { realmId: shared, title: 'Open', ownerId: ada.id });
+		const hidden = await createLabour(db, ada, {
+			realmId: secret,
+			title: 'Hidden',
+			ownerId: ada.id
+		});
+		const quest = await createQuest(db, ada, { realmId: shared, name: 'Q', ownerId: ada.id });
+		await addQuestLabour(db, ada, quest.id, open.id);
+		await addQuestLabour(db, ada, quest.id, hidden.id);
 
-		const last = eventsSince(db, 0)
-			.filter((e) => e.type === 'quest.labours_added')
-			.at(-1)!;
-		const forBob = eventForViewer(db, last, bob)!;
-		const forAda = eventForViewer(db, last, ada)!;
+		const last = (await eventsSince(db, 0)).filter((e) => e.type === 'quest.labours_added').at(-1)!;
+		const forBob = (await eventForViewer(db, last, bob))!;
+		const forAda = (await eventForViewer(db, last, ada))!;
 
 		expect('quest' in forBob.data && forBob.data.quest.labours.map((l) => l.title)).toEqual([
 			'Open'
@@ -116,8 +127,8 @@ describe('eventForViewer', () => {
 
 describe('the Event stream for a viewer', () => {
 	it("replays only the viewer's Events and says how far it read", async () => {
-		createLabour(db, ada, { realmId: secret, title: 'Hidden', ownerId: ada.id });
-		const after = eventsSince(db, 0).at(-1)!.seq;
+		await createLabour(db, ada, { realmId: secret, title: 'Hidden', ownerId: ada.id });
+		const after = (await eventsSince(db, 0)).at(-1)!.seq;
 
 		const reader = openEventStream(db, { heartbeatMs: 60_000, since: 0, viewer: bob }).getReader();
 		const chunks: string[] = [];
@@ -138,8 +149,8 @@ describe('the Event stream for a viewer', () => {
 		const decoder = new TextDecoder();
 		await reader.read();
 
-		createLabour(db, ada, { realmId: secret, title: 'Hidden', ownerId: ada.id });
-		const hiddenSeq = eventsSince(db, 0).at(-1)!.seq;
+		await createLabour(db, ada, { realmId: secret, title: 'Hidden', ownerId: ada.id });
+		const hiddenSeq = (await eventsSince(db, 0)).at(-1)!.seq;
 		let text = '';
 		while (!text.includes('event: seq')) text += decoder.decode((await reader.read()).value);
 		await reader.cancel();

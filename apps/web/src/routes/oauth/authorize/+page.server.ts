@@ -17,9 +17,9 @@ function sessionUser(locals: App.Locals) {
 	return locals.user;
 }
 
-export const load: PageServerLoad = ({ locals, url }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = sessionUser(locals);
-	const request = readAuthorizeRequest(getDb(), url.searchParams, url.origin);
+	const request = await readAuthorizeRequest(getDb(), url.searchParams, url.origin);
 	if (request.kind === 'invalid') error(400, request.message);
 	if (request.kind === 'redirect') redirect(303, request.location, { external });
 	return {
@@ -33,7 +33,7 @@ export const actions: Actions = {
 	default: async ({ request, locals, url }) => {
 		const user = sessionUser(locals);
 		const db = getDb();
-		const authorize = readAuthorizeRequest(db, url.searchParams, url.origin);
+		const authorize = await readAuthorizeRequest(db, url.searchParams, url.origin);
 		if (authorize.kind === 'invalid') error(400, authorize.message);
 		if (authorize.kind === 'redirect') redirect(303, authorize.location, { external });
 
@@ -48,7 +48,7 @@ export const actions: Actions = {
 
 		let code: string;
 		try {
-			code = issueCode(db, {
+			code = await issueCode(db, {
 				clientId: authorize.client.clientId,
 				userId: user.id,
 				redirectUri,

@@ -83,7 +83,7 @@ export async function handleTokenRequest(
 		}
 		const form = parseForm(await request.text());
 		const credentials = clientCredentials(request, form);
-		const client = authenticateClient(db, credentials.clientId, credentials.secret);
+		const client = await authenticateClient(db, credentials.clientId, credentials.secret);
 
 		const grantType = required(form, 'grant_type');
 		if (grantType !== 'authorization_code' && grantType !== 'refresh_token') {
@@ -96,7 +96,7 @@ export async function handleTokenRequest(
 
 		const tokens =
 			grantType === 'authorization_code'
-				? exchangeCode(
+				? await exchangeCode(
 						db,
 						{
 							client,
@@ -106,7 +106,7 @@ export async function handleTokenRequest(
 						},
 						now
 					)
-				: refreshGrant(db, { client, refreshToken: required(form, 'refresh_token') }, now);
+				: await refreshGrant(db, { client, refreshToken: required(form, 'refresh_token') }, now);
 
 		return oauthJson({
 			access_token: tokens.accessToken,

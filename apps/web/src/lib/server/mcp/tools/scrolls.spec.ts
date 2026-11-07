@@ -58,10 +58,10 @@ async function join(user: string, role: 'viewer' | 'editor', client: Client) {
 
 beforeEach(async () => {
 	setAccessEnforced(true);
-	db = testDb();
-	ada = seedHuman(db, 'ada');
-	bob = seedHuman(db, 'bob');
-	eve = seedHuman(db, 'eve');
+	db = await testDb();
+	ada = await seedHuman(db, 'ada');
+	bob = await seedHuman(db, 'bob');
+	eve = await seedHuman(db, 'eve');
 	owner = await connect(ada);
 	await ok(owner, 'create_realm', { key: 'am', name: 'Atlas' });
 });
@@ -69,7 +69,6 @@ beforeEach(async () => {
 afterEach(async () => {
 	setAccessEnforced(false);
 	await Promise.all(clients.splice(0).map((client) => client.close()));
-	db.$client.close();
 });
 
 describe('tool registration', () => {
@@ -449,6 +448,12 @@ describe('search_scrolls', () => {
 			expect.objectContaining({ path: 'ops', snippet: expect.stringContaining('deploy') })
 		]);
 		expect(text(result).split('\n')[0]).toBe('2 Scrolls match "deploy"');
+	});
+
+	it('refuses a query past 500 characters', async () => {
+		expect(
+			await fail(owner, 'search_scrolls', { realm: 'AM', query: 'deploy '.repeat(100) })
+		).toMatchObject({ code: 'invalid' });
 	});
 
 	it('stops at the limit, which is at most 100', async () => {

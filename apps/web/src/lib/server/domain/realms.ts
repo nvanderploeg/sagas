@@ -1,4 +1,4 @@
-import { asc, eq, sql } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import type { EventSpec } from '../events/types.ts';
 import { realmKeys, realms, labours, quests } from '../db/schema.ts';
@@ -17,78 +17,92 @@ import { write, type Actor } from './write.ts';
 export type Realm = typeof realms.$inferSelect;
 export { readBoard, readRealm, type BoardView, type RealmView } from './realm-view.ts';
 
-export function listRealms(db: Handle) {
-	return db.select().from(realms).orderBy(asc(realms.id)).all();
+export async function listRealms(db: Handle) {
+	return await db.select().from(realms).orderBy(asc(realms.id));
 }
 
-export function createRealm(
+export async function createRealm(
 	db: Db,
 	actor: Actor,
 	input: { name: string; key: string; initialState: StyleSpec }
-): Realm {
+): Promise<Realm> {
 	return createRealmWithStates(db, actor, { ...input, states: [] });
 }
 
 // `states` are States before Closed, after the Initial State, in order. One write and one Event.
-export function createRealmWithStates(
+export async function createRealmWithStates(
 	db: Db,
 	actor: Actor,
 	input: { name: string; key: string; initialState: StyleSpec; states: StyleSpec[] }
-): Realm {
+): Promise<Realm> {
 	const name = requireText(input.name, 'Realm name', 120);
 	const key = normalizeRealmKey(input.key);
-	return write(db, actor, (tx) => {
-		assertKeyAvailable(tx, key, null);
-		const realm = tx.insert(realms).values({ name, key }).returning().get();
-		tx.insert(realmKeys).values({ key, realmId: realm.id }).run();
-		addOwner(tx, realm.id, actor.id);
-		insertState(tx, realm.id, CLOSED_STATE, { closed: true });
-		const initial = insertState(tx, realm.id, input.initialState);
-		for (const state of input.states) insertState(tx, realm.id, state);
-		const value = tx
-			.update(realms)
-			.set({ initialStateId: initial.id })
-			.where(eq(realms.id, realm.id))
-			.returning()
-			.get();
-		return { value, events: [realmEvent(tx, 'realm.created', realm.id)] };
+	return write(db, actor, async (tx) => {
+		await assertKeyAvailable(tx, key, null);
+		const realm = (await tx.insert(realms).values({ name, key }).returning())[0];
+		await tx.insert(realmKeys).values({ key, realmId: realm.id });
+		await addOwner(tx, realm.id, actor.id);
+		await insertState(tx, realm.id, CLOSED_STATE, { closed: true });
+		const initial = await insertState(tx, realm.id, input.initialState);
+		for (const state of input.states) await insertState(tx, realm.id, state);
+		const value = (
+			await tx
+				.update(realms)
+				.set({ initialStateId: initial.id })
+				.where(eq(realms.id, realm.id))
+				.returning()
+		)[0];
+		return { value, events: [await realmEvent(tx, 'realm.created', realm.id)] };
 	});
 }
 
-export function updateRealm(db: Db, actor: Actor, realmId: number, patch: { name: string }): Realm {
-	return write(db, actor, (tx) => {
-		const realm = getRealm(tx, realmId);
-		requireRealmRole(tx, actor, realmId, 'owner');
+export async function updateRealm(
+	db: Db,
+	actor: Actor,
+	realmId: number,
+	patch: { name: string }
+): Promise<Realm> {
+	return write(db, actor, async (tx) => {
+		const realm = await getRealm(tx, realmId);
+		await requireRealmRole(tx, actor, realmId, 'owner');
 		const name = requireText(patch.name, 'Realm name', 120);
 		if (name === realm.name) return { value: realm, events: [] };
-		const value = tx.update(realms).set({ name }).where(eq(realms.id, realmId)).returning().get();
-		return { value, events: [realmEvent(tx, 'realm.updated', realmId)] };
+		const value = (
+			await tx.update(realms).set({ name }).where(eq(realms.id, realmId)).returning()
+		)[0];
+		return { value, events: [await realmEvent(tx, 'realm.updated', realmId)] };
 	});
 }
 
-export function renameRealmKey(db: Db, actor: Actor, realmId: number, input: string): Realm {
-	return write(db, actor, (tx) => {
-		const realm = getRealm(tx, realmId);
-		requireRealmRole(tx, actor, realmId, 'owner');
+export async function renameRealmKey(
+	db: Db,
+	actor: Actor,
+	realmId: number,
+	input: string
+): Promise<Realm> {
+	return write(db, actor, async (tx) => {
+		const realm = await getRealm(tx, realmId);
+		await requireRealmRole(tx, actor, realmId, 'owner');
 		const key = normalizeRealmKey(input);
 		if (key === realm.key) return { value: realm, events: [] };
-		assertKeyAvailable(tx, key, realmId);
+		await assertKeyAvailable(tx, key, realmId);
 
-		tx.insert(realmKeys).values({ key, realmId }).onConflictDoNothing().run();
-		const held = tx
+		await tx.insert(realmKeys).values({ key, realmId }).onConflictDoNothing();
+		const held = await tx
 			.select({ id: labours.id, number: labours.number })
 			.from(labours)
 			.where(eq(labours.realmId, realmId))
-			.orderBy(asc(labours.id))
-			.all();
+			.orderBy(asc(labours.id));
 		const rekeyed = held.map((labour) => ({
 			id: labour.id,
 			previousKey: formatLabourKey(realm.key, labour.number),
 			key: formatLabourKey(key, labour.number)
 		}));
-		for (const labour of rekeyed) recordLabourKey(tx, labour.id, labour.key);
-		const value = tx.update(realms).set({ key }).where(eq(realms.id, realmId)).returning().get();
-		const events: EventSpec[] = [realmEvent(tx, 'realm.updated', realmId)];
+		for (const labour of rekeyed) await recordLabourKey(tx, labour.id, labour.key);
+		const value = (
+			await tx.update(realms).set({ key }).where(eq(realms.id, realmId)).returning()
+		)[0];
+		const events: EventSpec[] = [await realmEvent(tx, 'realm.updated', realmId)];
 		if (rekeyed.length > 0) {
 			events.push({ type: 'labour.rekeyed', data: { realmId, labours: rekeyed } });
 		}
@@ -96,65 +110,64 @@ export function renameRealmKey(db: Db, actor: Actor, realmId: number, input: str
 	});
 }
 
-export function setInitialState(db: Db, actor: Actor, realmId: number, stateId: number): Realm {
-	return write(db, actor, (tx) => {
-		const realm = getRealm(tx, realmId);
-		requireRealmRole(tx, actor, realmId, 'owner');
-		const state = getState(tx, stateId);
+export async function setInitialState(
+	db: Db,
+	actor: Actor,
+	realmId: number,
+	stateId: number
+): Promise<Realm> {
+	return write(db, actor, async (tx) => {
+		const realm = await getRealm(tx, realmId);
+		await requireRealmRole(tx, actor, realmId, 'owner');
+		const state = await getState(tx, stateId);
 		if (state.realmId !== realmId) {
 			throw new DomainError('invalid', 'The Initial State must belong to the Realm');
 		}
 		if (state.isClosed) throw new DomainError('invalid', 'The Initial State cannot be Closed');
 		if (realm.initialStateId === stateId) return { value: realm, events: [] };
-		const value = tx
-			.update(realms)
-			.set({ initialStateId: stateId })
-			.where(eq(realms.id, realmId))
-			.returning()
-			.get();
-		return { value, events: [realmEvent(tx, 'realm.updated', realmId)] };
+		const value = (
+			await tx
+				.update(realms)
+				.set({ initialStateId: stateId })
+				.where(eq(realms.id, realmId))
+				.returning()
+		)[0];
+		return { value, events: [await realmEvent(tx, 'realm.updated', realmId)] };
 	});
 }
 
-export function deleteRealm(db: Db, actor: Actor, realmId: number): void {
-	write(db, actor, (tx) => {
-		getRealm(tx, realmId);
-		requireRealmRole(tx, actor, realmId, 'owner');
+export async function deleteRealm(db: Db, actor: Actor, realmId: number): Promise<void> {
+	await write(db, actor, async (tx) => {
+		await getRealm(tx, realmId);
+		await requireRealmRole(tx, actor, realmId, 'owner');
 		const held = eq(labours.realmId, realmId);
-		const labourIds = tx
-			.select({ id: labours.id })
-			.from(labours)
-			.where(held)
-			.orderBy(asc(labours.id))
-			.all()
-			.map((row) => row.id);
-		const fallout = prepareLabourDelete(tx, held);
+		const labourIds = (
+			await tx.select({ id: labours.id }).from(labours).where(held).orderBy(asc(labours.id))
+		).map((row) => row.id);
+		const fallout = await prepareLabourDelete(tx, held);
 		// The Realm's Quests go with it: they get a deletion each, not a removal of Labours.
-		const ownQuests = tx
-			.select({ id: quests.id })
-			.from(quests)
-			.where(eq(quests.realmId, realmId))
-			.orderBy(asc(quests.id))
-			.all()
-			.map((row) => row.id);
+		const ownQuests = (
+			await tx
+				.select({ id: quests.id })
+				.from(quests)
+				.where(eq(quests.realmId, realmId))
+				.orderBy(asc(quests.id))
+		).map((row) => row.id);
 		for (const questId of ownQuests) fallout.quests.delete(questId);
-		tx.run(
-			sql`DELETE FROM scroll_text WHERE rowid IN (SELECT id FROM scrolls WHERE realm_id = ${realmId})`
-		);
-		tx.delete(realms).where(eq(realms.id, realmId)).run();
+		await tx.delete(realms).where(eq(realms.id, realmId));
 		return {
 			value: undefined,
 			events: [
 				{ type: 'realm.deleted', data: { realmId, labourIds } },
 				...ownQuests.map((id): EventSpec => ({ type: 'quest.deleted', data: { id, realmId } })),
-				...falloutEvents(tx, fallout)
+				...(await falloutEvents(tx, fallout))
 			]
 		};
 	});
 }
 
-function assertKeyAvailable(db: Handle, key: string, selfId: number | null): void {
-	const holder = db.select().from(realmKeys).where(eq(realmKeys.key, key)).get();
+async function assertKeyAvailable(db: Handle, key: string, selfId: number | null): Promise<void> {
+	const holder = (await db.select().from(realmKeys).where(eq(realmKeys.key, key)).limit(1))[0];
 	if (holder && holder.realmId !== selfId) {
 		throw new DomainError('conflict', `Realm key ${key} is already in use`);
 	}

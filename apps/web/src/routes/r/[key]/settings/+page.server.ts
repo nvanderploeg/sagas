@@ -36,23 +36,25 @@ import { int, perform, signedIn, text } from '#lib/server/ui/form.ts';
 import { findRealmByKey, toJson } from '#lib/server/ui/reads.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-function realmFor(locals: App.Locals, key: string) {
-	const realm = findRealmByKey(getDb(), key, signedIn(locals));
+async function realmFor(locals: App.Locals, key: string) {
+	const realm = await findRealmByKey(getDb(), key, signedIn(locals));
 	if (!realm) error(404, 'No Realm has that key');
 	return realm;
 }
 
-export const load: PageServerLoad = ({ params, locals }) => {
-	const realm = realmFor(locals, params.key);
+export const load: PageServerLoad = async ({ params, locals }) => {
+	const realm = await realmFor(locals, params.key);
 	if (realm.key !== params.key) redirect(307, `/r/${realm.key}/settings`);
 	try {
 		const viewer = signedIn(locals);
-		const { seq, value } = readAtSeq(getDb(), (tx) => ({ realm: readRealm(tx, realm.id) }));
+		const { seq, value } = await readAtSeq(getDb(), async (tx) => ({
+			realm: await readRealm(tx, realm.id)
+		}));
 		return {
 			seq,
 			settings: toJson(value),
-			members: toJson(listMembers(getDb(), viewer, realm.id)),
-			role: memberRole(getDb(), realm.id, viewer.id),
+			members: toJson(await listMembers(getDb(), viewer, realm.id)),
+			role: await memberRole(getDb(), realm.id, viewer.id),
 			me: viewer.id
 		};
 	} catch (e) {
@@ -97,18 +99,18 @@ export const actions: Actions = {
 	rename: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const realm = realmFor(locals, params.key);
-		return perform('rename', () => {
-			updateRealm(getDb(), actor, realm.id, { name: text(form, 'name') });
+		const realm = await realmFor(locals, params.key);
+		return perform('rename', async () => {
+			await updateRealm(getDb(), actor, realm.id, { name: text(form, 'name') });
 		});
 	},
 
 	rekey: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const realm = realmFor(locals, params.key);
-		const result = perform('rekey', () => {
-			const renamed = renameRealmKey(getDb(), actor, realm.id, text(form, 'key'));
+		const realm = await realmFor(locals, params.key);
+		const result = await perform('rekey', async () => {
+			const renamed = await renameRealmKey(getDb(), actor, realm.id, text(form, 'key'));
 			return { key: renamed.key };
 		});
 		if ('key' in result && result.key !== params.key) {
@@ -120,150 +122,158 @@ export const actions: Actions = {
 	initial: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const realm = realmFor(locals, params.key);
-		return perform('initial', () => {
-			setInitialState(getDb(), actor, realm.id, int(form, 'stateId'));
+		const realm = await realmFor(locals, params.key);
+		return perform('initial', async () => {
+			await setInitialState(getDb(), actor, realm.id, int(form, 'stateId'));
 		});
 	},
 
 	addState: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const realm = realmFor(locals, params.key);
-		return perform('addState', () => {
+		const realm = await realmFor(locals, params.key);
+		return perform('addState', async () => {
 			const db = getDb();
-			const taken = readRealm(db, realm.id).states.map((s) => s.key);
-			createState(db, actor, realm.id, newStyle(form, taken));
+			const taken = (await readRealm(db, realm.id)).states.map((s) => s.key);
+			await createState(db, actor, realm.id, newStyle(form, taken));
 		});
 	},
 
 	updateState: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform(`state:${text(form, 'stateId')}`, () => {
+		return perform(`state:${text(form, 'stateId')}`, async () => {
 			const id = int(form, 'stateId');
-			updateState(getDb(), actor, id, style(form));
+			await updateState(getDb(), actor, id, style(form));
 		});
 	},
 
 	setOpen: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform(`state:${text(form, 'stateId')}`, () => {
-			updateState(getDb(), actor, int(form, 'stateId'), { open: text(form, 'open') === 'true' });
+		return perform(`state:${text(form, 'stateId')}`, async () => {
+			await updateState(getDb(), actor, int(form, 'stateId'), {
+				open: text(form, 'open') === 'true'
+			});
 		});
 	},
 
 	setNext: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform(`state:${text(form, 'stateId')}`, () => {
+		return perform(`state:${text(form, 'stateId')}`, async () => {
 			const next = form.getAll('next').map((v) => {
 				const id = Number(v);
 				if (!Number.isInteger(id)) throw new DomainError('invalid', 'next must be State ids');
 				return id;
 			});
-			setNextStates(getDb(), actor, int(form, 'stateId'), next);
+			await setNextStates(getDb(), actor, int(form, 'stateId'), next);
 		});
 	},
 
 	moveState: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform(`state:${text(form, 'stateId')}`, () => {
+		return perform(`state:${text(form, 'stateId')}`, async () => {
 			const id = int(form, 'stateId');
-			moveState(getDb(), actor, id, int(form, 'index'));
+			await moveState(getDb(), actor, id, int(form, 'index'));
 		});
 	},
 
 	deleteState: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform(`state:${text(form, 'stateId')}`, () => {
+		return perform(`state:${text(form, 'stateId')}`, async () => {
 			const id = int(form, 'stateId');
-			deleteState(getDb(), actor, id);
+			await deleteState(getDb(), actor, id);
 		});
 	},
 
 	addSubstate: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const realm = realmFor(locals, params.key);
-		return perform(`substates:${text(form, 'stateId')}`, () => {
+		const realm = await realmFor(locals, params.key);
+		return perform(`substates:${text(form, 'stateId')}`, async () => {
 			const id = int(form, 'stateId');
 			const db = getDb();
-			const state = readRealm(db, realm.id).states.find((s) => s.id === id);
+			const state = (await readRealm(db, realm.id)).states.find((s) => s.id === id);
 			const taken = state?.substates.map((s) => s.key) ?? [];
-			createSubstate(db, actor, id, newStyle(form, taken));
+			await createSubstate(db, actor, id, newStyle(form, taken));
 		});
 	},
 
 	updateSubstate: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform(`substate:${text(form, 'substateId')}`, () => {
+		return perform(`substate:${text(form, 'substateId')}`, async () => {
 			const id = int(form, 'substateId');
-			updateSubstate(getDb(), actor, id, style(form));
+			await updateSubstate(getDb(), actor, id, style(form));
 		});
 	},
 
 	moveSubstate: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform(`substate:${text(form, 'substateId')}`, () => {
+		return perform(`substate:${text(form, 'substateId')}`, async () => {
 			const id = int(form, 'substateId');
-			moveSubstate(getDb(), actor, id, int(form, 'index'));
+			await moveSubstate(getDb(), actor, id, int(form, 'index'));
 		});
 	},
 
 	deleteSubstate: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform(`substate:${text(form, 'substateId')}`, () => {
+		return perform(`substate:${text(form, 'substateId')}`, async () => {
 			const id = int(form, 'substateId');
-			deleteSubstate(getDb(), actor, id);
+			await deleteSubstate(getDb(), actor, id);
 		});
 	},
 
 	defaultSubstate: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform(`substate:${text(form, 'substateId')}`, () => {
+		return perform(`substate:${text(form, 'substateId')}`, async () => {
 			const id = int(form, 'substateId');
-			setDefaultSubstate(getDb(), actor, int(form, 'stateId'), id);
+			await setDefaultSubstate(getDb(), actor, int(form, 'stateId'), id);
 		});
 	},
 
 	offer: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const realm = realmFor(locals, params.key);
-		return perform('members', () => {
+		const realm = await realmFor(locals, params.key);
+		return perform('members', async () => {
 			const db = getDb();
-			const user = findUserByName(db, text(form, 'username'));
+			const user = await findUserByName(db, text(form, 'username'));
 			if (!user) throw new DomainError('not_found', 'No User has that username');
-			offerMembership(db, actor, realm.id, user.id, requireRole(text(form, 'role')));
+			await offerMembership(db, actor, realm.id, user.id, requireRole(text(form, 'role')));
 		});
 	},
 
 	setRole: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const realm = realmFor(locals, params.key);
-		return perform('members', () => {
-			setMemberRole(getDb(), actor, realm.id, int(form, 'userId'), requireRole(text(form, 'role')));
+		const realm = await realmFor(locals, params.key);
+		return perform('members', async () => {
+			await setMemberRole(
+				getDb(),
+				actor,
+				realm.id,
+				int(form, 'userId'),
+				requireRole(text(form, 'role'))
+			);
 		});
 	},
 
 	removeMember: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const realm = realmFor(locals, params.key);
+		const realm = await realmFor(locals, params.key);
 		const userId = int(form, 'userId');
-		const result = perform('members', () => {
+		const result = await perform('members', async () => {
 			const db = getDb();
-			if (form.get('pending') === 'true') withdrawOffer(db, actor, realm.id, userId);
-			else removeMember(db, actor, realm.id, userId);
+			if (form.get('pending') === 'true') await withdrawOffer(db, actor, realm.id, userId);
+			else await removeMember(db, actor, realm.id, userId);
 		});
 		if (!isActionFailure(result) && userId === actor.id) redirect(303, '/');
 		return result;
@@ -271,8 +281,8 @@ export const actions: Actions = {
 
 	deleteRealm: async ({ locals, params }) => {
 		const actor = signedIn(locals);
-		const realm = realmFor(locals, params.key);
-		const result = perform('deleteRealm', () => deleteRealm(getDb(), actor, realm.id));
+		const realm = await realmFor(locals, params.key);
+		const result = await perform('deleteRealm', () => deleteRealm(getDb(), actor, realm.id));
 		if (!isActionFailure(result)) redirect(303, '/');
 		return result;
 	}

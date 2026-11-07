@@ -10,6 +10,7 @@ import { count } from '../present.ts';
 import * as refs from '../refs.ts';
 import { reply } from '../result.ts';
 import { questRef, realmRef, userRef, type Tools } from '../tool.ts';
+import { mapAll } from '#lib/server/async.ts';
 
 const recurrenceRef = z
 	.number({ error: 'expected a Recurrence id as a JSON number' })
@@ -34,8 +35,8 @@ const recurrenceLine = (r: { id: number; title: string; unit: string; every: num
 	`Recurrence ${r.id} ${r.title}, every ${r.every === 1 ? '' : `${r.every} `}${r.unit}${r.every === 1 ? '' : 's'}`;
 
 export function registerRecurrenceTools({ db, actor, define }: Tools): void {
-	const present = (id: number) => {
-		const recurrence = readRecurrence(db, id);
+	const present = async (id: number) => {
+		const recurrence = await readRecurrence(db, id);
 		return reply({ recurrence }, recurrenceLine(recurrence));
 	};
 
@@ -47,8 +48,8 @@ export function registerRecurrenceTools({ db, actor, define }: Tools): void {
 				'List the Recurrences in a Realm: schedules that create a Labour on a cadence. `labourId` is the Labour created last; `nextDueAt` is when the next is due, and is null while the last is unfinished.',
 			input: { realm: realmRef }
 		},
-		(args) => {
-			const recurrences = listRecurrences(db, refs.realmId(db, args.realm, actor));
+		async (args) => {
+			const recurrences = await listRecurrences(db, await refs.realmId(db, args.realm, actor));
 			return reply(
 				{ recurrences },
 				recurrences.length === 0 ? 'No Recurrences' : count(recurrences.length, 'Recurrence')
@@ -73,15 +74,16 @@ export function registerRecurrenceTools({ db, actor, define }: Tools): void {
 				...schedule
 			}
 		},
-		(args) => {
-			const recurrence = createRecurrence(db, actor, {
-				realmId: refs.realmId(db, args.realm, actor),
+		async (args) => {
+			const recurrence = await createRecurrence(db, actor, {
+				realmId: await refs.realmId(db, args.realm, actor),
 				title: args.title,
 				description: args.description,
-				ownerId: args.owner === undefined ? actor.id : refs.userId(db, args.owner, actor),
-				assigneeId: args.assignee === undefined ? undefined : refs.userId(db, args.assignee, actor),
+				ownerId: args.owner === undefined ? actor.id : await refs.userId(db, args.owner, actor),
+				assigneeId:
+					args.assignee === undefined ? undefined : await refs.userId(db, args.assignee, actor),
 				labels: args.labels,
-				questIds: args.quests?.map((id) => refs.questId(db, id, actor)),
+				questIds: await mapAll(args.quests, (id) => refs.questId(db, id, actor)),
 				unit: args.unit,
 				every: args.every,
 				startsOn: args.starts_on,
@@ -112,18 +114,18 @@ export function registerRecurrenceTools({ db, actor, define }: Tools): void {
 				timezone: schedule.timezone
 			}
 		},
-		(args) => {
-			const id = refs.recurrenceId(db, args.recurrence, actor);
-			updateRecurrence(db, actor, id, {
+		async (args) => {
+			const id = await refs.recurrenceId(db, args.recurrence, actor);
+			await updateRecurrence(db, actor, id, {
 				title: args.title,
 				description: args.description,
-				ownerId: args.owner === undefined ? undefined : refs.userId(db, args.owner, actor),
+				ownerId: args.owner === undefined ? undefined : await refs.userId(db, args.owner, actor),
 				assigneeId:
 					args.assignee === undefined || args.assignee === null
 						? args.assignee
-						: refs.userId(db, args.assignee, actor),
+						: await refs.userId(db, args.assignee, actor),
 				labels: args.labels,
-				questIds: args.quests?.map((quest) => refs.questId(db, quest, actor)),
+				questIds: await mapAll(args.quests, (quest) => refs.questId(db, quest, actor)),
 				paused: args.paused,
 				unit: args.unit,
 				every: args.every,
@@ -141,9 +143,12 @@ export function registerRecurrenceTools({ db, actor, define }: Tools): void {
 			description: 'Delete a Recurrence. The Labours it created are untouched.',
 			input: { recurrence: recurrenceRef }
 		},
-		(args) => {
-			const recurrence = readRecurrence(db, refs.recurrenceId(db, args.recurrence, actor));
-			deleteRecurrence(db, actor, recurrence.id);
+		async (args) => {
+			const recurrence = await readRecurrence(
+				db,
+				await refs.recurrenceId(db, args.recurrence, actor)
+			);
+			await deleteRecurrence(db, actor, recurrence.id);
 			return reply(
 				{ deleted: { id: recurrence.id, title: recurrence.title } },
 				`Deleted Recurrence ${recurrence.id} ${recurrence.title}`

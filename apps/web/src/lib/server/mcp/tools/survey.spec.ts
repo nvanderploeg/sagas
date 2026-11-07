@@ -29,18 +29,17 @@ let actor: Actor;
 const clients: Client[] = [];
 
 beforeEach(async () => {
-	db = testDb();
+	db = await testDb();
 	admin = await createFirstAdmin(db, {
 		username: 'root',
 		displayName: 'Root',
 		password: 'a long enough password'
 	});
-	actor = seedActor(db);
+	actor = await seedActor(db);
 });
 
 afterEach(async () => {
 	await Promise.all(clients.splice(0).map((client) => client.close()));
-	db.$client.close();
 });
 
 const DAY = 86_400_000;
@@ -77,14 +76,14 @@ const keys = (survey: { results: { key: string }[] }) => survey.results.map((r) 
 const json = (value: unknown) => (typeof value === 'string' ? JSON.parse(value) : value) as any;
 const NEUTRAL = { evidence: 1 };
 
-function closeLabour(labour: { id: number; realmId: number }, updatedAgoDays?: number) {
-	const closed = listStates(db, labour.realmId).find((s) => s.isClosed)!;
-	updateLabour(db, actor, labour.id, { stateId: closed.id });
+async function closeLabour(labour: { id: number; realmId: number }, updatedAgoDays?: number) {
+	const closed = (await listStates(db, labour.realmId)).find((s) => s.isClosed)!;
+	await updateLabour(db, actor, labour.id, { stateId: closed.id });
 	if (updatedAgoDays !== undefined) {
-		db.update(labours)
+		await db
+			.update(labours)
 			.set({ updatedAt: new Date(Date.now() - updatedAgoDays * DAY) })
-			.where(eq(labours.id, labour.id))
-			.run();
+			.where(eq(labours.id, labour.id));
 	}
 }
 
@@ -106,20 +105,20 @@ describe('the survey tool', () => {
 	});
 
 	it('answers with keys, usernames and paths, never internal ids', async () => {
-		const am = seedRealm(db, 'AM');
-		const bob = seedUser(db, 'bob');
-		defineAttribute(db, actor, am.id, {
+		const am = await seedRealm(db, 'AM');
+		const bob = await seedUser(db, 'bob');
+		await defineAttribute(db, actor, am.id, {
 			key: 'impact',
 			kind: 'scale',
 			label: 'Impact',
 			rubric: 'rubric',
 			spec: { min: 0, max: 4 }
 		});
-		const low = seedLabour(db, { realmId: am.id, title: 'Low' });
-		const high = seedLabour(db, { realmId: am.id, title: 'High', assigneeId: bob });
-		setValues(db, actor, low.id, { impact: 1 });
-		setValues(db, actor, high.id, { impact: 4 });
-		appraise(db, actor, [{ labourId: high.id, brief: 'Players hit this daily' }]);
+		const low = await seedLabour(db, { realmId: am.id, title: 'Low' });
+		const high = await seedLabour(db, { realmId: am.id, title: 'High', assigneeId: bob });
+		await setValues(db, actor, low.id, { impact: 1 });
+		await setValues(db, actor, high.id, { impact: 4 });
+		await appraise(db, actor, [{ labourId: high.id, brief: 'Players hit this daily' }]);
 
 		const survey = await ok(await connect(), { weights: { impact: 1 }, temperature: 0 });
 
@@ -158,8 +157,8 @@ describe('the survey tool', () => {
 	});
 
 	it('puts a one-line summary before the JSON in the text', async () => {
-		const am = seedRealm(db, 'AM');
-		seedLabour(db, { realmId: am.id });
+		const am = await seedRealm(db, 'AM');
+		await seedLabour(db, { realmId: am.id });
 
 		const result = await call(await connect(), { weights: NEUTRAL });
 
@@ -169,43 +168,43 @@ describe('the survey tool', () => {
 	});
 
 	it('stores the Survey as the calling User, for them by default, and returns its id', async () => {
-		const am = seedRealm(db, 'AM');
-		seedLabour(db, { realmId: am.id });
+		const am = await seedRealm(db, 'AM');
+		await seedLabour(db, { realmId: am.id });
 
 		const survey = await ok(await connect(), { weights: NEUTRAL, query: 'boss' });
 
-		const row = db.select().from(surveys).where(eq(surveys.id, survey.survey)).get()!;
-		expect(db.select().from(surveys).all()).toHaveLength(1);
+		const row = (await db.select().from(surveys).where(eq(surveys.id, survey.survey)).limit(1))[0]!;
+		expect(await db.select().from(surveys)).toHaveLength(1);
 		expect(row.actorId).toBe(admin.id);
 		expect(row.forId).toBe(admin.id);
 		expect(json(row.request)).toMatchObject({ weights: NEUTRAL, query: 'boss' });
 	});
 
 	it('records no Event and leaves every Labour as it was', async () => {
-		const am = seedRealm(db, 'AM');
-		seedLabour(db, { realmId: am.id });
-		const eventsBefore = db.select().from(events).all();
-		const laboursBefore = db.select().from(labours).all();
+		const am = await seedRealm(db, 'AM');
+		await seedLabour(db, { realmId: am.id });
+		const eventsBefore = await db.select().from(events);
+		const laboursBefore = await db.select().from(labours);
 
 		await ok(await connect(), { weights: { age: 1, activity: 1 }, temperature: 1 });
 
-		expect(db.select().from(events).all()).toEqual(eventsBefore);
-		expect(db.select().from(labours).all()).toEqual(laboursBefore);
+		expect(await db.select().from(events)).toEqual(eventsBefore);
+		expect(await db.select().from(labours)).toEqual(laboursBefore);
 	});
 
 	describe('realm', () => {
-		function fixture() {
-			const am = seedRealm(db, 'AM');
-			const bl = seedRealm(db, 'BL');
-			const cx = seedRealm(db, 'CX');
-			seedLabour(db, { realmId: am.id });
-			seedLabour(db, { realmId: bl.id });
-			seedLabour(db, { realmId: cx.id });
+		async function fixture() {
+			const am = await seedRealm(db, 'AM');
+			const bl = await seedRealm(db, 'BL');
+			const cx = await seedRealm(db, 'CX');
+			await seedLabour(db, { realmId: am.id });
+			await seedLabour(db, { realmId: bl.id });
+			await seedLabour(db, { realmId: cx.id });
 			return { am, bl, cx };
 		}
 
 		it('surveys every Realm when absent', async () => {
-			fixture();
+			await fixture();
 
 			expect(keys(await ok(await connect(), { weights: NEUTRAL }))).toEqual([
 				'AM-1',
@@ -215,7 +214,7 @@ describe('the survey tool', () => {
 		});
 
 		it('takes one Realm as a key in any case or as an id', async () => {
-			const { bl } = fixture();
+			const { bl } = await fixture();
 			const client = await connect();
 
 			expect(keys(await ok(client, { weights: NEUTRAL, realm: 'bl' }))).toEqual(['BL-1']);
@@ -223,7 +222,7 @@ describe('the survey tool', () => {
 		});
 
 		it('takes a list of Realms, keys and ids mixed', async () => {
-			const { am, cx } = fixture();
+			const { am, cx } = await fixture();
 			const client = await connect();
 
 			expect(keys(await ok(client, { weights: NEUTRAL, realm: ['cx', am.id] }))).toEqual([
@@ -234,8 +233,8 @@ describe('the survey tool', () => {
 		});
 
 		it('resolves a former Realm key', async () => {
-			const { am } = fixture();
-			renameRealmKey(db, actor, am.id, 'NU');
+			const { am } = await fixture();
+			await renameRealmKey(db, actor, am.id, 'NU');
 
 			const survey = await ok(await connect(), { weights: NEUTRAL, realm: 'AM' });
 
@@ -243,7 +242,7 @@ describe('the survey tool', () => {
 		});
 
 		it('answers not_found for an unknown Realm, alone or in a list', async () => {
-			fixture();
+			await fixture();
 			const client = await connect();
 
 			expect((await fail(client, { weights: NEUTRAL, realm: 'ZZ' })).code).toBe('not_found');
@@ -254,7 +253,7 @@ describe('the survey tool', () => {
 		});
 
 		it('refuses an empty list and a digit string', async () => {
-			fixture();
+			await fixture();
 			const client = await connect();
 
 			expect((await fail(client, { weights: NEUTRAL, realm: [] })).code).toBe('invalid');
@@ -263,65 +262,63 @@ describe('the survey tool', () => {
 	});
 
 	describe('for', () => {
-		function fixture() {
-			const am = seedRealm(db, 'AM');
-			const bob = seedUser(db, 'bob');
-			const mine = seedLabour(db, { realmId: am.id });
-			const his = seedLabour(db, { realmId: am.id });
-			db.insert(mentions)
-				.values([
-					{
-						sourceLabourId: mine.id,
-						userId: admin.id,
-						commentId: null,
-						authorId: actor.id,
-						firstSeenAt: new Date()
-					},
-					{
-						sourceLabourId: his.id,
-						userId: bob,
-						commentId: null,
-						authorId: actor.id,
-						firstSeenAt: new Date()
-					}
-				])
-				.run();
+		async function fixture() {
+			const am = await seedRealm(db, 'AM');
+			const bob = await seedUser(db, 'bob');
+			const mine = await seedLabour(db, { realmId: am.id });
+			const his = await seedLabour(db, { realmId: am.id });
+			await db.insert(mentions).values([
+				{
+					sourceLabourId: mine.id,
+					userId: admin.id,
+					commentId: null,
+					authorId: actor.id,
+					firstSeenAt: new Date()
+				},
+				{
+					sourceLabourId: his.id,
+					userId: bob,
+					commentId: null,
+					authorId: actor.id,
+					firstSeenAt: new Date()
+				}
+			]);
 			return { bob };
 		}
 
-		const forId = (surveyId: number) =>
-			db.select().from(surveys).where(eq(surveys.id, surveyId)).get()!.forId;
+		const forId = async (surveyId: number) =>
+			(await db.select().from(surveys).where(eq(surveys.id, surveyId)).limit(1))[0]!.forId;
 
 		it('defaults to the caller, and "me" is the caller', async () => {
-			fixture();
+			await fixture();
 			const client = await connect();
 
 			const absent = await ok(client, { weights: { pulled_in: 1 }, temperature: 0 });
 			const me = await ok(client, { weights: { pulled_in: 1 }, temperature: 0, for: 'me' });
 
-			expect(forId(absent.survey)).toBe(admin.id);
-			expect(forId(me.survey)).toBe(admin.id);
+			expect(await forId(absent.survey)).toBe(admin.id);
+			expect(await forId(me.survey)).toBe(admin.id);
 			expect(keys(me)[0]).toBe('AM-1');
 			expect(me.results[0].score).toBeGreaterThan(0);
 			expect(me.results[1].score).toBe(0);
 		});
 
 		it('takes a username in any case or an id', async () => {
-			const { bob } = fixture();
+			const { bob } = await fixture();
 			const client = await connect();
 
 			const byName = await ok(client, { weights: { pulled_in: 1 }, temperature: 0, for: 'BOB' });
 			const byId = await ok(client, { weights: { pulled_in: 1 }, temperature: 0, for: bob });
 
-			expect(forId(byName.survey)).toBe(bob);
-			expect(forId(byId.survey)).toBe(bob);
+			expect(await forId(byName.survey)).toBe(bob);
+			expect(await forId(byId.survey)).toBe(bob);
 			expect(keys(byName)[0]).toBe('AM-2');
 			expect(byName.results[0].score).toBeGreaterThan(0);
 			expect(byName.results[1].score).toBe(0);
 		});
 
 		it('answers not_found for an unknown User', async () => {
-			fixture();
+			await fixture();
 			const client = await connect();
 
 			expect((await fail(client, { weights: NEUTRAL, for: 'nobody' })).code).toBe('not_found');
@@ -331,12 +328,12 @@ describe('the survey tool', () => {
 
 	describe('filter', () => {
 		it('takes assignee as usernames and null for unassigned', async () => {
-			const am = seedRealm(db, 'AM');
-			const bob = seedUser(db, 'bob');
-			const carol = seedUser(db, 'carol');
-			seedLabour(db, { realmId: am.id });
-			seedLabour(db, { realmId: am.id, assigneeId: bob });
-			seedLabour(db, { realmId: am.id, assigneeId: carol });
+			const am = await seedRealm(db, 'AM');
+			const bob = await seedUser(db, 'bob');
+			const carol = await seedUser(db, 'carol');
+			await seedLabour(db, { realmId: am.id });
+			await seedLabour(db, { realmId: am.id, assigneeId: bob });
+			await seedLabour(db, { realmId: am.id, assigneeId: carol });
 			const client = await connect();
 
 			const both = await ok(client, {
@@ -353,8 +350,8 @@ describe('the survey tool', () => {
 		});
 
 		it('answers not_found for an unknown assignee and invalid for an empty list', async () => {
-			const am = seedRealm(db, 'AM');
-			seedLabour(db, { realmId: am.id });
+			const am = await seedRealm(db, 'AM');
+			await seedLabour(db, { realmId: am.id });
 			const client = await connect();
 
 			expect(
@@ -366,12 +363,12 @@ describe('the survey tool', () => {
 		});
 
 		it('leaves Closed Labours out unless include_closed says otherwise', async () => {
-			const am = seedRealm(db, 'AM');
-			seedLabour(db, { realmId: am.id });
-			const recent = seedLabour(db, { realmId: am.id });
-			const old = seedLabour(db, { realmId: am.id });
-			closeLabour(recent, 2);
-			closeLabour(old, 10);
+			const am = await seedRealm(db, 'AM');
+			await seedLabour(db, { realmId: am.id });
+			const recent = await seedLabour(db, { realmId: am.id });
+			const old = await seedLabour(db, { realmId: am.id });
+			await closeLabour(recent, 2);
+			await closeLabour(old, 10);
 			const client = await connect();
 
 			expect(keys(await ok(client, { weights: NEUTRAL }))).toEqual(['AM-1']);
@@ -384,8 +381,8 @@ describe('the survey tool', () => {
 		});
 
 		it('refuses a within_days outside 0 to 3650', async () => {
-			const am = seedRealm(db, 'AM');
-			seedLabour(db, { realmId: am.id });
+			const am = await seedRealm(db, 'AM');
+			await seedLabour(db, { realmId: am.id });
 			const client = await connect();
 
 			for (const within_days of [0, -1, 3651]) {
@@ -398,8 +395,8 @@ describe('the survey tool', () => {
 		});
 
 		it('takes has, labels, quest and unblocked', async () => {
-			const am = seedRealm(db, 'AM');
-			defineAttribute(db, actor, am.id, {
+			const am = await seedRealm(db, 'AM');
+			await defineAttribute(db, actor, am.id, {
 				key: 'area',
 				kind: 'tags',
 				label: 'Area',
@@ -411,18 +408,18 @@ describe('the survey tool', () => {
 					]
 				}
 			});
-			const a = seedLabour(db, { realmId: am.id, labels: ['bug'] });
-			const b = seedLabour(db, { realmId: am.id, labels: ['bug', 'ui'] });
-			const c = seedLabour(db, { realmId: am.id });
-			setValues(db, actor, a.id, { area: ['ui'] });
-			setValues(db, actor, b.id, { area: ['api'] });
-			const quest = createQuest(db, actor, {
-				realmId: anyRealmId(db),
+			const a = await seedLabour(db, { realmId: am.id, labels: ['bug'] });
+			const b = await seedLabour(db, { realmId: am.id, labels: ['bug', 'ui'] });
+			const c = await seedLabour(db, { realmId: am.id });
+			await setValues(db, actor, a.id, { area: ['ui'] });
+			await setValues(db, actor, b.id, { area: ['api'] });
+			const quest = await createQuest(db, actor, {
+				realmId: await anyRealmId(db),
 				name: 'Q',
 				ownerId: actor.id
 			});
-			addQuestLabours(db, actor, quest.id, [c.id, b.id]);
-			appraise(db, actor, [{ labourId: a.id, links: [{ type: 'blocks', to: b.id }] }]);
+			await addQuestLabours(db, actor, quest.id, [c.id, b.id]);
+			await appraise(db, actor, [{ labourId: a.id, links: [{ type: 'blocks', to: b.id }] }]);
 			const client = await connect();
 
 			const has = await ok(client, { weights: NEUTRAL, filter: { has: ['area:ui'] } });
@@ -437,8 +434,8 @@ describe('the survey tool', () => {
 		});
 
 		it('answers not_found for an unknown Quest', async () => {
-			const am = seedRealm(db, 'AM');
-			seedLabour(db, { realmId: am.id });
+			const am = await seedRealm(db, 'AM');
+			await seedLabour(db, { realmId: am.id });
 
 			const error = await fail(await connect(), { weights: NEUTRAL, filter: { quest: 9999 } });
 
@@ -447,9 +444,9 @@ describe('the survey tool', () => {
 	});
 
 	describe('arguments', () => {
-		beforeEach(() => {
-			const am = seedRealm(db, 'AM');
-			seedLabour(db, { realmId: am.id });
+		beforeEach(async () => {
+			const am = await seedRealm(db, 'AM');
+			await seedLabour(db, { realmId: am.id });
 		});
 
 		it('refuses an unknown argument, naming it', async () => {
@@ -516,36 +513,36 @@ describe('the survey tool', () => {
 			const error = await fail(await connect(), args as Record<string, unknown>);
 
 			expect(error.code).toBe('invalid');
-			expect(db.select().from(surveys).all()).toHaveLength(0);
+			expect(await db.select().from(surveys)).toHaveLength(0);
 		});
 	});
 
 	describe('weights, show and the rest of the output', () => {
-		function fixture() {
-			const am = seedRealm(db, 'AM');
-			const bl = seedRealm(db, 'BL');
-			defineAttribute(db, actor, am.id, {
+		async function fixture() {
+			const am = await seedRealm(db, 'AM');
+			const bl = await seedRealm(db, 'BL');
+			await defineAttribute(db, actor, am.id, {
 				key: 'impact',
 				kind: 'scale',
 				label: 'Impact',
 				rubric: 'rubric',
 				spec: { min: 0, max: 4 }
 			});
-			defineAttribute(db, actor, am.id, {
+			await defineAttribute(db, actor, am.id, {
 				key: 'area',
 				kind: 'tags',
 				label: 'Area',
 				rubric: 'rubric',
 				spec: { members: [{ key: 'ui', label: 'UI' }] }
 			});
-			const a = seedLabour(db, { realmId: am.id, title: 'Boss HP bar' });
-			const b = seedLabour(db, { realmId: bl.id, title: 'Arena redesign' });
-			setValues(db, actor, a.id, { impact: 2, area: ['ui'] });
+			const a = await seedLabour(db, { realmId: am.id, title: 'Boss HP bar' });
+			const b = await seedLabour(db, { realmId: bl.id, title: 'Arena redesign' });
+			await setValues(db, actor, a.id, { impact: 2, area: ['ui'] });
 			return { am, bl, a, b };
 		}
 
 		it('lists ignored weight and show keys, weights first', async () => {
-			fixture();
+			await fixture();
 
 			const survey = await ok(await connect(), {
 				weights: { ghost: 1, impact: 1, similarity: 1 },
@@ -556,7 +553,7 @@ describe('the survey tool', () => {
 		});
 
 		it('gives values only when show is given, as readValues gives them', async () => {
-			fixture();
+			await fixture();
 			const client = await connect();
 
 			const plain = await ok(client, { weights: NEUTRAL });
@@ -567,7 +564,7 @@ describe('the survey tool', () => {
 		});
 
 		it('reports coverage and missing data', async () => {
-			fixture();
+			await fixture();
 
 			const survey = await ok(await connect(), { weights: { impact: 2 }, temperature: 0 });
 
@@ -586,7 +583,7 @@ describe('the survey tool', () => {
 		});
 
 		it('matches a query through the keywords weight', async () => {
-			fixture();
+			await fixture();
 			const client = await connect();
 
 			const withQuery = await ok(client, {
@@ -605,8 +602,8 @@ describe('the survey tool', () => {
 		});
 
 		it('honours temperature and limit', async () => {
-			const am = seedRealm(db, 'AM');
-			for (let i = 0; i < 4; i++) seedLabour(db, { realmId: am.id });
+			const am = await seedRealm(db, 'AM');
+			for (let i = 0; i < 4; i++) await seedLabour(db, { realmId: am.id });
 			const client = await connect();
 
 			const cut = await ok(client, { weights: NEUTRAL, temperature: 0, limit: 2 });
@@ -615,7 +612,7 @@ describe('the survey tool', () => {
 			expect(keys(cut)).toEqual(['AM-1', 'AM-2']);
 			expect(cut.coverage.candidates).toBe(4);
 			expect(hot.results).toHaveLength(3);
-			const stored = db.select().from(surveys).all();
+			const stored = await db.select().from(surveys);
 			expect(json(stored[0].request)).toMatchObject({ temperature: 0, limit: 2 });
 			expect(json(stored[1].request)).toMatchObject({ temperature: 2, limit: 3 });
 		});

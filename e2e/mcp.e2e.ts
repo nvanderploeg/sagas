@@ -160,7 +160,6 @@ test.describe('MCP at /mcp', () => {
 	test('acts as the token User, who is the actor of the Events its writes record', async ({
 		mcp,
 		admin,
-		apiToken,
 		seed
 	}) => {
 		const { user } = await mcp.ok('whoami');
@@ -178,7 +177,7 @@ test.describe('MCP at /mcp', () => {
 		const agent = await connectMcp(token);
 		try {
 			const { user: bot } = await agent.ok('whoami');
-			const before = seed.lastSeq();
+			const before = await seed.lastSeq();
 			await agent.ok('create_realm', { name: 'By the bot', key: uniqueRealmKey() });
 
 			const events = await eventsAfter(token, before);
@@ -451,7 +450,7 @@ test.describe('MCP at /mcp', () => {
 		}
 		const { quest } = await mcp.ok('create_quest', { realm: key, name: 'Bulk' });
 
-		const before = seed.lastSeq();
+		const before = await seed.lastSeq();
 		const added = await mcp.ok('add_quest_labours', { quest: quest.id, labours });
 
 		expect(added.quest.progress).toEqual({ closed: 0, total: 100 });

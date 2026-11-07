@@ -45,7 +45,7 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
 		async ({ kit }, use) => {
 			const db = kit.openRunDb();
 			await use(db);
-			db.$client.close();
+			await db.$client.end();
 		},
 		{ scope: 'worker' }
 	],
@@ -54,21 +54,23 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
 	admin: [
 		async ({ db }, use) => {
 			const saved = JSON.parse(readFileSync(adminFile, 'utf8')) as Omit<Admin, 'id'>;
-			const row = db.$client
-				.prepare('SELECT id FROM users WHERE username = ?')
-				.get(saved.username) as { id: number };
+			const row = (
+				await db.$client.query<{ id: number }>('SELECT id FROM users WHERE username = $1', [
+					saved.username
+				])
+			).rows[0];
 			await use({ ...saved, id: row.id });
 		},
 		{ scope: 'worker' }
 	],
 
 	seed: async ({ kit, db, admin }, use) => {
-		await use(kit.createSeed(db, admin.id));
+		await use(await kit.createSeed(db, admin.id));
 	},
 
 	// A fresh token for the Admin; revoked by the test or left to die with the run.
 	apiToken: async ({ seed }, use) => {
-		await use(seed.apiToken());
+		await use(await seed.apiToken());
 	},
 
 	signedInPage: async ({ page, admin }, use) => {

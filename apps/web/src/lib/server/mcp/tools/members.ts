@@ -23,11 +23,12 @@ const role = z
 	);
 
 export function registerMemberTools({ db, actor, define }: Tools): void {
-	const present = (member: Member) => ({
+	const present = async (member: Member) => ({
 		user: member.username,
 		role: member.role,
 		status: member.status,
-		invitedBy: member.invitedBy === null ? null : (refs.username(db, member.invitedBy) ?? null),
+		invitedBy:
+			member.invitedBy === null ? null : ((await refs.username(db, member.invitedBy)) ?? null),
 		createdAt: member.createdAt.toISOString(),
 		acceptedAt: member.acceptedAt?.toISOString() ?? null
 	});
@@ -40,8 +41,10 @@ export function registerMemberTools({ db, actor, define }: Tools): void {
 				"List a Realm's members with their roles. An Owner also sees pending Offers (status `pending`).",
 			input: { realm: realmRef }
 		},
-		({ realm }) => {
-			const members = listMembers(db, actor, refs.realmId(db, realm, actor)).map(present);
+		async ({ realm }) => {
+			const members = await Promise.all(
+				(await listMembers(db, actor, await refs.realmId(db, realm, actor))).map(present)
+			);
 			return reply({ members }, `${count(members.length, 'member')}`);
 		}
 	);
@@ -54,16 +57,16 @@ export function registerMemberTools({ db, actor, define }: Tools): void {
 				'Owner only. Offer a User a role in a Realm. They see nothing of it until they accept (accept_offer). An existing Membership or Offer is left as it is: change an active role with set_member_role.',
 			input: { realm: realmRef, user: userRef, role }
 		},
-		(args) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			const member = offerMembership(
+		async (args) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			const member = await offerMembership(
 				db,
 				actor,
 				realmId,
-				refs.userId(db, args.user, actor),
+				await refs.userId(db, args.user, actor),
 				args.role
 			);
-			return reply({ member: present(member) }, `${member.username} is ${member.status}`);
+			return reply({ member: await present(member) }, `${member.username} is ${member.status}`);
 		}
 	);
 
@@ -74,9 +77,9 @@ export function registerMemberTools({ db, actor, define }: Tools): void {
 			description: 'Owner only. Withdraw a pending Offer made to a User.',
 			input: { realm: realmRef, user: userRef }
 		},
-		(args) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			withdrawOffer(db, actor, realmId, refs.userId(db, args.user, actor));
+		async (args) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			await withdrawOffer(db, actor, realmId, await refs.userId(db, args.user, actor));
 			return reply({}, 'Offer withdrawn');
 		}
 	);
@@ -89,16 +92,16 @@ export function registerMemberTools({ db, actor, define }: Tools): void {
 				"Owner only. Change an active member's role. A Realm always keeps at least one Owner.",
 			input: { realm: realmRef, user: userRef, role }
 		},
-		(args) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			const member = setMemberRole(
+		async (args) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			const member = await setMemberRole(
 				db,
 				actor,
 				realmId,
-				refs.userId(db, args.user, actor),
+				await refs.userId(db, args.user, actor),
 				args.role
 			);
-			return reply({ member: present(member) }, `${member.username} is ${member.role}`);
+			return reply({ member: await present(member) }, `${member.username} is ${member.role}`);
 		}
 	);
 
@@ -110,9 +113,9 @@ export function registerMemberTools({ db, actor, define }: Tools): void {
 				'Remove a member from a Realm; pass "me" to leave it. An Owner may remove anyone, the last Owner cannot go. Their Assignee clears on the Realm\'s Labours and the Labours they owned pass to the Realm\'s earliest Owner.',
 			input: { realm: realmRef, user: userRef }
 		},
-		(args) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			removeMember(db, actor, realmId, refs.userId(db, args.user, actor));
+		async (args) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			await removeMember(db, actor, realmId, await refs.userId(db, args.user, actor));
 			return reply({}, 'Member removed');
 		}
 	);
@@ -125,22 +128,25 @@ export function registerMemberTools({ db, actor, define }: Tools): void {
 				'List the Offers made to you: Realms whose Owner invited you, each with the role offered. Answer with accept_offer or decline_offer.',
 			input: {}
 		},
-		() => {
-			const offers = listOffers(db, actor.id).map((offer) => ({
-				realm: offer.realmKey,
-				name: offer.realmName,
-				role: offer.role,
-				invitedBy: offer.invitedBy === null ? null : (refs.username(db, offer.invitedBy) ?? null),
-				createdAt: offer.createdAt.toISOString()
-			}));
+		async () => {
+			const offers = await Promise.all(
+				(await listOffers(db, actor.id)).map(async (offer) => ({
+					realm: offer.realmKey,
+					name: offer.realmName,
+					role: offer.role,
+					invitedBy:
+						offer.invitedBy === null ? null : ((await refs.username(db, offer.invitedBy)) ?? null),
+					createdAt: offer.createdAt.toISOString()
+				}))
+			);
 			return reply({ offers }, offers.length === 0 ? 'No Offers' : count(offers.length, 'Offer'));
 		}
 	);
 
 	// An Offer's Realm is not visible yet, so it is found among your own Offers.
-	const offered = (ref: string | number) => {
+	const offered = async (ref: string | number) => {
 		const wanted = typeof ref === 'number' ? ref : ref.trim().toUpperCase();
-		const found = listOffers(db, actor.id).find(
+		const found = (await listOffers(db, actor.id)).find(
 			(offer) => offer.realmId === wanted || offer.realmKey === wanted
 		);
 		if (found === undefined) throw new DomainError('not_found', 'You have no Offer for that Realm');
@@ -154,9 +160,9 @@ export function registerMemberTools({ db, actor, define }: Tools): void {
 			description: 'Accept an Offer to join a Realm, by its key from list_offers.',
 			input: { realm: realmRef }
 		},
-		({ realm }) => {
-			const member = acceptOffer(db, actor, offered(realm));
-			return reply({ member: present(member) }, `Joined as ${member.role}`);
+		async ({ realm }) => {
+			const member = await acceptOffer(db, actor, await offered(realm));
+			return reply({ member: await present(member) }, `Joined as ${member.role}`);
 		}
 	);
 
@@ -167,8 +173,8 @@ export function registerMemberTools({ db, actor, define }: Tools): void {
 			description: 'Decline an Offer to join a Realm.',
 			input: { realm: realmRef }
 		},
-		({ realm }) => {
-			declineOffer(db, actor, offered(realm));
+		async ({ realm }) => {
+			await declineOffer(db, actor, await offered(realm));
 			return reply({}, 'Offer declined');
 		}
 	);

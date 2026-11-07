@@ -15,9 +15,12 @@ export const SENTIMENT_KEYS_MAX = 10;
 export const SENTIMENT_PULSES = 2;
 
 // Loudest first.
-export function sentimentBlock(ctx: FeatureContext, shown: Candidate[]): SurveySentiment[] {
+export async function sentimentBlock(
+	ctx: FeatureContext,
+	shown: Candidate[]
+): Promise<SurveySentiment[]> {
 	if (shown.length === 0) return [];
-	const { held, strengths } = loadOf(ctx);
+	const { held, strengths } = await loadOf(ctx);
 	const realmKeys = new Map(shown.map((candidate) => [candidate.realmId, candidate.realmKey]));
 
 	const found = new Map<
@@ -46,7 +49,7 @@ export function sentimentBlock(ctx: FeatureContext, shown: Candidate[]): SurveyS
 			order(a.key, b.key)
 	);
 	const chosen = top.slice(0, SENTIMENT_KEYS_MAX);
-	const pulses = heaviestPulses(
+	const pulses = await heaviestPulses(
 		ctx.db,
 		inKeys(chosen.map(([, entry]) => entry)),
 		SENTIMENT_PULSES,

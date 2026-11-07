@@ -16,6 +16,7 @@ import {
 	vectorStatus,
 	writeVector
 } from './index.ts';
+import { inTransaction } from '#lib/server/db/tx.ts';
 
 const MODEL_ID = 'Xenova/bge-small-en-v1.5@ea104dacec62c0de699686887e3f920caeb4f3e3';
 const DIMENSIONS = 384;
@@ -32,16 +33,15 @@ let db: Db;
 let actor: Actor;
 let realmId: number;
 
-beforeEach(() => {
-	db = testDb();
-	actor = seedActor(db);
-	realmId = seedRealm(db, 'AM').id;
+beforeEach(async () => {
+	db = await testDb();
+	actor = await seedActor(db);
+	realmId = (await seedRealm(db, 'AM')).id;
 });
 
 afterEach(() => {
 	setEmbeddingQueue(null);
 	vi.restoreAllMocks();
-	db.$client.close();
 });
 
 const sha = (text: string) => createHash('sha256').update(text).digest('hex');
@@ -109,31 +109,33 @@ function labour(title = 'Labour', description = '') {
 	return seedLabour(db, { realmId, title, description });
 }
 
-function embed(labourId: number, input: string, model = MODEL_ID) {
-	writeVector(db, labourId, model, sha(input), unitVector(input));
+async function embed(labourId: number, input: string, model = MODEL_ID) {
+	await writeVector(db, labourId, model, sha(input), unitVector(input));
 }
 
-function vectorRow(labourId: number) {
-	return db.select().from(labourVectors).where(eq(labourVectors.labourId, labourId)).get();
+async function vectorRow(labourId: number) {
+	return (
+		await db.select().from(labourVectors).where(eq(labourVectors.labourId, labourId)).limit(1)
+	)[0];
 }
 
-function vectorRows() {
-	return db.select().from(labourVectors).all();
+async function vectorRows() {
+	return await db.select().from(labourVectors);
 }
 
-function setDescription(labourId: number, description: string) {
-	updateLabour(db, actor, labourId, { description });
+async function setDescription(labourId: number, description: string) {
+	await updateLabour(db, actor, labourId, { description });
 }
 
-function statusOf(labourId: number) {
-	return vectorStatus(db, [labourId]).get(labourId);
+async function statusOf(labourId: number) {
+	return (await vectorStatus(db, [labourId])).get(labourId);
 }
 
 // Records each enqueue, and whether it ran inside an open transaction.
 function spyQueue() {
 	const calls: { id: number; inTransaction: boolean }[] = [];
 	const queue: QueueLike = {
-		enqueue: (id) => calls.push({ id, inTransaction: db.$client.inTransaction }),
+		enqueue: (id) => calls.push({ id, inTransaction: inTransaction() }),
 		drain: async () => {},
 		size: () => 0
 	};
@@ -147,221 +149,225 @@ function useRealQueue(embedder: Embedder = fakeEmbedder()) {
 }
 
 describe('writeVector and readVectors', () => {
-	it('stores 384 little-endian float32 values as a 1,536-byte blob and reads them back exactly', () => {
-		const l = labour();
+	it('stores 384 little-endian float32 values as a 1,536-byte blob and reads them back exactly', async () => {
+		const l = await labour();
 		const vector = unitVector('round trip');
-		writeVector(db, l.id, MODEL_ID, sha(inputOf('Labour')), vector);
+		await writeVector(db, l.id, MODEL_ID, sha(inputOf('Labour')), vector);
 
-		const row = db.$client
-			.prepare('SELECT vector FROM labour_vectors WHERE labour_id = ?')
-			.get(l.id) as { vector: Buffer };
+		const row = (
+			await db.$client.query<{ vector: Buffer }>(
+				'SELECT vector FROM labour_vectors WHERE labour_id = $1',
+				[l.id]
+			)
+		).rows[0];
 		expect(row.vector.byteLength).toBe(1536);
 		const view = new DataView(row.vector.buffer, row.vector.byteOffset, row.vector.byteLength);
 		for (let i = 0; i < DIMENSIONS; i++) {
 			expect(view.getFloat32(i * 4, true)).toBe(vector[i]);
 		}
 
-		const read = readVectors(db, [l.id]).get(l.id)!;
+		const read = (await readVectors(db, [l.id])).get(l.id)!;
 		expect(read).toBeInstanceOf(Float32Array);
 		expect(read.length).toBe(DIMENSIONS);
 		expect(Array.from(read)).toEqual(Array.from(vector));
 	});
 
-	it('records the model, input hash and time it was given', () => {
-		const l = labour();
+	it('records the model, input hash and time it was given', async () => {
+		const l = await labour();
 		const hash = sha(inputOf('Labour'));
 		const now = new Date('2026-03-04T05:06:07.000Z');
 
-		writeVector(db, l.id, MODEL_ID, hash, unitVector('a'), now);
+		await writeVector(db, l.id, MODEL_ID, hash, unitVector('a'), now);
 
-		const row = vectorRow(l.id)!;
+		const row = (await vectorRow(l.id))!;
 		expect(row.model).toBe(MODEL_ID);
 		expect(row.inputHash).toBe(hash);
 		expect(row.embeddedAt.getTime()).toBe(now.getTime());
 	});
 
-	it('replaces the earlier vector of a Labour instead of adding a second row', () => {
-		const l = labour();
-		writeVector(db, l.id, 'older-model', sha('old'), unitVector('old'));
+	it('replaces the earlier vector of a Labour instead of adding a second row', async () => {
+		const l = await labour();
+		await writeVector(db, l.id, 'older-model', sha('old'), unitVector('old'));
 
 		const next = unitVector('new');
-		writeVector(db, l.id, MODEL_ID, sha(inputOf('Labour')), next);
+		await writeVector(db, l.id, MODEL_ID, sha(inputOf('Labour')), next);
 
-		expect(vectorRows()).toHaveLength(1);
-		expect(vectorRow(l.id)!.model).toBe(MODEL_ID);
-		expect(Array.from(readVectors(db, [l.id]).get(l.id)!)).toEqual(Array.from(next));
+		expect(await vectorRows()).toHaveLength(1);
+		expect((await vectorRow(l.id))!.model).toBe(MODEL_ID);
+		expect(Array.from((await readVectors(db, [l.id])).get(l.id)!)).toEqual(Array.from(next));
 	});
 
-	it('ignores a Labour that does not exist', () => {
-		expect(() =>
-			writeVector(db, 987_654, MODEL_ID, sha('ghost'), unitVector('ghost'))
-		).not.toThrow();
-		expect(vectorRows()).toHaveLength(0);
+	it('ignores a Labour that does not exist', async () => {
+		await writeVector(db, 987_654, MODEL_ID, sha('ghost'), unitVector('ghost'));
+		expect(await vectorRows()).toHaveLength(0);
 	});
 
-	it('ignores a Labour that was deleted', () => {
-		const l = labour();
-		deleteLabour(db, actor, l.id);
+	it('ignores a Labour that was deleted', async () => {
+		const l = await labour();
+		await deleteLabour(db, actor, l.id);
 
-		expect(() => writeVector(db, l.id, MODEL_ID, sha('x'), unitVector('x'))).not.toThrow();
-		expect(vectorRows()).toHaveLength(0);
+		await writeVector(db, l.id, MODEL_ID, sha('x'), unitVector('x'));
+		expect(await vectorRows()).toHaveLength(0);
 	});
 
-	it('is removed with its Labour', () => {
-		const kept = labour('Kept');
-		const gone = labour('Gone');
-		embed(kept.id, inputOf('Kept'));
-		embed(gone.id, inputOf('Gone'));
+	it('is removed with its Labour', async () => {
+		const kept = await labour('Kept');
+		const gone = await labour('Gone');
+		await embed(kept.id, inputOf('Kept'));
+		await embed(gone.id, inputOf('Gone'));
 
-		deleteLabour(db, actor, gone.id);
+		await deleteLabour(db, actor, gone.id);
 
-		expect(vectorRows().map((row) => row.labourId)).toEqual([kept.id]);
+		expect((await vectorRows()).map((row) => row.labourId)).toEqual([kept.id]);
 	});
 
-	it('returns only current vectors', () => {
-		const current = labour('Current', 'body');
-		const staleText = labour('Stale text');
-		const staleModel = labour('Stale model');
-		const absent = labour('Absent');
-		embed(current.id, inputOf('Current', 'body'));
-		embed(staleText.id, inputOf('Something else'));
-		embed(staleModel.id, inputOf('Stale model'), 'another-model@1');
+	it('returns only current vectors', async () => {
+		const current = await labour('Current', 'body');
+		const staleText = await labour('Stale text');
+		const staleModel = await labour('Stale model');
+		const absent = await labour('Absent');
+		await embed(current.id, inputOf('Current', 'body'));
+		await embed(staleText.id, inputOf('Something else'));
+		await embed(staleModel.id, inputOf('Stale model'), 'another-model@1');
 
-		const read = readVectors(db, [current.id, staleText.id, staleModel.id, absent.id]);
+		const read = await readVectors(db, [current.id, staleText.id, staleModel.id, absent.id]);
 
 		expect([...read.keys()]).toEqual([current.id]);
 		expect(Array.from(read.get(current.id)!)).toEqual(Array.from(unitVector('Current\n\nbody')));
 	});
 
-	it('returns nothing for no ids', () => {
-		expect(readVectors(db, []).size).toBe(0);
+	it('returns nothing for no ids', async () => {
+		expect((await readVectors(db, [])).size).toBe(0);
 	});
 });
 
 describe('vectorStatus', () => {
-	it('is current when model and input hash both match', () => {
-		const l = labour('Title', 'Body');
-		embed(l.id, inputOf('Title', 'Body'));
+	it('is current when model and input hash both match', async () => {
+		const l = await labour('Title', 'Body');
+		await embed(l.id, inputOf('Title', 'Body'));
 
-		expect(statusOf(l.id)).toBe('current');
+		expect(await statusOf(l.id)).toBe('current');
 	});
 
-	it('is absent when the Labour has no vector', () => {
-		expect(statusOf(labour().id)).toBe('absent');
+	it('is absent when the Labour has no vector', async () => {
+		expect(await statusOf((await labour()).id)).toBe('absent');
 	});
 
-	it('is stale when the title changed after embedding', () => {
-		const l = labour('Title', 'Body');
-		embed(l.id, inputOf('Title', 'Body'));
+	it('is stale when the title changed after embedding', async () => {
+		const l = await labour('Title', 'Body');
+		await embed(l.id, inputOf('Title', 'Body'));
 
-		updateLabour(db, actor, l.id, { title: 'Another title' });
+		await updateLabour(db, actor, l.id, { title: 'Another title' });
 
-		expect(statusOf(l.id)).toBe('stale');
+		expect(await statusOf(l.id)).toBe('stale');
 	});
 
-	it('is stale when the description changed after embedding', () => {
-		const l = labour('Title', 'Body');
-		embed(l.id, inputOf('Title', 'Body'));
+	it('is stale when the description changed after embedding', async () => {
+		const l = await labour('Title', 'Body');
+		await embed(l.id, inputOf('Title', 'Body'));
 
-		updateLabour(db, actor, l.id, { description: 'Different body' });
+		await updateLabour(db, actor, l.id, { description: 'Different body' });
 
-		expect(statusOf(l.id)).toBe('stale');
+		expect(await statusOf(l.id)).toBe('stale');
 	});
 
-	it('is stale when a Brief was written after embedding', () => {
-		const l = labour('Title', 'Body');
-		embed(l.id, inputOf('Title', 'Body'));
+	it('is stale when a Brief was written after embedding', async () => {
+		const l = await labour('Title', 'Body');
+		await embed(l.id, inputOf('Title', 'Body'));
 
-		appraise(db, actor, [{ labourId: l.id, brief: 'A new Brief' }]);
+		await appraise(db, actor, [{ labourId: l.id, brief: 'A new Brief' }]);
 
-		expect(statusOf(l.id)).toBe('stale');
+		expect(await statusOf(l.id)).toBe('stale');
 	});
 
-	it('is current when the vector was embedded with the Brief', () => {
-		const l = labour('Title', 'Body');
-		appraise(db, actor, [{ labourId: l.id, brief: '  A Brief  ' }]);
+	it('is current when the vector was embedded with the Brief', async () => {
+		const l = await labour('Title', 'Body');
+		await appraise(db, actor, [{ labourId: l.id, brief: '  A Brief  ' }]);
 
-		embed(l.id, inputOf('Title', 'Body', 'A Brief'));
+		await embed(l.id, inputOf('Title', 'Body', 'A Brief'));
 
-		expect(statusOf(l.id)).toBe('current');
+		expect(await statusOf(l.id)).toBe('current');
 	});
 
-	it('stays current when only fields outside the embedding input change', () => {
-		const l = labour('Title', 'Body');
-		embed(l.id, inputOf('Title', 'Body'));
+	it('stays current when only fields outside the embedding input change', async () => {
+		const l = await labour('Title', 'Body');
+		await embed(l.id, inputOf('Title', 'Body'));
 
-		updateLabour(db, actor, l.id, { labels: ['combat'], assigneeId: seedUser(db, 'grace') });
+		await updateLabour(db, actor, l.id, {
+			labels: ['combat'],
+			assigneeId: await seedUser(db, 'grace')
+		});
 
-		expect(statusOf(l.id)).toBe('current');
+		expect(await statusOf(l.id)).toBe('current');
 	});
 
-	it('is stale when the model differs even though the input hash matches', () => {
-		const l = labour('Title', 'Body');
-		embed(l.id, inputOf('Title', 'Body'), 'Xenova/bge-small-en-v1.5@0000000');
+	it('is stale when the model differs even though the input hash matches', async () => {
+		const l = await labour('Title', 'Body');
+		await embed(l.id, inputOf('Title', 'Body'), 'Xenova/bge-small-en-v1.5@0000000');
 
-		expect(statusOf(l.id)).toBe('stale');
+		expect(await statusOf(l.id)).toBe('stale');
 	});
 
-	it('reports every requested Labour in one map', () => {
-		const current = labour('One');
-		const stale = labour('Two');
-		const absent = labour('Three');
-		embed(current.id, inputOf('One'));
-		embed(stale.id, inputOf('Not two'));
+	it('reports every requested Labour in one map', async () => {
+		const current = await labour('One');
+		const stale = await labour('Two');
+		const absent = await labour('Three');
+		await embed(current.id, inputOf('One'));
+		await embed(stale.id, inputOf('Not two'));
 
-		const status = vectorStatus(db, [current.id, stale.id, absent.id]);
+		const status = await vectorStatus(db, [current.id, stale.id, absent.id]);
 
 		expect(status.size).toBe(3);
 		expect(status.get(current.id)).toBe('current');
 		expect(status.get(stale.id)).toBe('stale');
 		expect(status.get(absent.id)).toBe('absent');
-		expect(vectorStatus(db, []).size).toBe(0);
+		expect((await vectorStatus(db, [])).size).toBe(0);
 	});
 
 	describe('embedding input', () => {
-		it('is the title alone when the description is empty and there is no Brief', () => {
-			const l = labour('Only a title', '');
-			embed(l.id, 'Only a title');
+		it('is the title alone when the description is empty and there is no Brief', async () => {
+			const l = await labour('Only a title', '');
+			await embed(l.id, 'Only a title');
 
-			expect(statusOf(l.id)).toBe('current');
+			expect(await statusOf(l.id)).toBe('current');
 		});
 
-		it('drops a whitespace-only description rather than joining an empty part', () => {
-			const l = labour('Only a title');
-			setDescription(l.id, ' \n\t ');
-			embed(l.id, 'Only a title');
+		it('drops a whitespace-only description rather than joining an empty part', async () => {
+			const l = await labour('Only a title');
+			await setDescription(l.id, ' \n\t ');
+			await embed(l.id, 'Only a title');
 
-			expect(statusOf(l.id)).toBe('current');
+			expect(await statusOf(l.id)).toBe('current');
 		});
 
-		it('trims the description', () => {
-			const l = labour('Title');
-			setDescription(l.id, '\n  Padded body  \n');
-			embed(l.id, 'Title\n\nPadded body');
+		it('trims the description', async () => {
+			const l = await labour('Title');
+			await setDescription(l.id, '\n  Padded body  \n');
+			await embed(l.id, 'Title\n\nPadded body');
 
-			expect(statusOf(l.id)).toBe('current');
+			expect(await statusOf(l.id)).toBe('current');
 		});
 
-		it('joins title, Brief and description with a blank line, in that order', () => {
-			const l = labour('Title', 'Body');
-			appraise(db, actor, [{ labourId: l.id, brief: 'Brief' }]);
-			embed(l.id, 'Title\n\nBrief\n\nBody');
+		it('joins title, Brief and description with a blank line, in that order', async () => {
+			const l = await labour('Title', 'Body');
+			await appraise(db, actor, [{ labourId: l.id, brief: 'Brief' }]);
+			await embed(l.id, 'Title\n\nBrief\n\nBody');
 
-			expect(statusOf(l.id)).toBe('current');
+			expect(await statusOf(l.id)).toBe('current');
 		});
 
-		it('leaves out an empty Brief without a doubled separator', () => {
-			const l = labour('Title', 'Body');
-			appraise(db, actor, [{ labourId: l.id, brief: 'Brief' }]);
-			appraise(db, actor, [{ labourId: l.id, brief: '' }]);
-			embed(l.id, 'Title\n\nBody');
+		it('leaves out an empty Brief without a doubled separator', async () => {
+			const l = await labour('Title', 'Body');
+			await appraise(db, actor, [{ labourId: l.id, brief: 'Brief' }]);
+			await appraise(db, actor, [{ labourId: l.id, brief: '' }]);
+			await embed(l.id, 'Title\n\nBody');
 
-			expect(statusOf(l.id)).toBe('current');
+			expect(await statusOf(l.id)).toBe('current');
 		});
 
-		it('hashes with SHA-256 over the input string', () => {
-			const l = labour('Title', 'Body');
-			writeVector(
+		it('hashes with SHA-256 over the input string', async () => {
+			const l = await labour('Title', 'Body');
+			await writeVector(
 				db,
 				l.id,
 				MODEL_ID,
@@ -369,14 +375,14 @@ describe('vectorStatus', () => {
 				unitVector('v')
 			);
 
-			expect(statusOf(l.id)).toBe('current');
+			expect(await statusOf(l.id)).toBe('current');
 		});
 	});
 });
 
 describe('the embedding queue', () => {
 	it('embeds a queued Labour and stores its vector under the embedder model', async () => {
-		const l = labour('Dragon', 'Fire');
+		const l = await labour('Dragon', 'Fire');
 		const embedder = fakeEmbedder();
 		const queue = createEmbeddingQueue(db, embedder);
 
@@ -384,18 +390,18 @@ describe('the embedding queue', () => {
 		await queue.drain();
 
 		expect(embedder.documents).toEqual(['Dragon\n\nFire']);
-		const row = vectorRow(l.id)!;
+		const row = (await vectorRow(l.id))!;
 		expect(row.model).toBe(MODEL_ID);
 		expect(row.inputHash).toBe(sha('Dragon\n\nFire'));
-		expect(Array.from(readVectors(db, [l.id]).get(l.id)!)).toEqual(
+		expect(Array.from((await readVectors(db, [l.id])).get(l.id)!)).toEqual(
 			Array.from(unitVector('Dragon\n\nFire'))
 		);
-		expect(statusOf(l.id)).toBe('current');
+		expect(await statusOf(l.id)).toBe('current');
 	});
 
 	it('embeds the Brief between the title and the description', async () => {
-		const l = labour('Dragon', 'Fire');
-		appraise(db, actor, [{ labourId: l.id, brief: ' Slay it ' }]);
+		const l = await labour('Dragon', 'Fire');
+		await appraise(db, actor, [{ labourId: l.id, brief: ' Slay it ' }]);
 		const embedder = fakeEmbedder();
 		const queue = createEmbeddingQueue(db, embedder);
 
@@ -403,11 +409,11 @@ describe('the embedding queue', () => {
 		await queue.drain();
 
 		expect(embedder.documents).toEqual(['Dragon\n\nSlay it\n\nFire']);
-		expect(vectorRow(l.id)!.inputHash).toBe(sha('Dragon\n\nSlay it\n\nFire'));
+		expect((await vectorRow(l.id))!.inputHash).toBe(sha('Dragon\n\nSlay it\n\nFire'));
 	});
 
 	it('embeds a Labour queued twice once', async () => {
-		const l = labour('Twice');
+		const l = await labour('Twice');
 		const embedder = fakeEmbedder();
 		const queue = createEmbeddingQueue(db, embedder);
 
@@ -420,7 +426,9 @@ describe('the embedding queue', () => {
 	});
 
 	it('embeds one Labour at a time', async () => {
-		const ids = [labour('A'), labour('B'), labour('C'), labour('D')].map((l) => l.id);
+		const ids = [await labour('A'), await labour('B'), await labour('C'), await labour('D')].map(
+			(l) => l.id
+		);
 		const embedder = fakeEmbedder();
 		const queue = createEmbeddingQueue(db, embedder);
 
@@ -429,11 +437,13 @@ describe('the embedding queue', () => {
 
 		expect(embedder.documents).toHaveLength(4);
 		expect(embedder.peak).toBe(1);
-		expect([...readVectors(db, ids).keys()].sort()).toEqual([...ids].sort());
+		expect([...(await readVectors(db, ids)).keys()].sort()).toEqual([...ids].sort());
 	});
 
 	it('embeds in the order Labours were queued', async () => {
-		const ids = [labour('First'), labour('Second'), labour('Third')].map((l) => l.id);
+		const ids = [await labour('First'), await labour('Second'), await labour('Third')].map(
+			(l) => l.id
+		);
 		const embedder = fakeEmbedder();
 		const queue = createEmbeddingQueue(db, embedder);
 
@@ -444,18 +454,18 @@ describe('the embedding queue', () => {
 	});
 
 	it('skips a Labour that was deleted while it waited', async () => {
-		const first = labour('First');
-		const doomed = labour('Doomed');
+		const first = await labour('First');
+		const doomed = await labour('Doomed');
 		const embedder = fakeEmbedder();
 		const queue = createEmbeddingQueue(db, embedder);
 
 		queue.enqueue(first.id);
 		queue.enqueue(doomed.id);
-		deleteLabour(db, actor, doomed.id);
+		await deleteLabour(db, actor, doomed.id);
 		await queue.drain();
 
 		expect(embedder.documents).toEqual(['First']);
-		expect(vectorRows().map((row) => row.labourId)).toEqual([first.id]);
+		expect((await vectorRows()).map((row) => row.labourId)).toEqual([first.id]);
 	});
 
 	it('skips an id that never existed', async () => {
@@ -466,13 +476,13 @@ describe('the embedding queue', () => {
 
 		await expect(queue.drain()).resolves.toBeUndefined();
 		expect(embedder.documents).toEqual([]);
-		expect(vectorRows()).toHaveLength(0);
+		expect(await vectorRows()).toHaveLength(0);
 	});
 
 	it('skips a Labour whose vector is already current and leaves it untouched', async () => {
-		const l = labour('Settled', 'body');
+		const l = await labour('Settled', 'body');
 		const earlier = new Date('2026-01-02T03:04:05.000Z');
-		writeVector(db, l.id, MODEL_ID, sha('Settled\n\nbody'), unitVector('kept'), earlier);
+		await writeVector(db, l.id, MODEL_ID, sha('Settled\n\nbody'), unitVector('kept'), earlier);
 		const embedder = fakeEmbedder();
 		const queue = createEmbeddingQueue(db, embedder);
 
@@ -480,14 +490,16 @@ describe('the embedding queue', () => {
 		await queue.drain();
 
 		expect(embedder.documents).toEqual([]);
-		expect(vectorRow(l.id)!.embeddedAt.getTime()).toBe(earlier.getTime());
-		expect(Array.from(readVectors(db, [l.id]).get(l.id)!)).toEqual(Array.from(unitVector('kept')));
+		expect((await vectorRow(l.id))!.embeddedAt.getTime()).toBe(earlier.getTime());
+		expect(Array.from((await readVectors(db, [l.id])).get(l.id)!)).toEqual(
+			Array.from(unitVector('kept'))
+		);
 	});
 
 	it('re-embeds a Labour whose vector is stale by text', async () => {
-		const l = labour('Before');
-		embed(l.id, 'Before');
-		updateLabour(db, actor, l.id, { title: 'After' });
+		const l = await labour('Before');
+		await embed(l.id, 'Before');
+		await updateLabour(db, actor, l.id, { title: 'After' });
 		const embedder = fakeEmbedder();
 		const queue = createEmbeddingQueue(db, embedder);
 
@@ -495,13 +507,13 @@ describe('the embedding queue', () => {
 		await queue.drain();
 
 		expect(embedder.documents).toEqual(['After']);
-		expect(vectorRow(l.id)!.inputHash).toBe(sha('After'));
-		expect(statusOf(l.id)).toBe('current');
+		expect((await vectorRow(l.id))!.inputHash).toBe(sha('After'));
+		expect(await statusOf(l.id)).toBe('current');
 	});
 
 	it('re-embeds a Labour whose vector came from another model', async () => {
-		const l = labour('Same text');
-		embed(l.id, 'Same text', 'Xenova/bge-small-en-v1.5@0000000');
+		const l = await labour('Same text');
+		await embed(l.id, 'Same text', 'Xenova/bge-small-en-v1.5@0000000');
 		const embedder = fakeEmbedder();
 		const queue = createEmbeddingQueue(db, embedder);
 
@@ -509,28 +521,28 @@ describe('the embedding queue', () => {
 		await queue.drain();
 
 		expect(embedder.documents).toEqual(['Same text']);
-		expect(vectorRow(l.id)!.model).toBe(MODEL_ID);
+		expect((await vectorRow(l.id))!.model).toBe(MODEL_ID);
 	});
 
 	it('embeds the text as it stands when the Labour reaches the front', async () => {
-		const ahead = labour('Ahead');
-		const l = labour('Old title');
+		const ahead = await labour('Ahead');
+		const l = await labour('Old title');
 		const embedder = fakeEmbedder();
 		const queue = createEmbeddingQueue(db, embedder);
 
 		queue.enqueue(ahead.id);
 		queue.enqueue(l.id);
-		updateLabour(db, actor, l.id, { title: 'New title' });
+		await updateLabour(db, actor, l.id, { title: 'New title' });
 		await queue.drain();
 
 		expect(embedder.documents).toEqual(['Ahead', 'New title']);
-		expect(statusOf(l.id)).toBe('current');
+		expect(await statusOf(l.id)).toBe('current');
 	});
 
 	it('logs and drops a Labour whose embedding throws, then carries on', async () => {
-		const before = labour('fine before');
-		const bad = labour('boom');
-		const after = labour('fine after');
+		const before = await labour('fine before');
+		const bad = await labour('boom');
+		const after = await labour('fine after');
 		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 		const error = vi.spyOn(console, 'error').mockImplementation(() => {});
 		const embedder = fakeEmbedder({ fail: (text) => text.includes('boom') });
@@ -541,29 +553,29 @@ describe('the embedding queue', () => {
 		queue.enqueue(after.id);
 		await expect(queue.drain()).resolves.toBeUndefined();
 
-		expect(statusOf(before.id)).toBe('current');
-		expect(statusOf(after.id)).toBe('current');
-		expect(statusOf(bad.id)).toBe('absent');
+		expect(await statusOf(before.id)).toBe('current');
+		expect(await statusOf(after.id)).toBe('current');
+		expect(await statusOf(bad.id)).toBe('absent');
 		expect(embedder.documents.filter((text) => text === 'boom')).toHaveLength(1);
 		expect(warn.mock.calls.length + error.mock.calls.length).toBeGreaterThanOrEqual(1);
 		expect(queue.size()).toBe(0);
 	});
 
 	it('queues a dropped Labour again when it is enqueued again', async () => {
-		const l = labour('flaky');
+		const l = await labour('flaky');
 		vi.spyOn(console, 'warn').mockImplementation(() => {});
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		const embedder = fakeEmbedder({ fail: () => true });
 		const queue = createEmbeddingQueue(db, embedder);
 		queue.enqueue(l.id);
 		await queue.drain();
-		expect(statusOf(l.id)).toBe('absent');
+		expect(await statusOf(l.id)).toBe('absent');
 
 		embedder.fail = () => false;
 		queue.enqueue(l.id);
 		await queue.drain();
 
-		expect(statusOf(l.id)).toBe('current');
+		expect(await statusOf(l.id)).toBe('current');
 	});
 
 	it('resolves drain at once when nothing is queued', async () => {
@@ -574,20 +586,20 @@ describe('the embedding queue', () => {
 	});
 
 	it('resolves drain only after every queued Labour is done', async () => {
-		const ids = [labour('A'), labour('B'), labour('C')].map((l) => l.id);
+		const ids = [await labour('A'), await labour('B'), await labour('C')].map((l) => l.id);
 		const queue = createEmbeddingQueue(db, fakeEmbedder());
 
 		for (const id of ids) queue.enqueue(id);
 		await queue.drain();
 
-		expect(vectorStatus(db, ids).get(ids[0])).toBe('current');
-		expect(vectorStatus(db, ids).get(ids[1])).toBe('current');
-		expect(vectorStatus(db, ids).get(ids[2])).toBe('current');
+		expect((await vectorStatus(db, ids)).get(ids[0])).toBe('current');
+		expect((await vectorStatus(db, ids)).get(ids[1])).toBe('current');
+		expect((await vectorStatus(db, ids)).get(ids[2])).toBe('current');
 		expect(queue.size()).toBe(0);
 	});
 
 	it('counts the Labours still waiting', async () => {
-		const ids = [labour('A'), labour('B'), labour('C')].map((l) => l.id);
+		const ids = [await labour('A'), await labour('B'), await labour('C')].map((l) => l.id);
 		let release!: () => void;
 		const gate = new Promise<void>((resolve) => (release = resolve));
 		const queue = createEmbeddingQueue(db, fakeEmbedder({ gate }));
@@ -603,48 +615,50 @@ describe('the embedding queue', () => {
 });
 
 describe('queueing from text writes', () => {
-	it('does nothing without a queue', () => {
-		const l = labour('No queue');
-		updateLabour(db, actor, l.id, { title: 'Still none' });
+	it('does nothing without a queue', async () => {
+		const l = await labour('No queue');
+		await updateLabour(db, actor, l.id, { title: 'Still none' });
 
-		expect(vectorRows()).toHaveLength(0);
-		expect(statusOf(l.id)).toBe('absent');
+		expect(await vectorRows()).toHaveLength(0);
+		expect(await statusOf(l.id)).toBe('absent');
 	});
 
 	it('does nothing once the queue is set back to null', async () => {
 		const { embedder } = useRealQueue();
 		setEmbeddingQueue(null);
 
-		const l = labour('Unqueued');
+		const l = await labour('Unqueued');
 		await new Promise((resolve) => setImmediate(resolve));
 
 		expect(embedder.documents).toEqual([]);
-		expect(statusOf(l.id)).toBe('absent');
+		expect(await statusOf(l.id)).toBe('absent');
 	});
 
 	describe('createLabour', () => {
-		it('enqueues the new Labour after the transaction commits', () => {
+		it('enqueues the new Labour after the transaction commits', async () => {
 			const spy = spyQueue();
 			setEmbeddingQueue(spy.queue);
 
-			const l = createLabour(db, actor, {
+			const l = await createLabour(db, actor, {
 				realmId,
 				title: 'Fresh',
-				ownerId: seedUser(db, 'owner')
+				ownerId: await seedUser(db, 'owner')
 			});
 
 			expect(spy.calls).toEqual([{ id: l.id, inTransaction: false }]);
-			expect(db.select().from(labours).where(eq(labours.id, l.id)).get()).toBeDefined();
+			expect(
+				(await db.select().from(labours).where(eq(labours.id, l.id)).limit(1))[0]
+			).toBeDefined();
 		});
 
 		it('gets its vector from the real queue', async () => {
 			const { queue, embedder } = useRealQueue();
 
-			const l = labour('Embed me', 'please');
+			const l = await labour('Embed me', 'please');
 			await queue.drain();
 
 			expect(embedder.documents).toEqual(['Embed me\n\nplease']);
-			expect(statusOf(l.id)).toBe('current');
+			expect(await statusOf(l.id)).toBe('current');
 		});
 
 		it('returns before the vector exists', async () => {
@@ -652,143 +666,149 @@ describe('queueing from text writes', () => {
 			const gate = new Promise<void>((resolve) => (release = resolve));
 			const { queue } = useRealQueue(fakeEmbedder({ gate }));
 
-			const l = labour('Slow model');
+			const l = await labour('Slow model');
 
 			expect(l.title).toBe('Slow model');
-			expect(statusOf(l.id)).toBe('absent');
+			expect(await statusOf(l.id)).toBe('absent');
 			release();
 			await queue.drain();
-			expect(statusOf(l.id)).toBe('current');
+			expect(await statusOf(l.id)).toBe('current');
 		});
 
 		it('embeds nothing when the create fails', async () => {
 			const { queue, embedder } = useRealQueue();
 
-			expect(() =>
+			await expect(
 				createLabour(db, actor, { realmId, title: 'Orphan', ownerId: 987_654 })
-			).toThrow();
+			).rejects.toThrow();
 			await queue.drain();
 
 			expect(embedder.documents).toEqual([]);
-			expect(vectorRows()).toHaveLength(0);
+			expect(await vectorRows()).toHaveLength(0);
 		});
 	});
 
 	describe('updateLabour', () => {
-		it('enqueues after commit when the title changes', () => {
-			const l = labour('Old');
+		it('enqueues after commit when the title changes', async () => {
+			const l = await labour('Old');
 			const spy = spyQueue();
 			setEmbeddingQueue(spy.queue);
 
-			updateLabour(db, actor, l.id, { title: 'New' });
+			await updateLabour(db, actor, l.id, { title: 'New' });
 
 			expect(spy.calls).toEqual([{ id: l.id, inTransaction: false }]);
 		});
 
-		it('enqueues after commit when the description changes', () => {
-			const l = labour('Title', 'old');
+		it('enqueues after commit when the description changes', async () => {
+			const l = await labour('Title', 'old');
 			const spy = spyQueue();
 			setEmbeddingQueue(spy.queue);
 
-			updateLabour(db, actor, l.id, { description: 'new' });
+			await updateLabour(db, actor, l.id, { description: 'new' });
 
 			expect(spy.calls).toEqual([{ id: l.id, inTransaction: false }]);
 		});
 
-		it('enqueues once when title and description change together', () => {
-			const l = labour('Title', 'old');
+		it('enqueues once when title and description change together', async () => {
+			const l = await labour('Title', 'old');
 			const spy = spyQueue();
 			setEmbeddingQueue(spy.queue);
 
-			updateLabour(db, actor, l.id, { title: 'New title', description: 'new' });
+			await updateLabour(db, actor, l.id, { title: 'New title', description: 'new' });
 
 			expect(spy.ids()).toEqual([l.id]);
 		});
 
-		it('does not enqueue a labels-only change', () => {
-			const l = labour('Title', 'body');
+		it('does not enqueue a labels-only change', async () => {
+			const l = await labour('Title', 'body');
 			const spy = spyQueue();
 			setEmbeddingQueue(spy.queue);
 
-			updateLabour(db, actor, l.id, { labels: ['combat'] });
-			updateLabour(db, actor, l.id, { addLabels: ['boss'] });
-			updateLabour(db, actor, l.id, { removeLabels: ['combat'] });
+			await updateLabour(db, actor, l.id, { labels: ['combat'] });
+			await updateLabour(db, actor, l.id, { addLabels: ['boss'] });
+			await updateLabour(db, actor, l.id, { removeLabels: ['combat'] });
 
 			expect(spy.calls).toEqual([]);
 		});
 
-		it('does not enqueue an assignee change', () => {
-			const l = labour('Title', 'body');
+		it('does not enqueue an assignee change', async () => {
+			const l = await labour('Title', 'body');
 			const spy = spyQueue();
 			setEmbeddingQueue(spy.queue);
 
-			updateLabour(db, actor, l.id, { assigneeId: seedUser(db, 'grace') });
+			await updateLabour(db, actor, l.id, { assigneeId: await seedUser(db, 'grace') });
 
 			expect(spy.calls).toEqual([]);
 		});
 
-		it('does not enqueue when the update is refused', () => {
-			const l = labour('Title');
+		it('does not enqueue when the update is refused', async () => {
+			const l = await labour('Title');
 			const spy = spyQueue();
 			setEmbeddingQueue(spy.queue);
 
-			expect(() => updateLabour(db, actor, l.id, { title: '   ' })).toThrow();
+			await expect(updateLabour(db, actor, l.id, { title: '   ' })).rejects.toThrow();
 
 			expect(spy.calls).toEqual([]);
 		});
 
 		it('refreshes a vector the update made stale', async () => {
-			const { queue, embedder } = useRealQueue();
-			const l = labour('Before');
+			const l = await labour('Before');
+			await embed(l.id, 'Before');
+			let release!: () => void;
+			const gate = new Promise<void>((resolve) => (release = resolve));
+			const { queue, embedder } = useRealQueue(fakeEmbedder({ gate }));
+
+			await updateLabour(db, actor, l.id, { title: 'After' });
+			expect(await statusOf(l.id)).toBe('stale');
+			release();
 			await queue.drain();
 
-			updateLabour(db, actor, l.id, { title: 'After' });
-			expect(statusOf(l.id)).toBe('stale');
-			await queue.drain();
-
-			expect(embedder.documents).toEqual(['Before', 'After']);
-			expect(statusOf(l.id)).toBe('current');
+			expect(embedder.documents).toEqual(['After']);
+			expect(await statusOf(l.id)).toBe('current');
 		});
 
 		it('returns before the new vector exists', async () => {
-			const l = labour('Quick');
-			embed(l.id, 'Quick');
+			const l = await labour('Quick');
+			await embed(l.id, 'Quick');
 			let release!: () => void;
 			const gate = new Promise<void>((resolve) => (release = resolve));
 			const { queue } = useRealQueue(fakeEmbedder({ gate }));
 
-			updateLabour(db, actor, l.id, { title: 'Quicker' });
+			await updateLabour(db, actor, l.id, { title: 'Quicker' });
 
-			expect(statusOf(l.id)).toBe('stale');
+			expect(await statusOf(l.id)).toBe('stale');
 			release();
 			await queue.drain();
-			expect(statusOf(l.id)).toBe('current');
+			expect(await statusOf(l.id)).toBe('current');
 		});
 	});
 
 	describe('appraise', () => {
-		it('enqueues after the write has committed, once the Brief is stored', () => {
-			const l = labour('Title');
+		it('enqueues after the write has committed, once the Brief is stored', async () => {
+			const l = await labour('Title');
 			const spy = spyQueue();
 			setEmbeddingQueue(spy.queue);
 
-			appraise(db, actor, [{ labourId: l.id, brief: 'A Brief' }]);
+			await appraise(db, actor, [{ labourId: l.id, brief: 'A Brief' }]);
 
 			expect(spy.calls).toEqual([{ id: l.id, inTransaction: false }]);
-			const stored = db.$client
-				.prepare('SELECT brief FROM appraisals WHERE labour_id = ?')
-				.get(l.id) as { brief: string };
+			const stored = (
+				await db.$client.query<{ brief: string }>(
+					'SELECT brief FROM appraisals WHERE labour_id = $1',
+					[l.id]
+				)
+			).rows[0];
 			expect(stored.brief).toBe('A Brief');
 		});
 
-		it('enqueues every Labour in the batch that got a Brief', () => {
-			const a = labour('A');
-			const b = labour('B');
-			const c = labour('C');
+		it('enqueues every Labour in the batch that got a Brief', async () => {
+			const a = await labour('A');
+			const b = await labour('B');
+			const c = await labour('C');
 			const spy = spyQueue();
 			setEmbeddingQueue(spy.queue);
 
-			appraise(db, actor, [
+			await appraise(db, actor, [
 				{ labourId: a.id, brief: 'Brief A' },
 				{ labourId: b.id, refs: [{ href: 'https://example.com' }] },
 				{ labourId: c.id, brief: 'Brief C' }
@@ -797,76 +817,79 @@ describe('queueing from text writes', () => {
 			expect([...spy.ids()].sort()).toEqual([a.id, c.id].sort());
 		});
 
-		it('does not enqueue an item that writes no Brief', () => {
-			const l = labour('Title');
+		it('does not enqueue an item that writes no Brief', async () => {
+			const l = await labour('Title');
 			const spy = spyQueue();
 			setEmbeddingQueue(spy.queue);
 
-			appraise(db, actor, [{ labourId: l.id, refs: [{ href: 'https://example.com' }] }]);
-			appraise(db, actor, [{ labourId: l.id }]);
+			await appraise(db, actor, [{ labourId: l.id, refs: [{ href: 'https://example.com' }] }]);
+			await appraise(db, actor, [{ labourId: l.id }]);
 
 			expect(spy.calls).toEqual([]);
 		});
 
 		it('embeds the Brief it wrote', async () => {
-			const { queue, embedder } = useRealQueue();
-			const l = labour('Title', 'Body');
+			const l = await labour('Title', 'Body');
+			await embed(l.id, 'Title\n\nBody');
+			let release!: () => void;
+			const gate = new Promise<void>((resolve) => (release = resolve));
+			const { queue, embedder } = useRealQueue(fakeEmbedder({ gate }));
+
+			await appraise(db, actor, [{ labourId: l.id, brief: 'Boss wind-ups' }]);
+			expect(await statusOf(l.id)).toBe('stale');
+			release();
 			await queue.drain();
 
-			appraise(db, actor, [{ labourId: l.id, brief: 'Boss wind-ups' }]);
-			expect(statusOf(l.id)).toBe('stale');
-			await queue.drain();
-
-			expect(embedder.documents).toEqual(['Title\n\nBody', 'Title\n\nBoss wind-ups\n\nBody']);
-			expect(statusOf(l.id)).toBe('current');
+			expect(embedder.documents).toEqual(['Title\n\nBoss wind-ups\n\nBody']);
+			expect(await statusOf(l.id)).toBe('current');
 		});
 
 		it('returns before the vector exists', async () => {
-			const l = labour('Title');
-			embed(l.id, 'Title');
+			const l = await labour('Title');
+			await embed(l.id, 'Title');
 			let release!: () => void;
 			const gate = new Promise<void>((resolve) => (release = resolve));
 			const { queue } = useRealQueue(fakeEmbedder({ gate }));
 
-			appraise(db, actor, [{ labourId: l.id, brief: 'Brief' }]);
+			await appraise(db, actor, [{ labourId: l.id, brief: 'Brief' }]);
 
-			expect(statusOf(l.id)).toBe('stale');
+			expect(await statusOf(l.id)).toBe('stale');
 			release();
 			await queue.drain();
-			expect(statusOf(l.id)).toBe('current');
+			expect(await statusOf(l.id)).toBe('current');
 		});
 
 		it('leaves nothing current for a Brief that was rolled back', async () => {
-			const l = labour('Title', 'Body');
+			const l = await labour('Title', 'Body');
 			const { queue, embedder } = useRealQueue();
 			queue.enqueue(l.id);
 			await queue.drain();
 
-			expect(() =>
+			await expect(
 				appraise(db, actor, [
 					{ labourId: l.id, brief: 'Rolled back Brief' },
 					{ labourId: 987_654, brief: 'Nobody' }
 				])
-			).toThrow();
+			).rejects.toThrow();
 			await queue.drain();
 
 			expect(embedder.documents).toEqual(['Title\n\nBody']);
-			expect(vectorRow(l.id)!.inputHash).toBe(sha('Title\n\nBody'));
-			expect(statusOf(l.id)).toBe('current');
+			expect((await vectorRow(l.id))!.inputHash).toBe(sha('Title\n\nBody'));
+			expect(await statusOf(l.id)).toBe('current');
 		});
 	});
 });
 
 describe('enqueueStale', () => {
 	it('enqueues every Labour without a current vector and returns how many', async () => {
-		const current = labour('Current');
-		const staleText = labour('Stale text');
-		const staleModel = labour('Stale model');
-		const absentOne = labour('Absent one');
-		const absentTwo = labour('Absent two');
-		embed(current.id, 'Current');
-		embed(staleText.id, 'Older text');
-		embed(staleModel.id, 'Stale model', 'Xenova/bge-small-en-v1.5@0000000');
+		const current = await labour('Current');
+		const staleText = await labour('Stale text');
+		const staleModel = await labour('Stale model');
+		const absentOne = await labour('Absent one');
+		const absentTwo = await labour('Absent two');
+		await embed(current.id, 'Current');
+		await embed(staleText.id, 'Older text');
+		await embed(staleModel.id, 'Stale model', 'Xenova/bge-small-en-v1.5@0000000');
 		const spy = spyQueue();
 
 		const count = await enqueueStale(db, spy.queue);
@@ -878,10 +901,10 @@ describe('enqueueStale', () => {
 	});
 
 	it('returns 0 and enqueues nothing when every Labour is current', async () => {
-		const a = labour('A');
-		const b = labour('B');
-		embed(a.id, 'A');
-		embed(b.id, 'B');
+		const a = await labour('A');
+		const b = await labour('B');
+		await embed(a.id, 'A');
+		await embed(b.id, 'B');
 		const spy = spyQueue();
 
 		expect(await enqueueStale(db, spy.queue)).toBe(0);
@@ -889,13 +912,15 @@ describe('enqueueStale', () => {
 	});
 
 	it('returns 0 for an empty database', async () => {
-		db.delete(labours).run();
+		await db.delete(labours);
 		expect(await enqueueStale(db, spyQueue().queue)).toBe(0);
 	});
 
 	it('brings every Labour current through a real queue', async () => {
-		const ids = [labour('A', 'one'), labour('B'), labour('C', 'three')].map((l) => l.id);
-		embed(ids[1], 'B');
+		const ids = [await labour('A', 'one'), await labour('B'), await labour('C', 'three')].map(
+			(l) => l.id
+		);
+		await embed(ids[1], 'B');
 		const embedder = fakeEmbedder();
 		const queue = createEmbeddingQueue(db, embedder);
 
@@ -903,38 +928,30 @@ describe('enqueueStale', () => {
 		await queue.drain();
 
 		expect(embedder.documents.sort()).toEqual(['A\n\none', 'C\n\nthree']);
-		for (const id of ids) expect(statusOf(id)).toBe('current');
+		for (const id of ids) expect(await statusOf(id)).toBe('current');
 		expect(await enqueueStale(db, queue)).toBe(0);
 	});
 });
 
 describe('side effects', () => {
 	it('records no Event and leaves updatedAt alone', async () => {
-		const l = labour('Quiet', 'body');
-		const other = labour('Also quiet');
-		embed(other.id, 'Old text');
+		const l = await labour('Quiet', 'body');
+		const other = await labour('Also quiet');
+		await embed(other.id, 'Old text');
 		const before = {
-			events: db.select().from(events).all().length,
-			updatedAt: db
-				.select()
-				.from(labours)
-				.all()
-				.map((row) => [row.id, row.updatedAt.getTime()])
+			events: (await db.select().from(events)).length,
+			updatedAt: (await db.select().from(labours)).map((row) => [row.id, row.updatedAt.getTime()])
 		};
 		const queue = createEmbeddingQueue(db, fakeEmbedder());
 
-		writeVector(db, l.id, MODEL_ID, sha('Quiet\n\nbody'), unitVector('q'));
+		await writeVector(db, l.id, MODEL_ID, sha('Quiet\n\nbody'), unitVector('q'));
 		await enqueueStale(db, queue);
 		await queue.drain();
 
-		expect(vectorRows()).toHaveLength(2);
-		expect(db.select().from(events).all()).toHaveLength(before.events);
+		expect(await vectorRows()).toHaveLength(2);
+		expect(await db.select().from(events)).toHaveLength(before.events);
 		expect(
-			db
-				.select()
-				.from(labours)
-				.all()
-				.map((row) => [row.id, row.updatedAt.getTime()])
+			(await db.select().from(labours)).map((row) => [row.id, row.updatedAt.getTime()])
 		).toEqual(before.updatedAt);
 	});
 });

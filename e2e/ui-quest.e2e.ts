@@ -11,10 +11,14 @@ test.describe('quests', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.realm();
-		const epic = ui.labour(p.id, { title: 'Epic' });
-		const done = ui.labour(p.id, { title: 'Done part', parentId: epic.id, stateId: p.closed });
-		const open = ui.labour(p.id, { title: 'Open part', parentId: epic.id });
+		const p = await ui.realm();
+		const epic = await ui.labour(p.id, { title: 'Epic' });
+		const done = await ui.labour(p.id, {
+			title: 'Done part',
+			parentId: epic.id,
+			stateId: p.closed
+		});
+		const open = await ui.labour(p.id, { title: 'Open part', parentId: epic.id });
 		const name = `Launch ${Date.now().toString(36)}`;
 
 		await page.goto('/quests');
@@ -39,10 +43,10 @@ test.describe('quests', () => {
 	});
 
 	test('adding without Children adds the Labour alone', async ({ page, ui }) => {
-		const p = ui.realm();
-		const epic = ui.labour(p.id, { title: 'Lonely epic' });
-		ui.labour(p.id, { title: 'Left out', parentId: epic.id });
-		const quest = ui.quest(p.id, 'Alone');
+		const p = await ui.realm();
+		const epic = await ui.labour(p.id, { title: 'Lonely epic' });
+		await ui.labour(p.id, { title: 'Left out', parentId: epic.id });
+		const quest = await ui.quest(p.id, 'Alone');
 		await page.goto(`/quests/${quest.id}`);
 		await page.getByLabel('Find a Labour').fill(epic.key);
 		await page.getByRole('option', { name: new RegExp(epic.key) }).click();
@@ -56,10 +60,12 @@ test.describe('quests', () => {
 		ui,
 		other
 	}) => {
-		const p = ui.realm();
-		const [a, b, c] = ['One', 'Two', 'Three'].map((title) => ui.labour(p.id, { title }));
-		const quest = ui.quest(p.id, 'Reorder');
-		for (const t of [a, b, c]) ui.addToQuest(quest.id, t.id);
+		const p = await ui.realm();
+		const a = await ui.labour(p.id, { title: 'One' });
+		const b = await ui.labour(p.id, { title: 'Two' });
+		const c = await ui.labour(p.id, { title: 'Three' });
+		const quest = await ui.quest(p.id, 'Reorder');
+		for (const t of [a, b, c]) await ui.addToQuest(quest.id, t.id);
 
 		await page.goto(`/quests/${quest.id}`);
 		await live(page);
@@ -70,7 +76,7 @@ test.describe('quests', () => {
 		});
 		await expect.poll(() => members(page)).toEqual([c.key, a.key, b.key]);
 		await expect
-			.poll(() => ui.readQuest(quest.id).labours.map((t) => t.key))
+			.poll(async () => (await ui.readQuest(quest.id)).labours.map((t) => t.key))
 			.toEqual([c.key, a.key, b.key]);
 
 		await page.getByRole('button', { name: `Remove ${b.key} from the Quest` }).click();
@@ -89,13 +95,13 @@ test.describe('quests', () => {
 	});
 
 	test('edits and deletes a Quest', async ({ page, ui }) => {
-		const quest = ui.quest(ui.realm().id, 'Rename me');
+		const quest = await ui.quest((await ui.realm()).id, 'Rename me');
 		await page.goto(`/quests/${quest.id}`);
 		await page.getByRole('button', { name: 'Rename' }).click();
 		await page.getByLabel('Quest name').fill('Renamed');
 		await page.getByRole('button', { name: 'Save name' }).click();
 		await expect(page.getByRole('heading', { level: 1 })).toHaveText('Renamed');
-		await expect.poll(() => ui.readQuest(quest.id).name).toBe('Renamed');
+		await expect.poll(async () => (await ui.readQuest(quest.id)).name).toBe('Renamed');
 
 		await page.getByRole('button', { name: 'Delete Quest' }).click();
 		await page.getByRole('button', { name: 'Delete Renamed' }).click();
@@ -106,12 +112,12 @@ test.describe('quests', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.realm();
-		const done = ui.labour(p.id, { title: 'Done', stateId: p.closed });
-		const open = ui.labour(p.id, { title: 'Open' });
-		const quest = ui.quest(p.id, 'Almost');
-		ui.addToQuest(quest.id, done.id);
-		ui.addToQuest(quest.id, open.id);
+		const p = await ui.realm();
+		const done = await ui.labour(p.id, { title: 'Done', stateId: p.closed });
+		const open = await ui.labour(p.id, { title: 'Open' });
+		const quest = await ui.quest(p.id, 'Almost');
+		await ui.addToQuest(quest.id, done.id);
+		await ui.addToQuest(quest.id, open.id);
 		await page.goto(`/quests/${quest.id}`);
 		await live(page);
 
@@ -121,7 +127,7 @@ test.describe('quests', () => {
 		await page.waitForTimeout(400);
 		expect(await moments()).toEqual(['(none)']);
 
-		const empty = ui.quest(p.id, 'Empty');
+		const empty = await ui.quest(p.id, 'Empty');
 		await page.goto(`/quests/${empty.id}`);
 		await live(page);
 		const quiet = await recordText(page, '[data-testid="quest-complete"]');

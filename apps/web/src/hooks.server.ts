@@ -32,7 +32,7 @@ import {
 	setEmbeddingQueue
 } from '#lib/server/agent/vectors/index.ts';
 import type { Db } from '#lib/server/db/client.ts';
-import { getDb } from '#lib/server/db/index.ts';
+import { getDb, migrateDatabase } from '#lib/server/db/index.ts';
 import { schedulePruning } from '#lib/server/events/log.ts';
 import { assertDisableBeforeRetention, createDispatcher } from '#lib/server/webhooks/dispatcher.ts';
 import { setDispatcher } from '#lib/server/webhooks/registry.ts';
@@ -41,22 +41,23 @@ import { pauseKeyChanged } from '#lib/server/webhooks/store.ts';
 
 export const init: ServerInit = async () => {
 	if (building) return;
+	await migrateDatabase();
 	const db = getDb();
-	rebuildDerived(db);
+	await rebuildDerived(db);
 	if (seedAdminUsername && seedAdminPassword) {
 		await seedAdmin(db, { username: seedAdminUsername, password: seedAdminPassword });
 	}
-	schedulePruning(db, eventRetentionMs);
-	scheduleAgentPruning(db, surveyRetentionMs);
-	scheduleOAuthPruning(db);
-	scheduleRecurrences(db);
-	if (webhookKey) startWebhooks(db, webhookKey);
+	await schedulePruning(db, eventRetentionMs);
+	await scheduleAgentPruning(db, surveyRetentionMs);
+	await scheduleOAuthPruning(db);
+	await scheduleRecurrences(db);
+	if (webhookKey) await startWebhooks(db, webhookKey);
 	void startEmbeddings(db);
 };
 
-function startWebhooks(db: Db, key: Buffer): void {
+async function startWebhooks(db: Db, key: Buffer): Promise<void> {
 	assertDisableBeforeRetention(webhookDisableAfterMs, eventRetentionMs);
-	pauseKeyChanged(db, {
+	await pauseKeyChanged(db, {
 		key,
 		maxPerUser: webhookMaxPerUser,
 		max: webhookMax,
@@ -82,7 +83,7 @@ async function startEmbeddings(db: Db): Promise<void> {
 		setEmbedder(embedder);
 		const queue = createEmbeddingQueue(db, embedder);
 		setEmbeddingQueue(queue);
-		enqueueStale(db, queue).catch((error: unknown) => {
+		await enqueueStale(db, queue).catch((error: unknown) => {
 			console.error('sagas embeddings could not queue stale Labours', error);
 		});
 	} catch (error) {
@@ -98,12 +99,12 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (refusal) return refusal;
 
 	const db = getDb();
-	const auth = authFromRequest(db, event.request, event.cookies.get(SESSION_COOKIE));
+	const auth = await authFromRequest(db, event.request, event.cookies.get(SESSION_COOKIE));
 	event.locals.user = auth?.user ?? null;
 	event.locals.credential = auth?.credential ?? null;
 
 	const decision = gate(event.url.pathname, {
-		setupDone: hasUsers(db),
+		setupDone: await hasUsers(db),
 		signedIn: auth !== null,
 		mustChangePassword: auth?.user.mustChangePassword ?? false
 	});

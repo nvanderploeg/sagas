@@ -7,7 +7,7 @@ import { createFirstAdmin, type AuthUser } from '#lib/server/auth/users.ts';
 import type { Db } from '#lib/server/db/client.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import { eventsSince, eventWindow } from '#lib/server/events/log.ts';
-import { testDb } from '#lib/server/test/db.ts';
+import { testDb, countStatements } from '#lib/server/test/db.ts';
 import { toErrorResult } from './result.ts';
 import { createMcpServer } from './server.ts';
 
@@ -16,7 +16,7 @@ let admin: AuthUser;
 const clients: Client[] = [];
 
 beforeEach(async () => {
-	db = testDb();
+	db = await testDb();
 	admin = await createFirstAdmin(db, {
 		username: 'root',
 		displayName: 'Root',
@@ -26,7 +26,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	await Promise.all(clients.splice(0).map((client) => client.close()));
-	db.$client.close();
 });
 
 async function connect(actor: AuthUser, origin = 'http://sagas.test'): Promise<Client> {
@@ -51,7 +50,7 @@ async function ok(client: Client, name: string, args: Record<string, unknown> = 
 const text = (result: CallToolResult) =>
 	result.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 
-const lastSeq = () => eventWindow(db).last;
+const lastSeq = async () => (await eventWindow(db)).last;
 
 async function seedRealm(client: Client, labourCount = 0) {
 	await ok(client, 'create_realm', { name: 'Atlas', key: 'am' });
@@ -106,17 +105,17 @@ describe('the MCP server', () => {
 	});
 
 	it('acts as the given User, who is the actor of every Event its writes record', async () => {
-		const bob = seedHuman(db, 'bob');
+		const bob = await seedHuman(db, 'bob');
 		const client = await connect(bob);
 		await seedRealm(client);
-		const before = lastSeq();
+		const before = await lastSeq();
 
 		const result = await call(client, 'create_labour', { realm: 'AM', title: 'First' });
 
 		expect(result.structuredContent).toMatchObject({
 			labour: { key: 'AM-1', owner: 'bob', assignee: null }
 		});
-		const recorded = eventsSince(db, before);
+		const recorded = await eventsSince(db, before);
 		expect(recorded.map((e) => [e.type, e.actor])).toEqual([
 			[
 				'labour.created',
@@ -211,7 +210,7 @@ describe('the MCP server', () => {
 	});
 
 	it('adds and lists Comments as the calling User', async () => {
-		const bob = seedHuman(db, 'bob');
+		const bob = await seedHuman(db, 'bob');
 		const client = await connect(bob);
 		await seedRealm(client, 1);
 
@@ -234,7 +233,7 @@ describe('the MCP server', () => {
 	});
 
 	it('takes "me" for owner and assignee, in writes and filters', async () => {
-		const bob = seedHuman(db, 'bob');
+		const bob = await seedHuman(db, 'bob');
 		const client = await connect(bob);
 		await seedRealm(client);
 		await ok(client, 'create_labour', { realm: 'AM', title: 'Mine', owner: 'root' });
@@ -375,11 +374,7 @@ describe('the MCP server', () => {
 			labours: Array.from({ length: 12 }, (_, i) => ({ labour: `AM-${i + 1}`, brief: `B${i}` }))
 		});
 		const statements = async (limit: number) => {
-			const prepare = vi.spyOn(db.$client, 'prepare');
-			await ok(client, 'list_labours', { realm: 'AM', limit });
-			const n = prepare.mock.calls.length;
-			prepare.mockRestore();
-			return n;
+			return countStatements(() => ok(client, 'list_labours', { realm: 'AM', limit }));
 		};
 
 		expect(await statements(12)).toBe(await statements(2));
@@ -417,15 +412,15 @@ describe('the MCP server', () => {
 		const { quest } = await ok(client, 'create_quest', { name: 'Launch', realm: 'AM' });
 		const labours = Array.from({ length: 100 }, (_, i) => `AM-${i + 1}`);
 
-		const before = lastSeq();
+		const before = await lastSeq();
 		const added = await ok(client, 'add_quest_labours', { quest: quest.id, labours });
-		expect(eventsSince(db, before).map((e) => e.type)).toEqual(['quest.labours_added']);
+		expect((await eventsSince(db, before)).map((e) => e.type)).toEqual(['quest.labours_added']);
 		expect(added.quest.progress).toEqual({ closed: 0, total: 100 });
 		expect(added.added).toEqual(labours);
 
-		const middle = lastSeq();
+		const middle = await lastSeq();
 		const removed = await ok(client, 'remove_quest_labours', { quest: quest.id, labours });
-		expect(eventsSince(db, middle).map((e) => e.type)).toEqual(['quest.labours_removed']);
+		expect((await eventsSince(db, middle)).map((e) => e.type)).toEqual(['quest.labours_removed']);
 		expect(removed.quest.progress).toEqual({ closed: 0, total: 0 });
 	});
 
@@ -484,18 +479,18 @@ describe('the MCP server', () => {
 	it('answers an unexpected failure without its details', async () => {
 		const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
 		const client = await connect(admin);
-		db.$client.close();
+		await db.$client.end();
 
 		const result = await call(client, 'list_realms');
 
 		expect(result).toMatchObject({ isError: true, content: [{ text: 'Internal error' }] });
 		expect(quiet).toHaveBeenCalled();
 		quiet.mockRestore();
-		db = testDb();
+		db = await testDb();
 	});
 
 	it('refuses an Admin tool to a User who is not an Admin', async () => {
-		const result = await call(await connect(seedHuman(db, 'bob')), 'create_invite');
+		const result = await call(await connect(await seedHuman(db, 'bob')), 'create_invite');
 
 		expect(result.isError).toBe(true);
 		expect(text(result)).toBe('Only an Admin can do that');

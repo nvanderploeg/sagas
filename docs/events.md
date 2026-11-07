@@ -35,7 +35,7 @@ A connection opens with exactly one of these, then live Events and heartbeats:
 4. After a disconnect, reconnect with `Last-Event-ID` set to the last `id` received; `EventSource` does this for you. You get every Event after it, with no gap, or `reset`.
 5. On `reset`, reload every view as in step 1, and drop Events at or below each view's new `L`.
 
-The server prunes Events older than `EVENT_RETENTION_DAYS` (7 by default). The retained Events are always one contiguous seq range.
+The server prunes Events older than `EVENT_RETENTION_DAYS` (7 by default). The retained Events are always one contiguous seq range. A Data bundle import replaces the log, but the seq counter never moves below the value the instance had before it, so a seq a client has applied is not reused; the imported Events keep their own seqs, so a client should reload after an import.
 
 ## Who receives an Event
 
