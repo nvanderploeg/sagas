@@ -10,7 +10,8 @@ import {
 	updateQuest,
 	type QuestPatch
 } from '#lib/server/domain/quests.ts';
-import { listChildren } from '#lib/server/domain/labours.ts';
+import { createLabour, listChildren } from '#lib/server/domain/labours.ts';
+import { getQuest } from '#lib/server/domain/quest-view.ts';
 import { readAtSeq } from '#lib/server/events/log.ts';
 import { checked, int, perform, placement, signedIn, text } from '#lib/server/ui/form.ts';
 import { readQuestPage, toJson } from '#lib/server/ui/reads.ts';
@@ -62,6 +63,22 @@ export const actions: Actions = {
 			if (added.labourIds.length === 0) {
 				throw new DomainError('conflict', 'The Labour and its Children are already in the Quest');
 			}
+		});
+	},
+
+	create: async ({ request, locals, params }) => {
+		const actor = signedIn(locals);
+		const form = await request.formData();
+		return perform('create', () => {
+			const db = getDb();
+			const id = questId(params.id);
+			const labour = createLabour(db, actor, {
+				realmId: getQuest(db, id).realmId,
+				title: text(form, 'title'),
+				ownerId: actor.id
+			});
+			addQuestLabour(db, actor, id, labour.id);
+			return { key: labour.key };
 		});
 	},
 

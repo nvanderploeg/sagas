@@ -102,6 +102,29 @@
 		focusSoon(() => editBodyButton);
 	}
 
+	let titleDraft = $state('');
+	let creating = $state(false);
+
+	async function createLabour() {
+		const title = titleDraft.trim();
+		if (!title || creating) return;
+		creating = true;
+		errors.delete('create');
+		// Opened before the await so the browser still counts it as the user's click.
+		const tab = window.open('', '_blank');
+		try {
+			const done = await act('create', { title });
+			titleDraft = '';
+			// eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved just below
+			if (tab) tab.location.href = resolve('/l/[key]', { key: String(done.key) });
+		} catch (error) {
+			tab?.close();
+			errors.set('create', (error as Error).message);
+		} finally {
+			creating = false;
+		}
+	}
+
 	let staged = $state<Match | null>(null);
 	let withChildren = $state(false);
 
@@ -338,6 +361,27 @@
 						Drag ⠿ to reorder, or focus it and press Space, then arrows.
 					</p>
 				</div>
+				<form
+					class="flex gap-2 px-5 pb-3"
+					onsubmit={(e) => {
+						e.preventDefault();
+						createLabour();
+					}}
+				>
+					<input
+						class="field min-w-0 flex-1"
+						aria-label="New Labour title"
+						placeholder="New Labour in this Quest"
+						maxlength="200"
+						bind:value={titleDraft}
+					/>
+					<button class="btn btn-primary" type="submit" disabled={creating || !titleDraft.trim()}
+						>Create</button
+					>
+				</form>
+				{#if errors.get('create')}<p role="alert" class="error px-5 pb-3">
+						{errors.get('create')}
+					</p>{/if}
 				{#if members.length === 0}
 					<p class="px-5 pb-5 text-sm text-muted">
 						No Labours yet. Add them from any Realm with the search on the right.
