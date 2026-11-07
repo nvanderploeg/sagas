@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
-import { databasePath, origin, port, runDir } from './e2e/support/env.ts';
+import { databaseUrl, origin, port, runDir, serverUrl } from './e2e/support/env.ts';
 
 export default defineConfig({
 	testDir: 'e2e',
@@ -23,7 +23,8 @@ export default defineConfig({
 		}
 	],
 	webServer: {
-		command: 'pnpm --filter web build && node apps/web/server/index.js',
+		command:
+			'node e2e/support/prepare-db.mjs && pnpm --filter web build && node apps/web/server/index.js',
 		url: `${origin}/setup`,
 		reuseExistingServer: false,
 		timeout: 240_000,
@@ -33,7 +34,8 @@ export default defineConfig({
 			NODE_ENV: 'production',
 			HOST: '127.0.0.1',
 			PORT: String(port),
-			DATABASE_PATH: databasePath,
+			DATABASE_URL: databaseUrl,
+			E2E_SERVER_URL: serverUrl,
 			// Keep this missing: the e2e suite runs without the embedding model.
 			EMBEDDING_MODEL_DIR: join(runDir, 'no-embedding-model'),
 			STREAM_HEARTBEAT_MS: '300',

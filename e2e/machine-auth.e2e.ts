@@ -79,7 +79,7 @@ test.describe('machine endpoints', () => {
 		expect(stream.response.status).toBe(200);
 		await stream.close();
 
-		apiToken.revoke();
+		await apiToken.revoke();
 
 		await expectUnauthorized(request, '/api/events', headers);
 		await expectUnauthorized(request, '/mcp', headers);

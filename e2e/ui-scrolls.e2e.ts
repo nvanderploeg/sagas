@@ -8,7 +8,7 @@ test.describe('scrolls', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.realm();
+		const p = await ui.realm();
 		await page.goto(`/r/${p.key}`);
 		await page.getByRole('link', { name: 'Scrolls' }).click();
 		await expect(page).toHaveURL(new RegExp(`/r/${p.key}/s$`));
@@ -43,9 +43,9 @@ test.describe('scrolls', () => {
 	});
 
 	test('renaming a slug keeps the old address working', async ({ page, ui }) => {
-		const p = ui.realm();
-		const ops = ui.scroll(p.id, 'Ops');
-		ui.scroll(p.id, 'Deploys', { parentId: ops.id });
+		const p = await ui.realm();
+		const ops = await ui.scroll(p.id, 'Ops');
+		await ui.scroll(p.id, 'Deploys', { parentId: ops.id });
 
 		await page.goto(`/r/${p.key}/s/ops`);
 		await live(page);
@@ -60,8 +60,8 @@ test.describe('scrolls', () => {
 	});
 
 	test('a save from a stale version is refused and keeps the draft', async ({ page, ui }) => {
-		const p = ui.realm();
-		const scroll = ui.scroll(p.id, 'Notes', { body: 'first' });
+		const p = await ui.realm();
+		const scroll = await ui.scroll(p.id, 'Notes', { body: 'first' });
 
 		await page.goto(`/r/${p.key}/s/notes`);
 		await live(page);
@@ -72,14 +72,14 @@ test.describe('scrolls', () => {
 
 		await expect(page.getByRole('alert')).toContainText('changed after version 1');
 		await expect(page.getByLabel('Body (Markdown)')).toHaveValue('mine');
-		expect(ui.readScroll(scroll.id).body).toBe('theirs');
+		expect((await ui.readScroll(scroll.id)).body).toBe('theirs');
 	});
 
 	test('dragging a page under its parent reorders it', async ({ page, ui }) => {
-		const p = ui.realm();
-		const parent = ui.scroll(p.id, 'Guides');
-		const a = ui.scroll(p.id, 'Alpha', { parentId: parent.id });
-		ui.scroll(p.id, 'Beta', { parentId: parent.id });
+		const p = await ui.realm();
+		const parent = await ui.scroll(p.id, 'Guides');
+		const a = await ui.scroll(p.id, 'Alpha', { parentId: parent.id });
+		await ui.scroll(p.id, 'Beta', { parentId: parent.id });
 
 		await page.goto(`/r/${p.key}/s/guides`);
 		await live(page);
@@ -95,15 +95,15 @@ test.describe('scrolls', () => {
 		await expect(
 			page.getByRole('list', { name: 'Pages under Guides' }).getByRole('link')
 		).toHaveText(['Beta', 'Alpha']);
-		expect(ui.readScroll(a.id).parentId).toBe(parent.id);
+		expect((await ui.readScroll(a.id)).parentId).toBe(parent.id);
 	});
 
 	test('deleting a page asks about each child: one moves up, one goes', async ({ page, ui }) => {
-		const p = ui.realm();
-		const parent = ui.scroll(p.id, 'Old area');
-		ui.scroll(p.id, 'Keep me', { parentId: parent.id });
-		const drop = ui.scroll(p.id, 'Drop me', { parentId: parent.id });
-		ui.scroll(p.id, 'Drop leaf', { parentId: drop.id });
+		const p = await ui.realm();
+		const parent = await ui.scroll(p.id, 'Old area');
+		await ui.scroll(p.id, 'Keep me', { parentId: parent.id });
+		const drop = await ui.scroll(p.id, 'Drop me', { parentId: parent.id });
+		await ui.scroll(p.id, 'Drop leaf', { parentId: drop.id });
 
 		await page.goto(`/r/${p.key}/s/old-area`);
 		await page.getByRole('button', { name: 'Delete' }).click();
@@ -121,9 +121,9 @@ test.describe('scrolls', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.realm();
-		const labour = ui.labour(p.id, { title: 'Fix the deploy' });
-		ui.scroll(p.id, 'Runbook', { body: `Rollback steps for ${labour.key}.` });
+		const p = await ui.realm();
+		const labour = await ui.labour(p.id, { title: 'Fix the deploy' });
+		await ui.scroll(p.id, 'Runbook', { body: `Rollback steps for ${labour.key}.` });
 
 		await page.goto(`/r/${p.key}/s`);
 		await page.getByRole('searchbox', { name: 'Search Scrolls' }).fill('rollback');
@@ -140,8 +140,8 @@ test.describe('scrolls', () => {
 		other,
 		ui
 	}) => {
-		const p = ui.realm();
-		ui.scroll(p.id, 'First');
+		const p = await ui.realm();
+		await ui.scroll(p.id, 'First');
 		await page.goto(`/r/${p.key}/s/first`);
 		await live(page);
 

@@ -37,7 +37,7 @@ test.describe('session cookie over plain http', () => {
 	});
 
 	test('has the same flags when an invite is accepted', async ({ request, seed }) => {
-		const { token } = seed.invite();
+		const { token } = await seed.invite();
 		const response = await postForm(request, `/invite/${token}`, {
 			username: `cookie${Date.now().toString(36)}`,
 			displayName: 'Cookie',

@@ -5,7 +5,7 @@ test.describe('recurrences', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.realm();
+		const p = await ui.realm();
 		const title = `Review chatbot errors ${Date.now().toString(36)}`;
 
 		await page.goto(`/r/${p.key}/recurrences`);
@@ -20,7 +20,7 @@ test.describe('recurrences', () => {
 	});
 
 	test('pausing a Recurrence shows it as paused', async ({ page, ui }) => {
-		const p = ui.realm();
+		const p = await ui.realm();
 		const title = `Pausable ${Date.now().toString(36)}`;
 
 		await page.goto(`/r/${p.key}/recurrences`);

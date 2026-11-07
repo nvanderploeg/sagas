@@ -59,7 +59,7 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
 	],
 
 	ui: async ({ uiKit, db, admin }, use) => {
-		await use(uiKit.createUiSeed(db, admin.id));
+		await use(await uiKit.createUiSeed(db, admin.id));
 	},
 
 	// Every UI spec starts signed in as the Admin.

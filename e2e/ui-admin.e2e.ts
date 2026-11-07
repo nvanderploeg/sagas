@@ -85,10 +85,7 @@ test.describe('admin', () => {
 		await expect(replace).toBeDisabled();
 		await confirm.fill('REPLACE ALL DATA');
 		await replace.click();
-		await expect(page.getByTestId('pending-import')).toContainText('Restart the server');
-
-		await page.getByRole('button', { name: 'Discard staged import' }).click();
-		await expect(page.getByTestId('pending-import')).toHaveCount(0);
+		await expect(page.getByTestId('import-done')).toContainText('Data replaced');
 	});
 
 	test('refuses a non-bundle, a missing confirmation, a foreign origin and non-Admins', async ({
@@ -157,9 +154,9 @@ test.describe('admin', () => {
 		await expect(other.page.getByRole('link', { name: 'Admin' })).toHaveCount(0);
 
 		const username = uniqueName('evilbot');
-		const invites = () =>
-			(db.$client.prepare('SELECT count(*) AS n FROM invites').get() as { n: number }).n;
-		const before = invites();
+		const invites = async () =>
+			(await db.$client.query<{ n: number }>('SELECT count(*) AS n FROM invites')).rows[0].n;
+		const before = await invites();
 		const attempts: [string, Record<string, string>][] = [
 			['invite', {}],
 			['agent', { username, displayName: 'Evil Bot' }],
@@ -181,15 +178,17 @@ test.describe('admin', () => {
 			);
 			expect(answer, name).toMatchObject({ type: 'failure', status: 403 });
 		}
-		expect(invites()).toBe(before);
-		expect(db.$client.prepare('SELECT id FROM users WHERE username = ?').get(username)).toBe(
-			undefined
-		);
+		expect(await invites()).toBe(before);
 		expect(
-			db.$client
-				.prepare("SELECT id FROM api_tokens WHERE user_id = ? AND name = 'stolen'")
-				.get(admin.id)
-		).toBe(undefined);
+			(await db.$client.query('SELECT id FROM users WHERE username = $1', [username])).rowCount
+		).toBe(0);
+		expect(
+			(
+				await db.$client.query("SELECT id FROM api_tokens WHERE user_id = $1 AND name = 'stolen'", [
+					admin.id
+				])
+			).rowCount
+		).toBe(0);
 	});
 });
 

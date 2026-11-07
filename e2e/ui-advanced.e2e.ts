@@ -41,16 +41,16 @@ function watchAgentRequests(page: Page): string[] {
 }
 
 // A Realm whose Labour carries one of everything the Advanced view shows.
-function seeded(ui: UiSeed) {
-	const realm = ui.realm();
-	const effort = ui.attribute(realm.id, {
+async function seeded(ui: UiSeed) {
+	const realm = await ui.realm();
+	const effort = await ui.attribute(realm.id, {
 		key: 'effort',
 		kind: 'scale',
 		label: 'Effort',
 		rubric: 'How much work, **1** small to 5 large.',
 		spec: { min: 1, max: 5 }
 	});
-	const area = ui.attribute(realm.id, {
+	const area = await ui.attribute(realm.id, {
 		key: 'area',
 		kind: 'tags',
 		label: 'Area',
@@ -62,13 +62,17 @@ function seeded(ui: UiSeed) {
 			]
 		}
 	});
-	ui.tune(realm.id, { notes: 'Ask the **netcode** lead first.', halfLifeDays: 21, loudness: 7 });
-	ui.skill({ key: 'netcode', label: 'Netcode' });
+	await ui.tune(realm.id, {
+		notes: 'Ask the **netcode** lead first.',
+		halfLifeDays: 21,
+		loudness: 7
+	});
+	await ui.skill({ key: 'netcode', label: 'Netcode' });
 
-	const target = ui.labour(realm.id, { title: 'Rubber-banding on join' });
-	const blocker = ui.labour(realm.id, { title: 'Server tick audit' });
-	ui.values(target.id, { effort: 4, area: ['net'] });
-	ui.appraise([
+	const target = await ui.labour(realm.id, { title: 'Rubber-banding on join' });
+	const blocker = await ui.labour(realm.id, { title: 'Server tick audit' });
+	await ui.values(target.id, { effort: 4, area: ['net'] });
+	await ui.appraise([
 		{
 			labourId: target.id,
 			brief: 'Players snap back when joining a full lobby.',
@@ -78,11 +82,11 @@ function seeded(ui: UiSeed) {
 			],
 			links: [{ type: 'blocks', from: blocker.id, note: 'Needs the tick fix' }],
 			needs: { netcode: 4 },
-			stamp: ui.contentHash(target.id)
+			stamp: await ui.contentHash(target.id)
 		}
 	]);
-	ui.comment(blocker.id, `Related to ${target.key}`);
-	ui.pulses(realm.id, [
+	await ui.comment(blocker.id, `Related to ${target.key}`);
+	await ui.pulses(realm.id, [
 		{ key: 'effort', amount: 4, mood: -1 },
 		{ key: 'area:net', amount: 2, mood: 0.5 },
 		{ key: 'wishlist', amount: 1, mood: 1 }
@@ -92,7 +96,7 @@ function seeded(ui: UiSeed) {
 
 test.describe('advanced view', () => {
 	test('off by default: no agent layer shown and none fetched', async ({ page, ui }) => {
-		const { realm, target } = seeded(ui);
+		const { realm, target } = await seeded(ui);
 		const requests = watchAgentRequests(page);
 
 		for (const path of [`/l/${target.key}`, `/r/${realm.key}/settings`, '/account']) {
@@ -109,7 +113,7 @@ test.describe('advanced view', () => {
 		page,
 		ui
 	}) => {
-		const { target, blocker } = seeded(ui);
+		const { target, blocker } = await seeded(ui);
 		await page.addInitScript(() => {
 			const blocked: string[] = [];
 			(window as unknown as { blocked: string[] }).blocked = blocked;
@@ -171,18 +175,18 @@ test.describe('advanced view', () => {
 		page,
 		ui
 	}) => {
-		const { target } = seeded(ui);
+		const { target } = await seeded(ui);
 		await on(page);
 		await page.goto(`/l/${target.key}`);
 		await expect(layer(page).getByTestId('agent-stamp')).not.toContainText('stale');
 
-		ui.comment(target.id, 'New information');
+		await ui.comment(target.id, 'New information');
 		await layer(page).getByRole('button', { name: 'Refresh' }).click();
 		await expect(layer(page).getByTestId('agent-stamp')).toContainText('stale');
 	});
 
 	test('a failed load says so on the status line', async ({ page, ui }) => {
-		const { target } = seeded(ui);
+		const { target } = await seeded(ui);
 		await page.route('**/api/agent/labours/*', (route) => route.fulfill({ status: 500 }));
 		await on(page);
 		await page.goto(`/l/${target.key}`);
@@ -193,15 +197,15 @@ test.describe('advanced view', () => {
 	});
 
 	test('an unappraised Labour with nothing kept says so', async ({ page, ui }) => {
-		const realm = ui.realm();
-		const bare = ui.labour(realm.id, { title: 'Untouched' });
+		const realm = await ui.realm();
+		const bare = await ui.labour(realm.id, { title: 'Untouched' });
 		await on(page);
 		await page.goto(`/l/${bare.key}`);
 		await expect(layer(page)).toContainText('No agent layer yet.');
 	});
 
 	test('survives a reload, and turning it off removes the panel', async ({ page, ui }) => {
-		const { target } = seeded(ui);
+		const { target } = await seeded(ui);
 		await page.goto(`/l/${target.key}`);
 		await toggle(page).click();
 		await expect(layer(page)).toBeVisible();
@@ -243,7 +247,7 @@ test.describe('advanced view', () => {
 		page,
 		ui
 	}) => {
-		const { realm } = seeded(ui);
+		const { realm } = await seeded(ui);
 		await on(page);
 		await page.goto(`/r/${realm.key}/settings`);
 		const panel = layer(page);
@@ -271,9 +275,9 @@ test.describe('advanced view', () => {
 	});
 
 	test('on, the account page shows the User’s Skills and Affinity', async ({ page, ui, admin }) => {
-		const { realm, area } = seeded(ui);
-		ui.skills(admin.id, { netcode: 3 });
-		ui.affinity(admin.id, area.id, 'net', 'area:net');
+		const { realm, area } = await seeded(ui);
+		await ui.skills(admin.id, { netcode: 3 });
+		await ui.affinity(admin.id, area.id, 'net', 'area:net');
 		await on(page);
 		await page.goto('/account');
 		const panel = layer(page);
@@ -291,8 +295,8 @@ test.describe('advanced view', () => {
 		page,
 		ui
 	}) => {
-		const realm = ui.realm();
-		ui.attribute(realm.id, {
+		const realm = await ui.realm();
+		await ui.attribute(realm.id, {
 			key: 'platform',
 			kind: 'tags',
 			label: 'Platform',
@@ -304,8 +308,8 @@ test.describe('advanced view', () => {
 				]
 			}
 		});
-		const held = ui.labour(realm.id, { title: 'Crash on launch' });
-		ui.values(held.id, { platform: ['pc'] });
+		const held = await ui.labour(realm.id, { title: 'Crash on launch' });
+		await ui.values(held.id, { platform: ['pc'] });
 		const errors = watchErrors(page);
 		await on(page);
 		await page.goto(`/r/${realm.key}/settings`);
@@ -325,22 +329,22 @@ test.describe('advanced view', () => {
 	});
 
 	test('long unbroken tokens never widen the page', async ({ page, ui, admin }) => {
-		const realm = ui.realm();
-		const summary = ui.attribute(realm.id, {
+		const realm = await ui.realm();
+		const summary = await ui.attribute(realm.id, {
 			key: 'summary',
 			kind: 'text',
 			label: 'Summary',
 			rubric: '```\n' + token('rubric') + '\n```',
 			spec: { max: 1000 }
 		});
-		ui.tune(realm.id, { notes: token('notes') + '\n\n```\n' + token('code') + '\n```' });
-		ui.skill({ key: 'netcode', label: token('skill', 64) });
-		ui.skills(admin.id, { netcode: 2 });
-		ui.affinity(admin.id, summary.id, null, 'summary');
-		const target = ui.labour(realm.id, { title: 'Wide' });
-		const other = ui.labour(realm.id, { title: 'Other' });
-		ui.values(target.id, { summary: token('value') });
-		ui.appraise([
+		await ui.tune(realm.id, { notes: token('notes') + '\n\n```\n' + token('code') + '\n```' });
+		await ui.skill({ key: 'netcode', label: token('skill', 64) });
+		await ui.skills(admin.id, { netcode: 2 });
+		await ui.affinity(admin.id, summary.id, null, 'summary');
+		const target = await ui.labour(realm.id, { title: 'Wide' });
+		const other = await ui.labour(realm.id, { title: 'Other' });
+		await ui.values(target.id, { summary: token('value') });
+		await ui.appraise([
 			{
 				labourId: target.id,
 				brief: token('brief'),
@@ -349,7 +353,7 @@ test.describe('advanced view', () => {
 				needs: { netcode: 3 }
 			}
 		]);
-		ui.pulses(realm.id, [{ key: `${'a'.repeat(32)}:${'b'.repeat(32)}`, amount: 1, mood: 0 }]);
+		await ui.pulses(realm.id, [{ key: `${'a'.repeat(32)}:${'b'.repeat(32)}`, amount: 1, mood: 0 }]);
 		await on(page);
 
 		for (const width of [1280, 390]) {
@@ -366,14 +370,14 @@ test.describe('advanced view', () => {
 	});
 
 	test('a User created after the page loaded shows by name', async ({ page, ui }) => {
-		const { target } = seeded(ui);
+		const { target } = await seeded(ui);
 		await on(page);
 		await page.goto(`/l/${target.key}`);
 		await expect(layer(page).getByTestId('agent-brief')).toBeVisible();
 
-		const scout = ui.agent(uniqueName('scout'), 'Scout Bot');
-		ui.join(target.realmId, scout.id);
-		ui.appraiseAs(scout.id, [{ labourId: target.id, brief: 'Rewritten by the scout.' }]);
+		const scout = await ui.agent(uniqueName('scout'), 'Scout Bot');
+		await ui.join(target.realmId, scout.id);
+		await ui.appraiseAs(scout.id, [{ labourId: target.id, brief: 'Rewritten by the scout.' }]);
 		await layer(page).getByRole('button', { name: 'Refresh' }).click();
 		const brief = layer(page).getByRole('region', { name: 'Brief' });
 		await expect(brief).toContainText('Rewritten by the scout.');
@@ -382,8 +386,8 @@ test.describe('advanced view', () => {
 	});
 
 	test('the board renders the same with the switch on and off', async ({ page, ui }) => {
-		const { realm } = seeded(ui);
-		ui.labour(realm.id, { title: 'Second card' });
+		const { realm } = await seeded(ui);
+		await ui.labour(realm.id, { title: 'Second card' });
 		const requests = watchAgentRequests(page);
 
 		const read = async () => {
@@ -421,7 +425,7 @@ test.describe('agent endpoints', () => {
 		ui,
 		apiToken
 	}) => {
-		const { realm, target } = seeded(ui);
+		const { realm, target } = await seeded(ui);
 		for (const path of paths({ labour: target.id, realm: realm.id })) {
 			const ok = await page.request.get(path);
 			expect(ok.status(), path).toBe(200);

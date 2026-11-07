@@ -11,7 +11,7 @@ test.describe('realm settings', () => {
 		page,
 		ui
 	}) => {
-		const p = ui.realm();
+		const p = await ui.realm();
 		await page.goto(`/r/${p.key}/settings`);
 		expect(await states(page)).toEqual(['To do', 'In progress', 'Closed']);
 
@@ -33,7 +33,7 @@ test.describe('realm settings', () => {
 	});
 
 	test('adds a State before Closed, reorders it, and deletes it', async ({ page, ui }) => {
-		const p = ui.realm();
+		const p = await ui.realm();
 		await page.goto(`/r/${p.key}/settings`);
 		await page.getByLabel('New State label').fill('Review');
 		await page.getByRole('button', { name: 'Add State' }).click();
@@ -55,7 +55,7 @@ test.describe('realm settings', () => {
 	});
 
 	test('moves the Initial State, which frees the old one to be deleted', async ({ page, ui }) => {
-		const p = ui.realm();
+		const p = await ui.realm();
 		await page.goto(`/r/${p.key}/settings`);
 		const todo = page.locator('[data-testid="state-settings"][data-state="To do"]');
 		const doing = page.locator('[data-testid="state-settings"][data-state="In progress"]');
@@ -69,7 +69,7 @@ test.describe('realm settings', () => {
 	});
 
 	test('edits a State in place and closes the form once saved', async ({ page, ui }) => {
-		const p = ui.realm();
+		const p = await ui.realm();
 		await page.goto(`/r/${p.key}/settings`);
 		const doing = page.locator('[data-testid="state-settings"][data-state="In progress"]');
 		await doing.getByRole('button', { name: 'Edit In progress' }).click();
@@ -82,8 +82,8 @@ test.describe('realm settings', () => {
 	});
 
 	test('refuses to delete a State that holds Labours, inline', async ({ page, ui }) => {
-		const p = ui.realm();
-		ui.labour(p.id, { stateId: p.doing });
+		const p = await ui.realm();
+		await ui.labour(p.id, { stateId: p.doing });
 		await page.goto(`/r/${p.key}/settings`);
 		const doing = page.locator('[data-testid="state-settings"][data-state="In progress"]');
 		await doing.getByRole('button', { name: 'Delete' }).click();
@@ -92,7 +92,7 @@ test.describe('realm settings', () => {
 	});
 
 	test('gives Closed Substates, with a default, and renames the Realm', async ({ page, ui }) => {
-		const p = ui.realm();
+		const p = await ui.realm();
 		await page.goto(`/r/${p.key}/settings`);
 		const closed = page.locator('[data-testid="state-settings"][data-state="Closed"]');
 		await closed.getByRole('button', { name: '+ New Substate' }).click();
@@ -107,9 +107,13 @@ test.describe('realm settings', () => {
 		await expect(subs.nth(0)).toContainText('Default');
 		await subs.nth(1).getByRole('button', { name: 'Make default' }).click();
 		await expect(subs.nth(1)).toContainText('Default');
+		await expect(subs.nth(0)).not.toContainText('Default');
 
-		await page.getByLabel('Name', { exact: true }).fill('Renamed board');
-		await page.getByRole('button', { name: 'Save name' }).click();
+		// A live update that lands after the fill resets the draft; fill again until it sticks.
+		await expect(async () => {
+			await page.getByLabel('Name', { exact: true }).fill('Renamed board');
+			await page.getByRole('button', { name: 'Save name' }).click({ timeout: 1000 });
+		}).toPass();
 		await page.goto(`/r/${p.key}`);
 		await expect(page.getByRole('heading', { level: 1 })).toHaveText('Renamed board');
 	});
