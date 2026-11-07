@@ -1,3 +1,4 @@
+import { mapSeq } from '#lib/server/async.ts';
 import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { generateNKeysBetween } from 'fractional-indexing';
 import type { Db, Handle } from '../db/client.ts';
@@ -532,12 +533,10 @@ export async function countDescendants(
 	scrollIds: number[]
 ): Promise<Map<number, number>> {
 	return new Map(
-		await Promise.all(
-			scrollIds.map(async (id): Promise<[number, number]> => [
-				id,
-				(await subtree(db, id)).length - 1
-			])
-		)
+		await mapSeq(scrollIds, async (id): Promise<[number, number]> => [
+			id,
+			(await subtree(db, id)).length - 1
+		])
 	);
 }
 

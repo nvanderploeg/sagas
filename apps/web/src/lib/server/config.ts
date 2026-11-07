@@ -84,11 +84,11 @@ export const webhookDisableAfterMs =
 	positiveNumber('WEBHOOK_DISABLE_AFTER_HOURS', process.env.WEBHOOK_DISABLE_AFTER_HOURS, 72) *
 	HOUR_MS;
 
-const GIB = 1024 ** 3;
+const MIB = 1024 ** 2;
 
 // Caps the upload; the unpacked bundle may be four times this.
 export const importMaxBytes = positiveInteger(
 	'SAGAS_IMPORT_MAX_BYTES',
 	process.env.SAGAS_IMPORT_MAX_BYTES,
-	10 * GIB
+	200 * MIB
 );

@@ -236,7 +236,7 @@ export function registerScrollTools({ db, actor, define }: Tools): void {
 				"Full-text search over the titles and bodies of a Realm's Scrolls, best match first; a title match counts more than a body match.",
 			input: {
 				realm: realmRef,
-				query: z.string().trim().min(1).describe('Words to find'),
+				query: z.string().trim().min(1).max(500).describe('Words to find, up to 500 characters'),
 				limit: z
 					.number()
 					.int()

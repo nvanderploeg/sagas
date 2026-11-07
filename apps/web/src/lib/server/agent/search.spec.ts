@@ -567,6 +567,21 @@ describe('tsQuery', () => {
 		}
 	);
 
+	it('keeps the first 64 distinct terms and drops repeats', () => {
+		const words = Array.from({ length: 20_000 }, (_, i) => `w${i % 100}`).join(' ');
+
+		const terms = tsQuery(words)!.split(' | ');
+
+		expect(terms).toHaveLength(64);
+		expect(new Set(terms).size).toBe(64);
+		expect(terms[0]).toBe("'w0'");
+		expect(terms[63]).toBe("'w63'");
+	});
+
+	it('cuts a single huge word', () => {
+		expect(tsQuery('x'.repeat(5000))).toBe(`'${'x'.repeat(64)}'`);
+	});
+
 	it('never lets a quote from the query into the expression', () => {
 		const expression = tsQuery('a"b" OR "c');
 

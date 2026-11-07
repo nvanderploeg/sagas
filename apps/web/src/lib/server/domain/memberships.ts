@@ -1,3 +1,4 @@
+import { mapSeq } from '#lib/server/async.ts';
 import { and, asc, count, eq, inArray, ne, or } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { labours, realmMembers, realms, users } from '../db/schema.ts';
@@ -233,12 +234,10 @@ export async function removeMember(
 		await tx
 			.delete(realmMembers)
 			.where(and(eq(realmMembers.realmId, realmId), eq(realmMembers.userId, userId)));
-		const events = await Promise.all(
-			touched.map(async (row): Promise<EventSpec> => ({
-				type: 'labour.updated',
-				data: { labour: await readLabour(tx, row.id) }
-			}))
-		);
+		const events = await mapSeq(touched, async (row): Promise<EventSpec> => ({
+			type: 'labour.updated',
+			data: { labour: await readLabour(tx, row.id) }
+		}));
 		return { value: undefined, events };
 	});
 }

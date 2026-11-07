@@ -678,9 +678,9 @@ describe('storage', () => {
 
 		await ask({ age: 1 }, {}, { now: ago(40) });
 		vi.advanceTimersByTime(1000);
-		expect(await db.select().from(surveys)).toHaveLength(0);
+		await vi.waitFor(async () => expect(await db.select().from(surveys)).toHaveLength(0));
 
-		stop();
+		await stop();
 		await ask({ age: 1 }, {}, { now: ago(40) });
 		vi.advanceTimersByTime(5000);
 		expect(await db.select().from(surveys)).toHaveLength(1);

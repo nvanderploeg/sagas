@@ -450,6 +450,12 @@ describe('search_scrolls', () => {
 		expect(text(result).split('\n')[0]).toBe('2 Scrolls match "deploy"');
 	});
 
+	it('refuses a query past 500 characters', async () => {
+		expect(
+			await fail(owner, 'search_scrolls', { realm: 'AM', query: 'deploy '.repeat(100) })
+		).toMatchObject({ code: 'invalid' });
+	});
+
 	it('stops at the limit, which is at most 100', async () => {
 		expect(
 			(await ok(owner, 'search_scrolls', { realm: 'AM', query: 'deploy', limit: 1 })).scrolls

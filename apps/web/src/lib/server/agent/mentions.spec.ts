@@ -687,14 +687,14 @@ describe('readAppraisal mentions', () => {
 
 	it('returns at most the 10 newest', async () => {
 		const sources = await Promise.all(Array.from({ length: 12 }, () => source('plain')));
-		sources.forEach((labour, index) => {
-			insertMention({
+		for (const [index, labour] of sources.entries()) {
+			await insertMention({
 				sourceLabourId: labour.id,
 				labourId: target.id,
 				authorId: ada,
 				firstSeenAt: new Date(T1.getTime() + index * 1000)
 			});
-		});
+		}
 
 		const found = (await readAppraisal(db, target.id)).mentions;
 

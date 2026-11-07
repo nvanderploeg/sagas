@@ -407,6 +407,15 @@ describe('search', () => {
 		expect(hits[1].snippet).toContain('deploy');
 	});
 
+	it('answers a query of 20,000 words', async () => {
+		const scroll = await make('Notes', null, { body: 'deploy the server' });
+		const words = Array.from({ length: 20_000 }, (_, i) => `w${i}`);
+
+		const hits = await searchScrolls(db, realmId, ['deploy', ...words].join(' '));
+
+		expect(hits.map((h) => h.id)).toEqual([scroll.id]);
+	});
+
 	it('follows edits', async () => {
 		const scroll = await make('Notes', null, { body: 'alpha' });
 		await updateScroll(db, actor, scroll.id, { body: 'beta' });

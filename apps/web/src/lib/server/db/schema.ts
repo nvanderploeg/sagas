@@ -585,7 +585,7 @@ export const scrollRefs = pgTable(
 export const events = pgTable(
 	'events',
 	{
-		// Assigned from event_counter inside the writing transaction: no gaps, even across rollbacks.
+		// Allocated from event_counter inside the writing transaction.
 		seq: integer('seq').primaryKey(),
 		type: text('type', { enum: EVENT_TYPES }).notNull(),
 		actorId: integer('actor_id')

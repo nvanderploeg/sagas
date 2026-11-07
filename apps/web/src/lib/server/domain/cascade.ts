@@ -1,3 +1,4 @@
+import { mapSeq } from '#lib/server/async.ts';
 import { and, asc, eq, inArray, not, type SQL } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
 import { questLabours, labours } from '../db/schema.ts';
@@ -44,18 +45,14 @@ export async function prepareLabourDelete(tx: Handle, doomed: SQL): Promise<Fall
 export async function falloutEvents(tx: Handle, fallout: Fallout): Promise<EventSpec[]> {
 	for (const questId of fallout.quests.keys()) await touchQuest(tx, questId);
 	return [
-		...(await Promise.all(
-			fallout.orphans.map(async (id): Promise<EventSpec> => ({
-				type: 'labour.reparented',
-				data: { labour: await readLabour(tx, id) }
-			}))
-		)),
-		...(await Promise.all(
-			[...fallout.quests].map(async ([questId, labourIds]): Promise<EventSpec> => ({
-				type: 'quest.labours_removed',
-				data: { quest: await readQuest(tx, questId), labourIds },
-				realms: fallout.questRealms.get(questId)
-			}))
-		))
+		...(await mapSeq(fallout.orphans, async (id): Promise<EventSpec> => ({
+			type: 'labour.reparented',
+			data: { labour: await readLabour(tx, id) }
+		}))),
+		...(await mapSeq([...fallout.quests], async ([questId, labourIds]): Promise<EventSpec> => ({
+			type: 'quest.labours_removed',
+			data: { quest: await readQuest(tx, questId), labourIds },
+			realms: fallout.questRealms.get(questId)
+		})))
 	];
 }

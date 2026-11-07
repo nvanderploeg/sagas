@@ -1,3 +1,4 @@
+import { mapSeq } from '#lib/server/async.ts';
 import { asc, eq } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { labours, recurrenceQuests, recurrences, states } from '../db/schema.ts';
@@ -72,7 +73,7 @@ export async function listRecurrences(db: Handle, realmId: number): Promise<Recu
 		.from(recurrences)
 		.where(eq(recurrences.realmId, realmId))
 		.orderBy(asc(recurrences.id));
-	return Promise.all(rows.map((row) => readRecurrence(db, row.id)));
+	return mapSeq(rows, (row) => readRecurrence(db, row.id));
 }
 
 function requireCadence(unit: string, every: number): void {

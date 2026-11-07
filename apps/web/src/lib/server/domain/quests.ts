@@ -1,3 +1,4 @@
+import { mapSeq } from '#lib/server/async.ts';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { questLabours, quests } from '../db/schema.ts';
@@ -41,7 +42,7 @@ async function membersOf(db: Handle, questId: number) {
 
 export async function listQuests(db: Handle): Promise<QuestView[]> {
 	const rows = await db.select({ id: quests.id }).from(quests).orderBy(asc(quests.id));
-	return Promise.all(rows.map((row) => readQuest(db, row.id)));
+	return mapSeq(rows, (row) => readQuest(db, row.id));
 }
 
 export async function listLabourQuests(db: Handle, labourId: number): Promise<Quest[]> {

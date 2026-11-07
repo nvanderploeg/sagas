@@ -51,7 +51,7 @@ describe('transact', () => {
 			const writers = Array.from({ length: 6 }, () =>
 				transact(small, async (tx) => {
 					await tx.execute(sql`UPDATE ticks SET n = n + 1 WHERE id = 1`);
-					// A second connection while this one is held: starves a pool the queue does not bound.
+					// Needs a second connection while the transaction holds the first.
 					await small.$client.query('SELECT 1');
 				})
 			);

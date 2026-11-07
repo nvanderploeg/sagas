@@ -223,12 +223,9 @@ describe("the programmer's ask: improve combat feel for boss fights", () => {
 	});
 
 	it('explains the leaders by keywords and pain, and lifts the designs by the reports behind them', async () => {
-		// Every leader shares words with the ask and every one is about bosses, so `keywords` and
-		// `pain` are present on all six; `pain` is the same for each since area:boss is their only
-		// angry key. `evidence` counts the reports linked as supporting a design: the sponge, dragon
-		// and slam reports support the telegraph design (3 / (3 + 2)), the sponge and dragon
-		// reports the damage design (2 / (2 + 2)). Evidence lifts the telegraph design over the
-		// sponge report it answers.
+		// `pain` is equal across the leaders: area:boss is their only angry key. `evidence` is the
+		// share of supporting reports: three of the telegraph design's five links, two of the
+		// damage design's four.
 		const result = await ask('rook', { query: QUERY, weights: WEIGHTS });
 		const bossPain = 2 * painOf(result, 'area:boss');
 

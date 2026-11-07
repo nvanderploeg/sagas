@@ -1,3 +1,4 @@
+import { mapSeq } from '#lib/server/async.ts';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import type { Db, Handle } from '../db/client.ts';
 import { states, stateFlows, substates, labours } from '../db/schema.ts';
@@ -295,12 +296,10 @@ export async function createSubstate(
 			value: await getSubstate(tx, row.id),
 			events: [
 				await substateEvent(tx, 'substate.created', row),
-				...(await Promise.all(
-					moved.map(async (id): Promise<EventSpec> => ({
-						type: 'labour.updated',
-						data: { labour: await readLabour(tx, id) }
-					}))
-				))
+				...(await mapSeq(moved, async (id): Promise<EventSpec> => ({
+					type: 'labour.updated',
+					data: { labour: await readLabour(tx, id) }
+				})))
 			]
 		};
 	});

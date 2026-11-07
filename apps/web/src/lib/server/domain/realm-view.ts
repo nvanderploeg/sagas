@@ -1,3 +1,4 @@
+import { mapSeq } from '#lib/server/async.ts';
 import { asc, eq, inArray } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
 import { labours, stateFlows } from '../db/schema.ts';
@@ -27,13 +28,11 @@ export async function readRealm(db: Handle, realmId: number) {
 	for (const f of flows) {
 		targets.set(f.fromStateId, (targets.get(f.fromStateId) ?? new Set()).add(f.toStateId));
 	}
-	const states = await Promise.all(
-		rows.map(async (state) => ({
-			...state,
-			substates: await listSubstates(db, state.id),
-			next: rows.filter((to) => targets.get(state.id)?.has(to.id)).map((to) => to.id)
-		}))
-	);
+	const states = await mapSeq(rows, async (state) => ({
+		...state,
+		substates: await listSubstates(db, state.id),
+		next: rows.filter((to) => targets.get(state.id)?.has(to.id)).map((to) => to.id)
+	}));
 	return { id, name, key, initialStateId, states };
 }
 

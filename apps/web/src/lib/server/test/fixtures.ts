@@ -7,7 +7,7 @@ import type { Actor } from '#lib/server/domain/write.ts';
 
 export const TODO = { key: 'todo', label: 'To do', color: '#111111', icon: 'circle' };
 
-// Specs fire seeds together with Promise.all and expect them to land in call order.
+// Seeds run one at a time, in call order, however a spec starts them.
 let seeding: Promise<unknown> = Promise.resolve();
 function inOrder<T>(task: () => Promise<T>): Promise<T> {
 	const result = seeding.then(task, task);

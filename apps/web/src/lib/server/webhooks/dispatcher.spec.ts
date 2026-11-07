@@ -171,8 +171,7 @@ function dispatcher(overrides: Partial<DispatcherDeps> = {}): Dispatcher {
 	return d;
 }
 
-// Webhook ids come from an identity sequence. Winding it back makes the next one reuse the last
-// deleted id, which exposes any state the dispatcher still keeps for the deleted Webhook.
+// Winds the id sequence back so the next Webhook reuses the last deleted id.
 async function reuseLastId(): Promise<void> {
 	await db.$client.query(
 		`SELECT setval(pg_get_serial_sequence('webhooks', 'id'), last_value, false) FROM webhooks_id_seq`

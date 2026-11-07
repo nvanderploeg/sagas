@@ -20,8 +20,7 @@ async function counted<T>(run: () => Promise<T>): Promise<T> {
 	}
 }
 
-// Writers queue here, not on the lock: a waiting writer holds no connection, so a burst of writes
-// never starves the pool of the reads that would let them finish.
+// Queue writers here, not on the lock: a waiting writer must hold no connection.
 function exclusive<T>(pool: object, run: () => Promise<T>): Promise<T> {
 	const result = (turns.get(pool) ?? Promise.resolve()).then(run, run);
 	turns.set(

@@ -1,3 +1,4 @@
+import { mapSeq } from '#lib/server/async.ts';
 import { and, asc, count, eq, inArray, or, sql } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
 import { realmKeys, realms, quests, states, labours } from '../db/schema.ts';
@@ -51,11 +52,8 @@ const seen = async (db: Handle, viewer: Viewer): Promise<Set<number> | null> => 
 
 export async function readAllRealms(db: Handle, viewer: Viewer): Promise<RealmView[]> {
 	const visible = await seen(db, viewer);
-	return Promise.all(
-		(await listRealms(db))
-			.filter((p) => visible === null || visible.has(p.id))
-			.map((p) => readRealm(db, p.id))
-	);
+	const shown = (await listRealms(db)).filter((p) => visible === null || visible.has(p.id));
+	return mapSeq(shown, (p) => readRealm(db, p.id));
 }
 
 const inRealms = (visible: Set<number> | null) =>
@@ -86,9 +84,7 @@ export async function readHome(db: Handle, viewer: Viewer) {
 	return {
 		realms: await readAllRealms(db, viewer),
 		mine,
-		quests: await Promise.all(
-			owned.map(async (q) => restrictQuest(await readQuest(db, q.id), visible))
-		)
+		quests: await mapSeq(owned, async (q) => restrictQuest(await readQuest(db, q.id), visible))
 	};
 }
 
@@ -136,6 +132,8 @@ export async function readQuestList(
 	};
 }
 
+const SEARCH_MAX = 200;
+
 export type LabourMatch = LabourView & { childCount: number };
 
 // Matches a Labour key, current or former, then key prefixes and titles.
@@ -145,7 +143,7 @@ export async function searchLabours(
 	input: string,
 	limit = 12
 ): Promise<LabourMatch[]> {
-	const query = input.trim();
+	const query = input.trim().slice(0, SEARCH_MAX);
 	if (query === '') return [];
 	const visible = await seen(db, viewer);
 	const found0 = await resolveLabourKey(db, query);

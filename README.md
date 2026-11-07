@@ -74,8 +74,8 @@ migrations), **Export** and **Import**. The contract is `docs/data-bundle.md`.
    everything in one transaction: Users, Realms, Labours, Scrolls, tokens, sessions. Sign in
    afterwards as a User from the bundle. Nothing is kept of what it replaced; export first.
 
-A bundle from the SQLite build imports the same way. `SAGAS_IMPORT_MAX_BYTES` (default 10 GiB) caps
-the upload. The browser sends the bundle in 256 KiB chunks, so the default `BODY_SIZE_LIMIT` of
+A bundle from the SQLite build imports the same way. `SAGAS_IMPORT_MAX_BYTES` (default 200 MiB) caps
+the upload; deploy/README.md says what raising it costs. The browser sends the bundle in 256 KiB chunks, so the default `BODY_SIZE_LIMIT` of
 adapter-node needs no change. A reverse proxy must allow request bodies of at least that chunk size
 on `/admin/import`.
 

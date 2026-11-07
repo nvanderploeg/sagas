@@ -6,7 +6,7 @@ export async function scheduleAgentPruning(
 	db: Handle,
 	surveyRetentionMs: number,
 	everyMs = 60 * 60 * 1000
-): Promise<() => void> {
+): Promise<() => Promise<void>> {
 	const prune = async () => {
 		try {
 			await pruneSurveys(db, surveyRetentionMs);
@@ -20,7 +20,13 @@ export async function scheduleAgentPruning(
 		}
 	};
 	await prune();
-	const timer = setInterval(prune, everyMs);
+	let running: Promise<void> = Promise.resolve();
+	const timer = setInterval(() => {
+		running = prune();
+	}, everyMs);
 	timer.unref();
-	return () => clearInterval(timer);
+	return async () => {
+		clearInterval(timer);
+		await running;
+	};
 }

@@ -405,9 +405,9 @@ describe('the sentiment block of the result', () => {
 		const big = await seedRealm(db, 'BIG');
 		const members = Array.from({ length: 12 }, (_, i) => `m${String(i + 1).padStart(2, '0')}`);
 		await define(big.id, 'many', 'tags', { members: members.map((key) => ({ key, label: key })) });
-		members.forEach((member, i) => {
-			onePulse(big.id, { key: `many:${member}`, amount: (i + 1) * 0.5, halfLifeDays: null });
-		});
+		for (const [i, member] of members.entries()) {
+			await onePulse(big.id, { key: `many:${member}`, amount: (i + 1) * 0.5, halfLifeDays: null });
+		}
 		await labour(big.id, { many: members });
 
 		const result = await survey(

@@ -374,15 +374,15 @@ describe('similarity', () => {
 				ids.push(...inserted.map(({ id }) => id));
 			}
 			for (const id of ids) await refreshEmbeddingInput(db, id);
-			ids.forEach((id, n) => {
-				writeVector(
+			for (const [n, id] of ids.entries()) {
+				await writeVector(
 					db,
 					id,
 					MODEL_ID,
 					sha(`Bulk labour ${n}\n\nDescription of bulk labour ${n}`),
 					vectors[n % vectors.length]
 				);
-			});
+			}
 
 			const once = async () => {
 				const started = performance.now();

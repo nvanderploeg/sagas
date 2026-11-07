@@ -20,11 +20,18 @@ const WEIGHTS = sql.raw(`'{0.25, 0.5, 0.75, 1.0}'::float4[]`);
 // Divides by 1 + log(document length): a short title outranks the same word in a long one.
 const LENGTH_NORMALIZATION = 1;
 
-// Every run of letters and digits as a quoted term, OR-ed; the query's own syntax never reaches
-// to_tsquery.
+export const TERMS_MAX = 64;
+const TERM_LENGTH_MAX = 64;
+
+// The first TERMS_MAX distinct runs of letters and digits as quoted terms, OR-ed; the query's own
+// syntax never reaches to_tsquery, and its size never reaches the planner.
 export function tsQuery(query: string): string | null {
-	const runs = query.match(TOKEN);
-	return runs === null ? null : runs.map((run) => `'${run}'`).join(' | ');
+	const terms = new Set<string>();
+	for (const run of query.match(TOKEN) ?? []) {
+		terms.add(run.slice(0, TERM_LENGTH_MAX));
+		if (terms.size === TERMS_MAX) break;
+	}
+	return terms.size === 0 ? null : [...terms].map((term) => `'${term}'`).join(' | ');
 }
 
 // Labour id to relevance in (0, 1]; the best match is 1.
