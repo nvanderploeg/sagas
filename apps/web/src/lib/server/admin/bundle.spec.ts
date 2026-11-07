@@ -204,7 +204,11 @@ describe('export and import', () => {
 		await importBundle(target, bundle, LIMITS);
 
 		expect((await eventWindow(target)).last).toBe(liveLast);
-		const made = await createLabour(target, await seedActor(target), { realmId: 1, title: 'next', ownerId: 1 });
+		const made = await createLabour(target, await seedActor(target), {
+			realmId: 1,
+			title: 'next',
+			ownerId: 1
+		});
 		void made;
 		expect((await eventWindow(target)).last).toBe(liveLast + 1);
 	});

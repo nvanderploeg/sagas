@@ -227,9 +227,8 @@ describe("the programmer's ask: improve combat feel for boss fights", () => {
 		// `pain` are present on all six; `pain` is the same for each since area:boss is their only
 		// angry key. `evidence` counts the reports linked as supporting a design: the sponge, dragon
 		// and slam reports support the telegraph design (3 / (3 + 2)), the sponge and dragon
-		// reports the damage design (2 / (2 + 2)). The telegraph design leads the slam report it
-		// answers; evidence only widens the gap, because ts_rank_cd has no IDF to favour the rarer
-		// query words the way bm25 did.
+		// reports the damage design (2 / (2 + 2)). Evidence lifts the telegraph design over the
+		// sponge report it answers.
 		const result = await ask('rook', { query: QUERY, weights: WEIGHTS });
 		const bossPain = 2 * painOf(result, 'area:boss');
 
@@ -245,12 +244,14 @@ describe("the programmer's ask: improve combat feel for boss fights", () => {
 		expect(itemOf(result, 'sponge').contributions.evidence ?? 0).toBe(0);
 		expect(itemOf(result, 'glow').contributions.evidence ?? 0).toBe(0);
 
-		const telegraph = itemOf(result, 'telegraph');
-		expect(positionOf(result, 'telegraph')).toBeLessThan(positionOf(result, 'cantTell'));
-		expect(telegraph.contributions.evidence).toBeGreaterThan(0);
-		expect(scoreOf(result, 'telegraph')).toBeGreaterThan(
-			telegraph.score - telegraph.contributions.evidence
+		const withoutEvidence = await ask('rook', {
+			query: QUERY,
+			weights: { ...WEIGHTS, evidence: 0 }
+		});
+		expect(positionOf(withoutEvidence, 'telegraph')).toBeGreaterThan(
+			positionOf(withoutEvidence, 'sponge')
 		);
+		expect(positionOf(result, 'telegraph')).toBeLessThan(positionOf(result, 'sponge'));
 		expect(positionOf(result, 'damagePhases')).toBeLessThan(positionOf(result, 'hpRetune'));
 	});
 

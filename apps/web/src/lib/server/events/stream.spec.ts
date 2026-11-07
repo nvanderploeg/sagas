@@ -268,7 +268,9 @@ describe('stream lifetime', () => {
 
 	it('releases everything when the opening read fails', async () => {
 		await db.$client.end();
-		const streams = [1, 2, 3].map(() => openEventStream(db, { guard, since: 0, heartbeatMs: 60_000 }));
+		const streams = [1, 2, 3].map(() =>
+			openEventStream(db, { guard, since: 0, heartbeatMs: 60_000 })
+		);
 
 		const reads = await Promise.allSettled(streams.map((stream) => stream.getReader().read()));
 

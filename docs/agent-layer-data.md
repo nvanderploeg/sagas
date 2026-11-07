@@ -216,11 +216,11 @@ At startup, before the server takes requests, a derived structure whose stored v
 
 ### `labour_text`
 
-| Column      | Type     | Notes                                                                            |
-| ----------- | -------- | -------------------------------------------------------------------------------- |
-| `labour_id` | integer  | Primary key; foreign key to `labours`, `ON DELETE CASCADE`                      |
-| `title`, `brief`, `description`, `comments`, `notes` | text | `comments` holds the Labour's Comment bodies in order, and `notes` its `text` values, each joined by blank lines |
-| `search`    | tsvector | Generated and stored: `setweight` A title, B Brief, C notes, D description and Comments. GIN-indexed |
+| Column                                               | Type     | Notes                                                                                                            |
+| ---------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------- |
+| `labour_id`                                          | integer  | Primary key; foreign key to `labours`, `ON DELETE CASCADE`                                                       |
+| `title`, `brief`, `description`, `comments`, `notes` | text     | `comments` holds the Labour's Comment bodies in order, and `notes` its `text` values, each joined by blank lines |
+| `search`                                             | tsvector | Generated and stored: `setweight` A title, B Brief, C notes, D description and Comments. GIN-indexed             |
 
 - The text search configuration is `sagas_english`: English stemming and no stop words, so a query word like `and` still matches.
 - `keywords` ranks with `ts_rank_cd` over the weights 4:3:2:1 (title, Brief, notes, the rest) and length normalisation 1. Its query is the OR of the query's letter and digit runs, each quoted, as the contract's Surveys section says; raw query text never reaches `to_tsquery`.
