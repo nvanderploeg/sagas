@@ -35,7 +35,7 @@ One User's role in one Realm: `owner`, `editor` or `viewer`. A Realm is private 
 A pending Membership an Owner makes to a User by username. Grants nothing until the invitee accepts; declining or withdrawing deletes it.
 
 **Realm limit**:
-How many Realms a User may create, 1 by default; an Admin changes it. Creating past it is refused. It counts Realms the User created, not Realms they joined.
+How many Realms a User may create, 1 by default; an Admin changes it. Creating past it is refused. It counts Realms the User created, not Realms they joined. Agent users cannot create Realms at all.
 
 **Realm key**:
 2–6 letters or digits starting with a letter, unique across the instance, stored uppercase. Renaming one keeps the old key as an Alias for every Labour in the Realm.

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { Db, Handle } from '#lib/server/db/client.ts';
 import { users } from '#lib/server/db/schema.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
@@ -107,9 +107,24 @@ export async function setRealmLimit(
 		throw new DomainError('invalid', 'Realm limit must be a whole number, 0 or more');
 	}
 	const row = (
-		await db.update(users).set({ realmLimit: limit }).where(eq(users.id, userId)).returning()
+		await db
+			.update(users)
+			.set({ realmLimit: limit })
+			.where(and(eq(users.id, userId), eq(users.kind, 'human')))
+			.returning()
 	)[0];
-	if (!row) throw new DomainError('not_found', 'No such User');
+	if (!row) {
+		const target = (
+			await db.select({ kind: users.kind }).from(users).where(eq(users.id, userId))
+		)[0];
+		if (target?.kind === 'agent') {
+			throw new DomainError(
+				'invalid',
+				'Agent users cannot create Realms, so they have no Realm limit'
+			);
+		}
+		throw new DomainError('not_found', 'No such User');
+	}
 	return toAuthUser(row);
 }
 

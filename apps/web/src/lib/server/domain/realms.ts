@@ -60,17 +60,24 @@ export async function createRealmWithStates(
 }
 
 async function assertRealmLimit(tx: Handle, userId: number): Promise<void> {
-	const limit = (
-		await tx.select({ n: users.realmLimit }).from(users).where(eq(users.id, userId)).limit(1)
-	)[0]?.n;
-	if (limit === undefined) throw new DomainError('not_found', 'No such User');
+	const user = (
+		await tx
+			.select({ kind: users.kind, limit: users.realmLimit })
+			.from(users)
+			.where(eq(users.id, userId))
+			.limit(1)
+	)[0];
+	if (user === undefined) throw new DomainError('not_found', 'No such User');
+	if (user.kind === 'agent') {
+		throw new DomainError('forbidden', 'Agent users cannot create Realms');
+	}
 	const made = (
 		await tx.select({ n: count() }).from(realms).where(eq(realms.createdByUserId, userId))
 	)[0].n;
-	if (made >= limit) {
+	if (made >= user.limit) {
 		throw new DomainError(
 			'forbidden',
-			`Realm limit reached: you may create ${limit} ${limit === 1 ? 'Realm' : 'Realms'}. Ask an Admin to raise it.`
+			`Realm limit reached: you may create ${user.limit} ${user.limit === 1 ? 'Realm' : 'Realms'}. Ask an Admin to raise it.`
 		);
 	}
 }

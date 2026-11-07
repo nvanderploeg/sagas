@@ -284,6 +284,21 @@ describe('realm limit', () => {
 		expect(await listRealms(db)).toHaveLength(1);
 	});
 
+	it('refuses an Agent user outright, whatever its limit', async () => {
+		const agent = (
+			await db
+				.insert(users)
+				.values({ kind: 'agent', username: 'bot', displayName: 'Bot', realmLimit: 5 })
+				.returning({ id: users.id })
+		)[0];
+
+		await expect(createRealm(db, { id: agent.id }, input('AA'))).rejects.toMatchObject({
+			code: 'forbidden',
+			message: expect.stringContaining('Agent') as string
+		});
+		expect(await listRealms(db)).toHaveLength(0);
+	});
+
 	it('allows more once an Admin raises the limit, and none at 0', async () => {
 		const user = await limited(2);
 		await createRealm(db, user, input('AA'));

@@ -63,7 +63,7 @@ beforeEach(async () => {
 		id: (
 			await db
 				.insert(users)
-				.values({ kind: 'agent', username: 'writer', displayName: 'The Writer' })
+				.values({ kind: 'human', username: 'writer', displayName: 'The Writer' })
 				.returning()
 		)[0].id
 	};
@@ -106,7 +106,7 @@ describe('the Event record', () => {
 		expect(Object.keys(event).sort()).toEqual(['actor', 'createdAt', 'data', 'seq', 'type']);
 		expect(event.actor).toEqual({
 			id: actor.id,
-			kind: 'agent',
+			kind: 'human',
 			username: 'writer',
 			displayName: 'The Writer',
 			via: null

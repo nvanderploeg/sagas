@@ -64,6 +64,13 @@ describe('realm limit', () => {
 		await expectCode(() => setRealmLimit(db, grace, grace.id, 9), 'forbidden');
 	});
 
+	it('refuses to set a limit on an Agent user', async () => {
+		const admin = await seedAdmin(db);
+		const agent = await createAgentUser(db, admin, { username: 'bot', displayName: 'Bot' });
+
+		await expectCode(() => setRealmLimit(db, admin, agent.id, 3), 'invalid');
+	});
+
 	it('rejects a negative or fractional limit and an unknown User', async () => {
 		const admin = await seedAdmin(db);
 
