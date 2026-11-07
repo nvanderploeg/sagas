@@ -23,7 +23,13 @@ const filterShape = z.strictObject({
 		.union([z.literal(true), z.strictObject({ within_days: z.number() })])
 		.optional()
 		.describe(
-			'Candidates are Labours in open States. true adds every Closed one; { within_days } adds those updated within that many days (above 0, at most 3650)'
+			'Candidates are every Labour not Closed, Backlog included. true adds every Closed one; { within_days } adds those updated within that many days (above 0, at most 3650)'
+		),
+	open_only: z
+		.literal(true)
+		.optional()
+		.describe(
+			'true keeps only Labours in States the Realm marks open, dropping Backlog-like States. Set it only when the ask says to'
 		),
 	assignee: z
 		.array(userRef.nullable())
@@ -123,6 +129,7 @@ export function registerSurveyTools({ db, actor, define }: Tools): void {
 					filter === undefined
 						? undefined
 						: {
+								openOnly: filter.open_only,
 								includeClosed:
 									filter.include_closed === undefined || filter.include_closed === true
 										? filter.include_closed

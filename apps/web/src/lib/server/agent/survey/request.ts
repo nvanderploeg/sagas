@@ -18,6 +18,7 @@ export type SurveyInput = {
 	weights: Record<string, number>;
 	filter?: {
 		includeClosed?: IncludeClosed;
+		openOnly?: true;
 		assigneeIds?: (number | null)[];
 		has?: string[];
 		labels?: string[];
@@ -221,6 +222,11 @@ function checkFilter(raw: unknown): NonNullable<SurveyInput['filter']> {
 				`includeClosed must be true or { withinDays } above 0 and at most ${WITHIN_DAYS_MAX}`
 			);
 		}
+	}
+
+	if (raw.openOnly !== undefined) {
+		if (raw.openOnly !== true) invalid('openOnly must be true');
+		filter.openOnly = true;
 	}
 
 	const assignees = raw.assigneeIds;

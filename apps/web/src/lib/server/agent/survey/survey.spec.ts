@@ -246,7 +246,7 @@ describe('candidates', () => {
 		expect(result.coverage.candidates).toBe(2);
 	});
 
-	it('leaves out Labours in States that are not open, and Closed adds them back only on request', async () => {
+	it('offers Labours in States that are not open, and keeps to open States only on request', async () => {
 		const realm = await seedRealm(db, 'AM');
 		const backlog = await createState(db, actor, realm.id, style('backlog'), 0, false);
 		const ready = await seedLabour(db, { realmId: realm.id });
@@ -254,11 +254,16 @@ describe('candidates', () => {
 		const shut = await seedLabour(db, { realmId: realm.id });
 		await close(shut);
 
-		expect(ids(await run())).toEqual([ready.id]);
-		expect(ids(await run({ filter: { includeClosed: true } }))).toEqual([ready.id, shut.id]);
-		expect(ids(await run({ filter: { includeClosed: { withinDays: 30 } } }))).not.toContain(
-			groom.id
-		);
+		expect(ids(await run())).toEqual([groom.id, ready.id]);
+		expect(ids(await run({ filter: { openOnly: true } }))).toEqual([ready.id]);
+		expect(ids(await run({ filter: { includeClosed: true } }))).toEqual([
+			groom.id,
+			ready.id,
+			shut.id
+		]);
+		expect(
+			ids(await run({ filter: { openOnly: true, includeClosed: { withinDays: 30 } } }))
+		).toEqual([ready.id, shut.id]);
 	});
 
 	it('limits to the named Realms', async () => {

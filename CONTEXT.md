@@ -71,7 +71,7 @@ A Labour whose Parent is the given Labour.
 A Realm-defined stage of a Labour: key, label, color, icon, position and whether it is open. A Realm's States are its board columns. States carry no meaning beyond their label, except Closed and open.
 
 **Open**:
-A State the Realm marks as ready to move forward: its Labours are the ones a Survey offers. A State that still needs grooming, such as a backlog, is not open. New States start open; Closed is never open.
+A State the Realm marks as ready to move forward. A State that still needs grooming, such as a backlog, is not open, and its Labours are still unfinished. Home lists only a User's Labours in open States. A Survey offers every Labour not Closed, and keeps to open States only when asked. New States start open; Closed is never open.
 _Avoid_: using "open" for "not Closed"; say unfinished.
 
 **Next States**:

@@ -128,7 +128,8 @@
 				<h2 id="states-heading" class="text-lg font-bold tracking-tight">States</h2>
 				<p class="text-sm text-muted">
 					The board's columns, top to bottom here, left to right there. Labours in open States are
-					the ones ready to move forward; Surveys offer only those. "Moves on to" marks the usual
+					the ones ready to move forward; a Survey offers them and the rest unless asked for open
+					States only. "Moves on to" marks the usual
 					next States: hints for agents and buttons on a Labour, never limits.
 				</p>
 			</div>

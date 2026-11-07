@@ -12,7 +12,7 @@ import { events, labours, mentions, surveys } from '#lib/server/db/schema.ts';
 import { renameRealmKey } from '#lib/server/domain/realms.ts';
 import { updateLabour } from '#lib/server/domain/labours.ts';
 import { addQuestLabours, createQuest } from '#lib/server/domain/quests.ts';
-import { listStates } from '#lib/server/domain/states.ts';
+import { createState, listStates } from '#lib/server/domain/states.ts';
 import type { Actor } from '#lib/server/domain/write.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import {
@@ -375,6 +375,37 @@ describe('the survey tool', () => {
 			expect(
 				keys(await ok(client, { weights: NEUTRAL, filter: { include_closed: { within_days: 5 } } }))
 			).toEqual(['AM-1', 'AM-2']);
+		});
+
+		it('offers Labours in non-open States unless open_only is set', async () => {
+			const am = await seedRealm(db, 'AM');
+			const ready = await seedLabour(db, { realmId: am.id });
+			const parked = await seedLabour(db, { realmId: am.id });
+			const backlog = await createState(
+				db,
+				actor,
+				am.id,
+				{ key: 'backlog', label: 'Backlog', color: '#64748b', icon: 'inbox' },
+				0,
+				false
+			);
+			await updateLabour(db, actor, parked.id, { stateId: backlog.id });
+			const client = await connect();
+
+			expect(keys(await ok(client, { weights: NEUTRAL }))).toEqual(
+				expect.arrayContaining(['AM-1', 'AM-2'])
+			);
+			expect(keys(await ok(client, { weights: NEUTRAL, filter: { open_only: true } }))).toEqual([
+				`AM-${ready.number}`
+			]);
+			expect(
+				keys(
+					await ok(client, {
+						weights: NEUTRAL,
+						filter: { open_only: true, include_closed: true }
+					})
+				)
+			).toEqual([`AM-${ready.number}`]);
 		});
 
 		it('refuses a within_days outside 0 to 3650', async () => {

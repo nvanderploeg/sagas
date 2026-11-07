@@ -26,6 +26,7 @@ export type Candidate = {
 export type CandidateFilter = {
 	realmIds: number[];
 	includeClosed?: true | { withinDays: number };
+	openOnly?: true;
 	// null matches unassigned.
 	assigneeIds?: (number | null)[];
 	// `attr:member` keys, all held.
@@ -38,13 +39,14 @@ export type CandidateFilter = {
 function conditions(filter: CandidateFilter, now: number): SQL[] {
 	const where: SQL[] = [sql`l.realm_id IN ${intList(filter.realmIds)}`];
 
+	const live = filter.openOnly === true ? sql`s.is_open` : sql`NOT s.is_closed`;
 	if (filter.includeClosed === undefined) {
-		where.push(sql`s.is_open`);
+		where.push(live);
 	} else if (filter.includeClosed !== true) {
 		const since = now - filter.includeClosed.withinDays * DAY_MS;
-		where.push(sql`(s.is_open OR (s.is_closed AND l.updated_at >= ${since}))`);
+		where.push(sql`(${live} OR (s.is_closed AND l.updated_at >= ${since}))`);
 	} else {
-		where.push(sql`(s.is_open OR s.is_closed)`);
+		where.push(sql`(${live} OR s.is_closed)`);
 	}
 
 	if (filter.assigneeIds !== undefined) {
