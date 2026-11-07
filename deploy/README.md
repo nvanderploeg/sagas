@@ -1,6 +1,6 @@
 # Production configuration
 
-`compose.yaml` runs PostgreSQL 16 and the published image `ghcr.io/nvanderploeg/sagas`, with the app
+`compose.yaml` runs the published image `ghcr.io/nvanderploeg/sagas`, with the app
 bound to `127.0.0.1:${SAGAS_PORT:-3290}` behind a TLS reverse proxy. The app container is read-only,
 drops every capability and keeps nothing on disk; `/tmp` is a 1 GiB tmpfs that holds an upload and its
 unpacked files while an import runs.
@@ -9,7 +9,7 @@ unpacked files while an import runs.
 docker compose --env-file .env -f deploy/compose.yaml up -d
 ```
 
-Set `POSTGRES_PASSWORD`, `ADMIN_EMAILS`, `FIREBASE_WEB_API_KEY` and `FIREBASE_SERVICE_ACCOUNT_HOST_PATH`
+Set `DATABASE_URL`, `ADMIN_EMAILS`, `FIREBASE_WEB_API_KEY` and `FIREBASE_SERVICE_ACCOUNT_HOST_PATH`
 in `.env`.
 
 ## Sign-in with Firebase
@@ -57,9 +57,9 @@ which clears the uid and keeps the email; the next verified sign-in with that em
 If an `ADMIN_EMAILS` sign-in already created a new Admin beside the old one: as the new Admin, clear
 your own email and unlink your sign-in, set the old Admin's email to yours, then sign in again.
 
-## An external database
+## The database
 
-Replace the `db` service and `DATABASE_URL` for a shared server over the internet:
+Postgres is external: set `DATABASE_URL`, for a shared server over the internet:
 
 ```
 DATABASE_URL=postgres://user:pw@host:5432/sagas?sslmode=verify-full
