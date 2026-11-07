@@ -3,6 +3,7 @@ packages:
   - packages/*
 
 allowBuilds:
+  '@firebase/util': false
   better-sqlite3: true
   esbuild: true
   onnxruntime-node: false
