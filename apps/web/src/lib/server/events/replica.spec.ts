@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { Db, Handle } from '#lib/server/db/client.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import {
@@ -39,6 +39,7 @@ import { testDb } from '#lib/server/test/db.ts';
 import { seedActor, TODO, anyRealmId } from '#lib/server/test/fixtures.ts';
 import { eventsSince, readAtSeq } from './log.ts';
 import type { Json, SagasEvent } from './types.ts';
+import { inTransaction } from '#lib/server/db/tx.ts';
 
 // A client per docs/events.md: it loads a view with its seq, then applies Events alone.
 
@@ -140,37 +141,33 @@ const boardOrder = (board: Board | null): Board | null =>
 let db: Db;
 let actor: Actor;
 
-beforeEach(() => {
-	db = testDb();
-	actor = seedActor(db);
-});
-
-afterEach(() => {
-	db.$client.close();
+beforeEach(async () => {
+	db = await testDb();
+	actor = await seedActor(db);
 });
 
 const json = <T>(value: T): Json<T> => JSON.parse(JSON.stringify(value));
 
-function loadOrNull<T>(read: (tx: Handle) => T): Json<T> | null {
+async function loadOrNull<T>(read: (tx: Handle) => T | Promise<T>): Promise<Json<T> | null> {
 	try {
-		return json(read(db));
+		return json(await read(db));
 	} catch (error) {
 		if (error instanceof DomainError && error.code === 'not_found') return null;
 		throw error;
 	}
 }
 
-function replica<T>(
-	read: (tx: Handle) => T,
+async function replica<T>(
+	read: (tx: Handle) => T | Promise<T>,
 	apply: (view: Json<T>, e: Json<SagasEvent>) => Json<T> | null
 ) {
-	const loaded = readAtSeq(db, read);
+	const loaded = await readAtSeq(db, read);
 	let seq = loaded.seq;
 	let view: Json<T> | null = json(loaded.value);
 	return {
 		// Feeds every Event from the start of the log: the client must drop those its load holds.
-		catchUp() {
-			for (const event of json(eventsSince(db, 0))) {
+		async catchUp() {
+			for (const event of json(await eventsSince(db, 0))) {
 				if (event.seq <= seq) continue;
 				seq = event.seq;
 				if (view !== null) view = apply(view, event);
@@ -181,34 +178,37 @@ function replica<T>(
 }
 
 describe('a client applying Stream Events', () => {
-	it('keeps its boards and its Quest view equal to a fresh load after every write', () => {
+	it('keeps its boards and its Quest view equal to a fresh load after every write', async () => {
 		const style = (key: string) => ({ key, label: key, color: '#000000', icon: 'dot' });
 		const realm = (key: string) => createRealm(db, actor, { name: key, key, initialState: TODO });
 		const labour = (realmId: number, parentId: number | null = null) =>
 			createLabour(db, actor, { realmId, title: 't', ownerId: actor.id, parentId });
-		const am = realm('AM');
-		const bl = realm('BL');
-		const cc = realm('CC');
-		const quest = createQuest(db, actor, {
-			realmId: anyRealmId(db),
+		const am = await realm('AM');
+		const bl = await realm('BL');
+		const cc = await realm('CC');
+		const quest = await createQuest(db, actor, {
+			realmId: await anyRealmId(db),
 			name: 'Launch',
 			ownerId: actor.id
 		});
-		const closedOf = (realmId: number) => listStates(db, realmId).find((s) => s.isClosed)!.id;
+		const closedOf = async (realmId: number) =>
+			(await listStates(db, realmId)).find((s) => s.isClosed)!.id;
 
 		const views = [
-			...[am, bl, cc].map((p) => ({
-				name: `board ${p.key}`,
-				replica: replica(
-					(tx) => readBoard(tx, p.id),
-					(view, e) => applyToBoard(view, p.id, e)
-				),
-				fresh: () => loadOrNull((tx) => readBoard(tx, p.id)),
-				normal: boardOrder
-			})),
+			...(await Promise.all(
+				[am, bl, cc].map(async (p) => ({
+					name: `board ${p.key}`,
+					replica: await replica(
+						(tx) => readBoard(tx, p.id),
+						(view, e) => applyToBoard(view, p.id, e)
+					),
+					fresh: () => loadOrNull((tx) => readBoard(tx, p.id)),
+					normal: boardOrder
+				}))
+			)),
 			{
 				name: 'quest',
-				replica: replica((tx) => readQuest(tx, quest.id), applyToQuest),
+				replica: await replica((tx) => readQuest(tx, quest.id), applyToQuest),
 				fresh: () => loadOrNull((tx) => readQuest(tx, quest.id)),
 				normal: <T>(view: T) => view
 			}
@@ -222,22 +222,25 @@ describe('a client applying Stream Events', () => {
 		const writes: [string, () => unknown][] = [
 			[
 				'create Labours across Realms',
-				() => {
-					a = labour(am.id).id;
-					b = labour(bl.id, a).id;
-					c = labour(cc.id, a).id;
-					d = labour(am.id).id;
-					e = labour(am.id, d).id;
+				async () => {
+					a = (await labour(am.id)).id;
+					b = (await labour(bl.id, a)).id;
+					c = (await labour(cc.id, a)).id;
+					d = (await labour(am.id)).id;
+					e = (await labour(am.id, d)).id;
 				}
 			],
 			['add to the Quest', () => addQuestLabour(db, actor, quest.id, a)],
 			['add with Children', () => addQuestLabourWithChildren(db, actor, quest.id, d)],
 			['add across Realms', () => addQuestLabour(db, actor, quest.id, c, 'top')],
 			['edit a member', () => updateLabour(db, actor, a, { title: 'renamed' })],
-			['close a member', () => updateLabour(db, actor, d, { stateId: closedOf(am.id) })],
+			[
+				'close a member',
+				async () => updateLabour(db, actor, d, { stateId: await closedOf(am.id) })
+			],
 			['first Substate', () => createSubstate(db, actor, am.initialStateId!, style('review'))],
 			['add a State', () => createState(db, actor, am.id, style('doing'))],
-			['move a State', () => moveState(db, actor, listStates(db, am.id)[1].id, 0)],
+			['move a State', async () => moveState(db, actor, (await listStates(db, am.id))[1].id, 0)],
 			['restyle a State', () => updateState(db, actor, am.initialStateId!, { label: 'Next' })],
 			['rank a member', () => rankLabour(db, actor, e, 'top')],
 			['rename a Realm key', () => renameRealmKey(db, actor, am.id, 'AX')],
@@ -253,25 +256,31 @@ describe('a client applying Stream Events', () => {
 		];
 
 		for (const [step, run] of writes) {
-			run();
+			await run();
 			for (const view of views) {
-				expect(view.normal(view.replica.catchUp() as never), `${view.name} after ${step}`).toEqual(
-					view.fresh()
-				);
+				expect(
+					view.normal((await view.replica.catchUp()) as never),
+					`${view.name} after ${step}`
+				).toEqual(await view.fresh());
 			}
 		}
-		expect(views.map((v) => v.fresh() === null)).toEqual([false, true, false, true]);
+		expect(await Promise.all(views.map(async (v) => (await v.fresh()) === null))).toEqual([
+			false,
+			true,
+			false,
+			true
+		]);
 	});
 });
 
 describe('readAtSeq', () => {
-	it('reads the view and its seq in one transaction', () => {
-		createRealm(db, actor, { name: 'AM', key: 'AM', initialState: TODO });
+	it('reads the view and its seq in one transaction', async () => {
+		await createRealm(db, actor, { name: 'AM', key: 'AM', initialState: TODO });
 		let inside = false;
 
-		const loaded = readAtSeq(db, () => (inside = db.$client.inTransaction));
+		const loaded = await readAtSeq(db, () => (inside = inTransaction()));
 
 		expect(inside).toBe(true);
-		expect(loaded.seq).toBe(eventsSince(db, 0).at(-1)!.seq);
+		expect(loaded.seq).toBe((await eventsSince(db, 0)).at(-1)!.seq);
 	});
 });

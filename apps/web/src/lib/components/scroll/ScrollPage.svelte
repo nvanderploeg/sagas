@@ -18,7 +18,7 @@
 	import { notices } from '#lib/ui/notices.svelte.ts';
 	import { stamp } from '#lib/ui/time.ts';
 
-	type View = Json<ReturnType<typeof readScrollPage>>;
+	type View = Json<Awaited<ReturnType<typeof readScrollPage>>>;
 	type Child = View['children'][number];
 
 	let { page, seq }: { page: View; seq: number } = $props();

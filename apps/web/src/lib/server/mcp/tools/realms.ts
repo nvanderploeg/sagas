@@ -33,6 +33,7 @@ import {
 	substateRef,
 	type Tools
 } from '../tool.ts';
+import { mapAll } from '#lib/server/async.ts';
 
 const DEFAULT_INITIAL_STATE = { key: 'todo', label: 'To do', color: '#94a3b8', icon: 'circle' };
 
@@ -54,23 +55,23 @@ const styleUpdate = {
 	icon: styleShape.icon.optional()
 };
 
-function realmReply(present: Presenter, realmId: number) {
-	const realm = present.realm(realmId);
+async function realmReply(present: Presenter, realmId: number) {
+	const realm = await present.realm(realmId);
 	return reply({ realm }, realmLine(realm));
 }
 
 export function registerRealmTools({ db, actor, define }: Tools): void {
-	const inState = (args: { realm: string | number; state: string | number }) => {
-		const realmId = refs.realmId(db, args.realm, actor);
-		return { realmId, stateId: refs.stateId(db, realmId, args.state) };
+	const inState = async (args: { realm: string | number; state: string | number }) => {
+		const realmId = await refs.realmId(db, args.realm, actor);
+		return { realmId, stateId: await refs.stateId(db, realmId, args.state) };
 	};
-	const inSubstate = (args: {
+	const inSubstate = async (args: {
 		realm: string | number;
 		state: string | number;
 		substate: string | number;
 	}) => {
-		const { realmId, stateId } = inState(args);
-		return { realmId, stateId, substateId: refs.substateId(db, stateId, args.substate) };
+		const { realmId, stateId } = await inState(args);
+		return { realmId, stateId, substateId: await refs.substateId(db, stateId, args.substate) };
 	};
 
 	define(
@@ -80,14 +81,16 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 			description: 'List every Realm with its key and name. get_realm shows its States.',
 			input: {}
 		},
-		(_args, present) => {
-			const visible = visibleRealmIds(db, actor);
-			const realms = listRealms(db)
-				.filter((p) => visible === null || visible.includes(p.id))
-				.map((p) => {
-					const { id, key, url, name, aliases } = present.realm(p.id);
-					return { id, key, url, name, aliases };
-				});
+		async (_args, present) => {
+			const visible = await visibleRealmIds(db, actor);
+			const realms = await Promise.all(
+				(await listRealms(db))
+					.filter((p) => visible === null || visible.includes(p.id))
+					.map(async (p) => {
+						const { id, key, url, name, aliases } = await present.realm(p.id);
+						return { id, key, url, name, aliases };
+					})
+			);
 			const keys = realms.map((p) => p.key).join(', ');
 			const summary =
 				realms.length === 0 ? 'No Realms' : `${count(realms.length, 'Realm')}: ${keys}`;
@@ -103,7 +106,7 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 				"Get a Realm with its States in board order, each with its Substates in order and default Substate, its Initial State, and its agent `notes`: how agents should work in this Realm. A Realm's States are its board columns; Closed is built in, always last, and cannot be renamed, reordered or removed.",
 			input: { realm: realmRef }
 		},
-		(args, present) => realmReply(present, refs.realmId(db, args.realm, actor))
+		async (args, present) => realmReply(present, await refs.realmId(db, args.realm, actor))
 	);
 
 	define(
@@ -121,8 +124,8 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 					.describe('The first State, where new Labours land; defaults to "todo" (To do)')
 			}
 		},
-		(args, present) => {
-			const realm = createRealm(db, actor, {
+		async (args, present) => {
+			const realm = await createRealm(db, actor, {
 				name: args.name,
 				key: args.key,
 				initialState: args.initialState ?? DEFAULT_INITIAL_STATE
@@ -138,9 +141,9 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 			description: 'Rename a Realm. Use rename_realm_key to change its key.',
 			input: { realm: realmRef, name: z.string().describe('1 to 120 characters') }
 		},
-		(args, present) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			updateRealm(db, actor, realmId, { name: args.name });
+		async (args, present) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			await updateRealm(db, actor, realmId, { name: args.name });
 			return realmReply(present, realmId);
 		}
 	);
@@ -153,9 +156,9 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 				"Change a Realm's key. Every Labour gets a new key under it, and every old key stays an Alias that still resolves. The Realm can take a former key back.",
 			input: { realm: realmRef, key: z.string().describe('The new Realm key') }
 		},
-		(args, present) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			renameRealmKey(db, actor, realmId, args.key);
+		async (args, present) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			await renameRealmKey(db, actor, realmId, args.key);
 			return realmReply(present, realmId);
 		}
 	);
@@ -168,10 +171,10 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 				'Delete a Realm with all its States and Labours. Children in other Realms lose their Parent; deleted Labours leave their Quests.',
 			input: { realm: realmRef }
 		},
-		(args) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			const { key } = getRealm(db, realmId);
-			deleteRealm(db, actor, realmId);
+		async (args) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			const { key } = await getRealm(db, realmId);
+			await deleteRealm(db, actor, realmId);
 			return reply({ deleted: { id: realmId, key } }, `Deleted Realm ${key}`);
 		}
 	);
@@ -183,9 +186,9 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 			description: "Set the State a Realm's new Labours land in. It cannot be Closed.",
 			input: { realm: realmRef, state: stateRef }
 		},
-		(args, present) => {
-			const { realmId, stateId } = inState(args);
-			setInitialState(db, actor, realmId, stateId);
+		async (args, present) => {
+			const { realmId, stateId } = await inState(args);
+			await setInitialState(db, actor, realmId, stateId);
 			return realmReply(present, realmId);
 		}
 	);
@@ -204,10 +207,10 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 				open: openField.optional().describe('Default true')
 			}
 		},
-		(args, present) => {
-			const realmId = refs.realmId(db, args.realm, actor);
+		async (args, present) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
 			const { key, label, color, icon } = args;
-			createState(db, actor, realmId, { key, label, color, icon }, args.index, args.open);
+			await createState(db, actor, realmId, { key, label, color, icon }, args.index, args.open);
 			return realmReply(present, realmId);
 		}
 	);
@@ -226,11 +229,11 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 				next: nextField.optional()
 			}
 		},
-		(args, present) => {
-			const { realmId, stateId } = inState(args);
-			const next = args.next?.map((ref) => refs.stateId(db, realmId, ref));
-			if (next) setNextStates(db, actor, stateId, next);
-			updateState(db, actor, stateId, {
+		async (args, present) => {
+			const { realmId, stateId } = await inState(args);
+			const next = await mapAll(args.next, (ref) => refs.stateId(db, realmId, ref));
+			if (next) await setNextStates(db, actor, stateId, next);
+			await updateState(db, actor, stateId, {
 				label: args.label,
 				color: args.color,
 				icon: args.icon,
@@ -252,9 +255,9 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 				index: indexField.describe('0-based index among the States before Closed')
 			}
 		},
-		(args, present) => {
-			const { realmId, stateId } = inState(args);
-			moveState(db, actor, stateId, args.index);
+		async (args, present) => {
+			const { realmId, stateId } = await inState(args);
+			await moveState(db, actor, stateId, args.index);
 			return realmReply(present, realmId);
 		}
 	);
@@ -267,9 +270,9 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 				'Remove an empty State. Move its Labours out first; the Initial State and Closed cannot be removed.',
 			input: { realm: realmRef, state: stateRef }
 		},
-		(args, present) => {
-			const { realmId, stateId } = inState(args);
-			deleteState(db, actor, stateId);
+		async (args, present) => {
+			const { realmId, stateId } = await inState(args);
+			await deleteState(db, actor, stateId);
 			return realmReply(present, realmId);
 		}
 	);
@@ -288,10 +291,10 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 				index: indexField.optional().describe('0-based index among the Substates; last by default')
 			}
 		},
-		(args, present) => {
-			const { realmId, stateId } = inState(args);
+		async (args, present) => {
+			const { realmId, stateId } = await inState(args);
 			const { key, label, color, icon } = args;
-			createSubstate(db, actor, stateId, { key, label, color, icon }, args.index);
+			await createSubstate(db, actor, stateId, { key, label, color, icon }, args.index);
 			return realmReply(present, realmId);
 		}
 	);
@@ -303,9 +306,9 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 			description: 'Restyle a Substate: label, color or icon. Its key never changes.',
 			input: { realm: realmRef, state: stateRef, substate: substateRef, ...styleUpdate }
 		},
-		(args, present) => {
-			const { realmId, substateId } = inSubstate(args);
-			updateSubstate(db, actor, substateId, {
+		async (args, present) => {
+			const { realmId, substateId } = await inSubstate(args);
+			await updateSubstate(db, actor, substateId, {
 				label: args.label,
 				color: args.color,
 				icon: args.icon
@@ -326,9 +329,9 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 				index: indexField.describe('0-based index among the Substates')
 			}
 		},
-		(args, present) => {
-			const { realmId, substateId } = inSubstate(args);
-			moveSubstate(db, actor, substateId, args.index);
+		async (args, present) => {
+			const { realmId, substateId } = await inSubstate(args);
+			await moveSubstate(db, actor, substateId, args.index);
 			return realmReply(present, realmId);
 		}
 	);
@@ -341,9 +344,9 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 				"Remove an empty Substate. Move its Labours out first. The default Substate can be removed only when it is the State's last one.",
 			input: { realm: realmRef, state: stateRef, substate: substateRef }
 		},
-		(args, present) => {
-			const { realmId, substateId } = inSubstate(args);
-			deleteSubstate(db, actor, substateId);
+		async (args, present) => {
+			const { realmId, substateId } = await inSubstate(args);
+			await deleteSubstate(db, actor, substateId);
 			return realmReply(present, realmId);
 		}
 	);
@@ -355,9 +358,9 @@ export function registerRealmTools({ db, actor, define }: Tools): void {
 			description: 'Set the Substate that Labours entering the State land in.',
 			input: { realm: realmRef, state: stateRef, substate: substateRef }
 		},
-		(args, present) => {
-			const { realmId, stateId, substateId } = inSubstate(args);
-			setDefaultSubstate(db, actor, stateId, substateId);
+		async (args, present) => {
+			const { realmId, stateId, substateId } = await inSubstate(args);
+			await setDefaultSubstate(db, actor, stateId, substateId);
 			return realmReply(present, realmId);
 		}
 	);

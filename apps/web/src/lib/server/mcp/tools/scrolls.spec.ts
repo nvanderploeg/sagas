@@ -58,10 +58,10 @@ async function join(user: string, role: 'viewer' | 'editor', client: Client) {
 
 beforeEach(async () => {
 	setAccessEnforced(true);
-	db = testDb();
-	ada = seedHuman(db, 'ada');
-	bob = seedHuman(db, 'bob');
-	eve = seedHuman(db, 'eve');
+	db = await testDb();
+	ada = await seedHuman(db, 'ada');
+	bob = await seedHuman(db, 'bob');
+	eve = await seedHuman(db, 'eve');
 	owner = await connect(ada);
 	await ok(owner, 'create_realm', { key: 'am', name: 'Atlas' });
 });
@@ -69,7 +69,6 @@ beforeEach(async () => {
 afterEach(async () => {
 	setAccessEnforced(false);
 	await Promise.all(clients.splice(0).map((client) => client.close()));
-	db.$client.close();
 });
 
 describe('tool registration', () => {

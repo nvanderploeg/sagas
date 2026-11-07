@@ -15,6 +15,7 @@ import { readAffinity, readSentiment } from '../agent/sentiment.ts';
 import { listSkills, readUserSkills } from '../agent/skills.ts';
 import { selectLabourViews, toLabourView } from '../domain/labour-view.ts';
 import { getLabour, getRealm, getUser } from '../domain/lookup.ts';
+import { filterAsync } from '#lib/server/async.ts';
 
 export const LINKS_SHOWN = 50;
 export const KEYS_SHOWN = 20;
@@ -124,45 +125,49 @@ function keyLabel(attributesByKey: Map<string, Labelled>, key: string): string {
 	return `${attribute.label}: ${found?.label ?? member}`;
 }
 
-function labourRefs(db: Handle, ids: number[]): Map<number, LabourRef> {
+async function labourRefs(db: Handle, ids: number[]): Promise<Map<number, LabourRef>> {
 	if (ids.length === 0) return new Map();
 	return new Map(
-		selectLabourViews(db)
-			.where(inArray(labours.id, ids))
-			.all()
+		(await selectLabourViews(db).where(inArray(labours.id, ids)))
 			.map(toLabourView)
 			.map((view) => [view.id, { id: view.id, key: view.key, title: view.title }])
 	);
 }
 
-export function readLabourLayer(db: Handle, viewer: { id: number }, labourId: number): LabourLayer {
-	const labour = getLabour(db, labourId);
-	requireRealmRole(db, viewer, labour.realmId, 'viewer');
-	const appraisal = readAppraisal(db, labourId);
-	const visibleLinks = appraisal.links.filter(
-		(link) => canSeeLabour(db, viewer, link.from) && canSeeLabour(db, viewer, link.to)
+export async function readLabourLayer(
+	db: Handle,
+	viewer: { id: number },
+	labourId: number
+): Promise<LabourLayer> {
+	const labour = await getLabour(db, labourId);
+	await requireRealmRole(db, viewer, labour.realmId, 'viewer');
+	const appraisal = await readAppraisal(db, labourId);
+	const visibleLinks = await filterAsync(
+		appraisal.links,
+		async (link) =>
+			(await canSeeLabour(db, viewer, link.from)) && (await canSeeLabour(db, viewer, link.to))
 	);
-	const visibleMentions = appraisal.mentions.filter((mention) =>
+	const visibleMentions = await filterAsync(appraisal.mentions, (mention) =>
 		canSeeLabour(db, viewer, mention.sourceLabourId)
 	);
 
 	const realmAttributes = new Map<string, Labelled>(
-		db
-			.select({
-				key: attributes.key,
-				label: attributes.label,
-				kind: attributes.kind,
-				spec: attributes.spec
-			})
-			.from(attributes)
-			.where(eq(attributes.realmId, labour.realmId))
-			.all()
-			.map((row) => [row.key, { ...row, spec: row.spec as Spec }])
+		(
+			await db
+				.select({
+					key: attributes.key,
+					label: attributes.label,
+					kind: attributes.kind,
+					spec: attributes.spec
+				})
+				.from(attributes)
+				.where(eq(attributes.realmId, labour.realmId))
+		).map((row) => [row.key, { ...row, spec: row.spec as Spec }])
 	);
-	const skillLabels = new Map(listSkills(db).map((skill) => [skill.key, skill.label]));
+	const skillLabels = new Map((await listSkills(db)).map((skill) => [skill.key, skill.label]));
 
 	const shownLinks = visibleLinks.slice(0, LINKS_SHOWN);
-	const others = labourRefs(db, [
+	const others = await labourRefs(db, [
 		...shownLinks.map((link) => (link.from === labourId ? link.to : link.from)),
 		...visibleMentions.map((mention) => mention.sourceLabourId)
 	]);
@@ -225,18 +230,18 @@ export function readLabourLayer(db: Handle, viewer: { id: number }, labourId: nu
 	};
 }
 
-export function readRealmLayer(
+export async function readRealmLayer(
 	db: Handle,
 	viewer: { id: number },
 	realmId: number,
 	now: Date = new Date()
-): RealmLayer {
-	getRealm(db, realmId);
-	requireRealmRole(db, viewer, realmId, 'viewer');
-	const agent = readRealmAgent(db, realmId);
-	const held = readAttributes(db, realmId);
+): Promise<RealmLayer> {
+	await getRealm(db, realmId);
+	await requireRealmRole(db, viewer, realmId, 'viewer');
+	const agent = await readRealmAgent(db, realmId);
+	const held = await readAttributes(db, realmId);
 	const byKey = new Map<string, Labelled>(held.map((attribute) => [attribute.key, attribute]));
-	const sentiment = readSentiment(db, realmId, { limit: 1, now });
+	const sentiment = await readSentiment(db, realmId, { limit: 1, now });
 
 	return {
 		notes: agent.notes,
@@ -270,18 +275,22 @@ export function readRealmLayer(
 	};
 }
 
-export function readUserLayer(db: Handle, userId: number, now: Date = new Date()): UserLayer {
-	getUser(db, userId);
-	const levels = readUserSkills(db, userId);
-	const skillLabels = new Map(listSkills(db).map((skill) => [skill.key, skill.label]));
-	const affinity = readAffinity(db, userId, { limit: 1, now });
+export async function readUserLayer(
+	db: Handle,
+	userId: number,
+	now: Date = new Date()
+): Promise<UserLayer> {
+	await getUser(db, userId);
+	const levels = await readUserSkills(db, userId);
+	const skillLabels = new Map((await listSkills(db)).map((skill) => [skill.key, skill.label]));
+	const affinity = await readAffinity(db, userId, { limit: 1, now });
 	const shown = affinity.keys.slice(0, KEYS_SHOWN);
 
 	const realmIds = [...new Set(shown.map((entry) => entry.realmId))];
 	const rows =
 		realmIds.length === 0
 			? []
-			: db
+			: await db
 					.select({
 						realmId: attributes.realmId,
 						realmKey: realms.key,
@@ -292,8 +301,7 @@ export function readUserLayer(db: Handle, userId: number, now: Date = new Date()
 					})
 					.from(attributes)
 					.innerJoin(realms, eq(realms.id, attributes.realmId))
-					.where(inArray(attributes.realmId, realmIds))
-					.all();
+					.where(inArray(attributes.realmId, realmIds));
 	const realmKeys = new Map(rows.map((row) => [row.realmId, row.realmKey]));
 	const byRealm = new Map<number, Map<string, Labelled>>();
 	for (const row of rows) {

@@ -22,7 +22,7 @@ import {
 import { addComment, editComment } from '#lib/server/domain/comments.ts';
 import { createState } from '#lib/server/domain/states.ts';
 import type { Actor } from '#lib/server/domain/write.ts';
-import { testDb } from '#lib/server/test/db.ts';
+import { testDb, countStatements } from '#lib/server/test/db.ts';
 import {
 	anyRealmId,
 	seedActor,
@@ -41,6 +41,7 @@ import { defineSkill } from '../skills.ts';
 import { FEATURES, LATER_FEATURES, type Feature } from './features/index.ts';
 import { pruneSurveys, survey } from './index.ts';
 import { budget } from '#lib/server/test/budget.ts';
+import { transact } from '#lib/server/db/tx.ts';
 
 const NOW = new Date('2026-06-01T00:00:00.000Z');
 const DAY = 24 * 60 * 60 * 1000;
@@ -50,15 +51,14 @@ let db: Db;
 let actor: Actor;
 let realmId: number;
 
-beforeEach(() => {
-	db = testDb();
-	actor = seedActor(db);
-	realmId = seedRealm(db, 'AM').id;
+beforeEach(async () => {
+	db = await testDb();
+	actor = await seedActor(db);
+	realmId = (await seedRealm(db, 'AM')).id;
 });
 
 afterEach(() => {
 	vi.useRealTimers();
-	db.$client.close();
 });
 
 const labour = (over: Partial<Parameters<typeof seedLabour>[1]> = {}) =>
@@ -70,15 +70,17 @@ const ask = (
 	opts: Parameters<typeof survey>[3] = {}
 ) => survey(db, actor, { weights, temperature: 0, ...more }, { now: NOW, ...opts });
 
-const closedStateId = (realm: number) =>
-	db
-		.select({ id: states.id })
-		.from(states)
-		.where(and(eq(states.realmId, realm), eq(states.isClosed, true)))
-		.get()!.id;
+const closedStateId = async (realm: number) =>
+	(
+		await db
+			.select({ id: states.id })
+			.from(states)
+			.where(and(eq(states.realmId, realm), eq(states.isClosed, true)))
+			.limit(1)
+	)[0]!.id;
 
-const stamp = (labourId: number) =>
-	appraise(db, actor, [{ labourId, stamp: contentHash(db, labourId) }]);
+const stamp = async (labourId: number) =>
+	appraise(db, actor, [{ labourId, stamp: await contentHash(db, labourId) }]);
 
 describe('feature registry', () => {
 	it('keeps every feature name reserved against Attribute keys', () => {
@@ -97,14 +99,14 @@ describe('missing data from a feature', () => {
 		delete (FEATURES as Record<string, Feature>).fake;
 	});
 
-	it('gives null 0.5 and counts it, and gives an absent candidate 0', () => {
-		const a = labour();
-		const b = labour();
-		const c = labour();
+	it('gives null 0.5 and counts it, and gives an absent candidate 0', async () => {
+		const a = await labour();
+		const b = await labour();
+		const c = await labour();
 		let seen: Float32Array | undefined;
 		(FEATURES as Record<string, Feature>).fake = {
 			name: 'fake',
-			load({ queryVector }) {
+			async load({ queryVector }) {
 				seen = queryVector;
 				return new Map([
 					[a.id, null],
@@ -113,12 +115,12 @@ describe('missing data from a feature', () => {
 			}
 		};
 		const vector = new Float32Array([1]);
-		const result = ask({ fake: 2 }, {}, { queryVector: vector });
+		const result = await ask({ fake: 2 }, {}, { queryVector: vector });
 		const score = (id: number) => result.results.find((r) => r.labourId === id)!.score;
 		expect([a.id, b.id, c.id].map(score)).toEqual([1, 2, 0]);
 		expect(result.coverage.missing).toEqual({ fake: 1 });
 		expect(seen).toBe(vector);
-		const stored = db.select().from(surveys).get()!;
+		const stored = (await db.select().from(surveys).limit(1))[0]!;
 		expect(JSON.stringify(stored.request)).not.toContain('queryVector');
 	});
 });
@@ -128,12 +130,12 @@ describe('missing data outside the candidates', () => {
 		delete (FEATURES as Record<string, Feature>).fake;
 	});
 
-	it('counts only candidates as missing', () => {
-		const open = labour();
-		const shut = labour({ stateId: closedStateId(realmId) });
+	it('counts only candidates as missing', async () => {
+		const open = await labour();
+		const shut = await labour({ stateId: await closedStateId(realmId) });
 		(FEATURES as Record<string, Feature>).fake = {
 			name: 'fake',
-			load() {
+			async load() {
 				return new Map([
 					[open.id, null],
 					[shut.id, null],
@@ -141,43 +143,39 @@ describe('missing data outside the candidates', () => {
 				]);
 			}
 		};
-		const result = ask({ fake: 1 });
+		const result = await ask({ fake: 1 });
 		expect(result.coverage).toMatchObject({ candidates: 1, missing: { fake: 1 } });
 	});
 });
 
 describe('content hashing', () => {
-	it('hashContent agrees with contentHash', () => {
-		const a = labour({ title: 'T', description: 'D', labels: ['bug'] });
-		addComment(db, actor, a.id, 'one');
-		addComment(db, actor, a.id, 'two');
+	it('hashContent agrees with contentHash', async () => {
+		const a = await labour({ title: 'T', description: 'D', labels: ['bug'] });
+		await addComment(db, actor, a.id, 'one');
+		await addComment(db, actor, a.id, 'two');
 		expect(
 			hashContent({ title: 'T', description: 'D', labels: ['bug'], comments: ['one', 'two'] })
-		).toBe(contentHash(db, a.id));
+		).toBe(await contentHash(db, a.id));
 	});
 
-	it('counts a stamped candidate stale after a Comment edit', () => {
-		const a = labour();
-		const b = labour();
-		const comment = addComment(db, actor, a.id, 'first');
-		stamp(a.id);
-		stamp(b.id);
-		expect(ask({ age: 1 }).coverage).toMatchObject({ unappraised: 0, stale: 0 });
-		editComment(db, actor, comment.id, 'changed');
-		expect(ask({ age: 1 }).coverage).toMatchObject({ unappraised: 0, stale: 1 });
+	it('counts a stamped candidate stale after a Comment edit', async () => {
+		const a = await labour();
+		const b = await labour();
+		const comment = await addComment(db, actor, a.id, 'first');
+		await stamp(a.id);
+		await stamp(b.id);
+		expect((await ask({ age: 1 })).coverage).toMatchObject({ unappraised: 0, stale: 0 });
+		await editComment(db, actor, comment.id, 'changed');
+		expect((await ask({ age: 1 })).coverage).toMatchObject({ unappraised: 0, stale: 1 });
 	});
 });
 
 describe('querying', () => {
-	function statements(run: () => void): number {
-		const spy = vi.spyOn(db.$client, 'prepare');
-		run();
-		const calls = spy.mock.calls.length;
-		spy.mockRestore();
-		return calls;
+	function statements(run: () => unknown): Promise<number> {
+		return countStatements(run);
 	}
 
-	it('runs the same number of statements however many Labours it scores', () => {
+	it('runs the same number of statements however many Labours it scores', async () => {
 		const everything = {
 			keywords: 1,
 			mentions: 1,
@@ -193,41 +191,41 @@ describe('querying', () => {
 			delight: 1
 		};
 		const run = () => ask(everything, { query: 'labour' });
-		for (let i = 0; i < 3; i += 1) stamp(labour().id);
-		const few = statements(run);
+		for (let i = 0; i < 3; i += 1) await stamp((await labour()).id);
+		const few = await statements(run);
 		for (let i = 0; i < 40; i += 1) {
-			const l = labour();
-			addComment(db, actor, l.id, `note ${i}`);
-			stamp(l.id);
+			const l = await labour();
+			await addComment(db, actor, l.id, `note ${i}`);
+			await stamp(l.id);
 		}
-		expect(statements(run)).toBe(few);
+		expect(await statements(run)).toBe(few);
 	});
 });
 
 describe('board order', () => {
-	it('orders Realm, State position, then Rank in code-unit order', () => {
-		const other = seedRealm(db, 'BM').id;
-		const doing = createState(db, actor, realmId, {
+	it('orders Realm, State position, then Rank in code-unit order', async () => {
+		const other = (await seedRealm(db, 'BM')).id;
+		const doing = await createState(db, actor, realmId, {
 			key: 'doing',
 			label: 'Doing',
 			color: '#222222',
 			icon: 'circle'
 		});
-		const late = labour({ title: 'doing', stateId: doing.id });
-		const second = labour({ title: 'second' });
-		const first = labour({ title: 'first' });
-		const foreign = seedLabour(db, { realmId: other, title: 'foreign' });
+		const late = await labour({ title: 'doing', stateId: doing.id });
+		const second = await labour({ title: 'second' });
+		const first = await labour({ title: 'first' });
+		const foreign = await seedLabour(db, { realmId: other, title: 'foreign' });
 		// 'B' sorts before 'a' by code unit, though not by locale.
-		db.update(labours).set({ rank: 'a' }).where(eq(labours.id, second.id)).run();
-		db.update(labours).set({ rank: 'B' }).where(eq(labours.id, first.id)).run();
+		await db.update(labours).set({ rank: 'a' }).where(eq(labours.id, second.id));
+		await db.update(labours).set({ rank: 'B' }).where(eq(labours.id, first.id));
 
-		const keys = ask({ column: 0 }).results.map((r) => r.labourId);
+		const keys = (await ask({ column: 0 })).results.map((r) => r.labourId);
 		expect(keys).toEqual([first.id, second.id, late.id, foreign.id]);
 	});
 
-	it('keeps board order for equal Scores at temperature 0', () => {
-		const ids = [labour().id, labour().id, labour().id];
-		expect(ask({ age: 0 }).results.map((r) => r.labourId)).toEqual(ids);
+	it('keeps board order for equal Scores at temperature 0', async () => {
+		const ids = [(await labour()).id, (await labour()).id, (await labour()).id];
+		expect((await ask({ age: 0 })).results.map((r) => r.labourId)).toEqual(ids);
 	});
 });
 
@@ -238,33 +236,35 @@ describe('temperature', () => {
 		return random;
 	};
 
-	function scaled(...impacts: number[]): number[] {
-		defineAttribute(db, actor, realmId, {
+	async function scaled(...impacts: number[]): Promise<number[]> {
+		await defineAttribute(db, actor, realmId, {
 			key: 'impact',
 			kind: 'scale',
 			label: 'Impact',
 			rubric: 'x',
 			spec: { min: 1, max: 5 }
 		});
-		return impacts.map((impact) => {
-			const l = labour();
-			setValues(db, actor, l.id, { impact });
-			return l.id;
-		});
+		return await Promise.all(
+			impacts.map(async (impact) => {
+				const l = await labour();
+				await setValues(db, actor, l.id, { impact });
+				return l.id;
+			})
+		);
 	}
 
-	it('draws nothing at temperature 0', () => {
-		scaled(1, 2);
+	it('draws nothing at temperature 0', async () => {
+		await scaled(1, 2);
 		const random = draws([]);
-		ask({ impact: 1 }, {}, { random });
+		await ask({ impact: 1 }, {}, { random });
 		expect(random).not.toHaveBeenCalled();
 	});
 
-	it('draws once per candidate, in board order, and sorts by score plus Gumbel noise', () => {
-		const [a, b, c] = scaled(1, 3, 5);
+	it('draws once per candidate, in board order, and sorts by score plus Gumbel noise', async () => {
+		const [a, b, c] = await scaled(1, 3, 5);
 		const random = draws([0.9, 0.2, 0.5]);
 		const temperature = 1.5;
-		const result = ask({ impact: 4 }, { temperature }, { random });
+		const result = await ask({ impact: 4 }, { temperature }, { random });
 		expect(random).toHaveBeenCalledTimes(3);
 
 		const scores = [0, 2, 4];
@@ -281,102 +281,99 @@ describe('temperature', () => {
 		expect(result.results.map((r) => r.score).sort()).toEqual([0, 2, 4]);
 	});
 
-	it('clamps draws of exactly 0 and 1', () => {
-		scaled(1, 5);
-		const result = ask({ impact: 4 }, { temperature: 2 }, { random: draws([0, 1]) });
+	it('clamps draws of exactly 0 and 1', async () => {
+		await scaled(1, 5);
+		const result = await ask({ impact: 4 }, { temperature: 2 }, { random: draws([0, 1]) });
 		expect(result.results).toHaveLength(2);
 		for (const item of result.results) expect(Number.isFinite(item.score)).toBe(true);
 	});
 
-	it('adds no noise when fewer than two candidates', () => {
-		scaled(3);
-		expect(ask({ impact: 4 }, { temperature: 2 }, { random: draws([0.5]) }).results).toHaveLength(
-			1
-		);
+	it('adds no noise when fewer than two candidates', async () => {
+		await scaled(3);
+		expect(
+			(await ask({ impact: 4 }, { temperature: 2 }, { random: draws([0.5]) })).results
+		).toHaveLength(1);
 	});
 });
 
 describe('features', () => {
-	it('scores the built-in formulas', () => {
-		const user = seedUser(db, 'reader');
-		const a = labour({ title: 'alpha' });
-		const b = labour({ title: 'beta' });
-		const c = labour({ title: 'gamma' });
-		db.update(labours)
+	it('scores the built-in formulas', async () => {
+		const user = await seedUser(db, 'reader');
+		const a = await labour({ title: 'alpha' });
+		const b = await labour({ title: 'beta' });
+		const c = await labour({ title: 'gamma' });
+		await db
+			.update(labours)
 			.set({ createdAt: ago(30), updatedAt: ago(7) })
-			.where(eq(labours.id, a.id))
-			.run();
-		db.update(labours)
+			.where(eq(labours.id, a.id));
+		await db
+			.update(labours)
 			.set({ createdAt: ago(0), updatedAt: ago(0) })
-			.where(eq(labours.id, b.id))
-			.run();
-		db.update(labours)
+			.where(eq(labours.id, b.id));
+		await db
+			.update(labours)
 			.set({ createdAt: ago(60), updatedAt: ago(70) })
-			.where(eq(labours.id, c.id))
-			.run();
-		addComment(db, actor, c.id, 'later');
-		db.update(comments)
+			.where(eq(labours.id, c.id));
+		await addComment(db, actor, c.id, 'later');
+		await db
+			.update(comments)
 			.set({ createdAt: ago(14) })
-			.where(eq(comments.labourId, c.id))
-			.run();
+			.where(eq(comments.labourId, c.id));
 
-		db.insert(mentions)
-			.values([
-				{ sourceLabourId: b.id, labourId: a.id, authorId: actor.id, firstSeenAt: ago(7) },
-				{ sourceLabourId: c.id, labourId: a.id, authorId: actor.id, firstSeenAt: ago(0) },
-				{ sourceLabourId: a.id, userId: user, authorId: actor.id, firstSeenAt: ago(14) }
-			])
-			.run();
-		db.insert(links)
-			.values([
-				{ fromId: b.id, toId: a.id, type: 'evidence', setBy: actor.id },
-				{ fromId: c.id, toId: a.id, type: 'evidence', setBy: actor.id },
-				{ fromId: a.id, toId: b.id, type: 'blocks', setBy: actor.id },
-				{ fromId: a.id, toId: c.id, type: 'blocks', setBy: actor.id }
-			])
-			.run();
+		await db.insert(mentions).values([
+			{ sourceLabourId: b.id, labourId: a.id, authorId: actor.id, firstSeenAt: ago(7) },
+			{ sourceLabourId: c.id, labourId: a.id, authorId: actor.id, firstSeenAt: ago(0) },
+			{ sourceLabourId: a.id, userId: user, authorId: actor.id, firstSeenAt: ago(14) }
+		]);
+		await db.insert(links).values([
+			{ fromId: b.id, toId: a.id, type: 'evidence', setBy: actor.id },
+			{ fromId: c.id, toId: a.id, type: 'evidence', setBy: actor.id },
+			{ fromId: a.id, toId: b.id, type: 'blocks', setBy: actor.id },
+			{ fromId: a.id, toId: c.id, type: 'blocks', setBy: actor.id }
+		]);
 
-		const scoreOf = (feature: string, id: number) =>
-			survey(
-				db,
-				actor,
-				{ weights: { [feature]: 1 }, temperature: 0, forUserId: user, limit: 50 },
-				{ now: NOW }
+		const scoreOf = async (feature: string, id: number) =>
+			(
+				await survey(
+					db,
+					actor,
+					{ weights: { [feature]: 1 }, temperature: 0, forUserId: user, limit: 50 },
+					{ now: NOW }
+				)
 			).results.find((r) => r.labourId === id)!.score;
-		expect(scoreOf('mentions', a.id)).toBeCloseTo(1 - 2 ** -(2 ** -1 + 1), 12);
-		expect(scoreOf('pulled_in', a.id)).toBeCloseTo(1 - 2 ** -(2 ** -2), 12);
-		expect(scoreOf('pulled_in', b.id)).toBe(0);
-		expect(scoreOf('evidence', a.id)).toBeCloseTo(2 / 4, 12);
-		expect(scoreOf('unblocks', a.id)).toBeCloseTo(2 / 4, 12);
-		expect(scoreOf('unblocks', b.id)).toBe(0);
-		expect(scoreOf('age', a.id)).toBeCloseTo(30 / 60, 12);
-		expect(scoreOf('age', b.id)).toBe(0);
-		expect(scoreOf('activity', a.id)).toBeCloseTo(2 ** -1, 12);
-		expect(scoreOf('activity', b.id)).toBeCloseTo(1, 12);
-		expect(scoreOf('activity', c.id)).toBeCloseTo(2 ** -2, 12);
+		expect(await scoreOf('mentions', a.id)).toBeCloseTo(1 - 2 ** -(2 ** -1 + 1), 12);
+		expect(await scoreOf('pulled_in', a.id)).toBeCloseTo(1 - 2 ** -(2 ** -2), 12);
+		expect(await scoreOf('pulled_in', b.id)).toBe(0);
+		expect(await scoreOf('evidence', a.id)).toBeCloseTo(2 / 4, 12);
+		expect(await scoreOf('unblocks', a.id)).toBeCloseTo(2 / 4, 12);
+		expect(await scoreOf('unblocks', b.id)).toBe(0);
+		expect(await scoreOf('age', a.id)).toBeCloseTo(30 / 60, 12);
+		expect(await scoreOf('age', b.id)).toBe(0);
+		expect(await scoreOf('activity', a.id)).toBeCloseTo(2 ** -1, 12);
+		expect(await scoreOf('activity', b.id)).toBeCloseTo(1, 12);
+		expect(await scoreOf('activity', c.id)).toBeCloseTo(2 ** -2, 12);
 	});
 
-	it('scores quest_finish across Realms and leaves Closed Labours at 0', () => {
-		const other = seedRealm(db, 'BM').id;
-		const a = labour();
-		const b = seedLabour(db, { realmId: other });
-		const done = seedLabour(db, { realmId: other, stateId: closedStateId(other) });
-		const lone = labour();
-		const quest = db
-			.insert(quests)
-			.values({ realmId: anyRealmId(db), name: 'Q', ownerId: actor.id })
-			.returning()
-			.get();
+	it('scores quest_finish across Realms and leaves Closed Labours at 0', async () => {
+		const other = (await seedRealm(db, 'BM')).id;
+		const a = await labour();
+		const b = await seedLabour(db, { realmId: other });
+		const done = await seedLabour(db, { realmId: other, stateId: await closedStateId(other) });
+		const lone = await labour();
+		const quest = (
+			await db
+				.insert(quests)
+				.values({ realmId: await anyRealmId(db), name: 'Q', ownerId: actor.id })
+				.returning()
+		)[0];
 		const [r1, r2, r3] = generateNKeysBetween(null, null, 3);
-		db.insert(questLabours)
-			.values([
-				{ questId: quest.id, labourId: a.id, rank: r1 },
-				{ questId: quest.id, labourId: b.id, rank: r2 },
-				{ questId: quest.id, labourId: done.id, rank: r3 }
-			])
-			.run();
+		await db.insert(questLabours).values([
+			{ questId: quest.id, labourId: a.id, rank: r1 },
+			{ questId: quest.id, labourId: b.id, rank: r2 },
+			{ questId: quest.id, labourId: done.id, rank: r3 }
+		]);
 
-		const result = ask({ quest_finish: 1 }, { filter: { includeClosed: true } });
+		const result = await ask({ quest_finish: 1 }, { filter: { includeClosed: true } });
 		const score = (id: number) => result.results.find((r) => r.labourId === id)!.score;
 		expect(score(a.id)).toBeCloseTo(2 / 3, 12);
 		expect(score(b.id)).toBeCloseTo(2 / 3, 12);
@@ -384,55 +381,63 @@ describe('features', () => {
 		expect(score(lone.id)).toBe(0);
 	});
 
-	it('scores column over the whole column, not only the candidates', () => {
-		const a = labour();
-		const b = labour({ assigneeId: seedUser(db, 'someone') });
-		const c = labour();
-		const lone = createState(db, actor, realmId, {
+	it('scores column over the whole column, not only the candidates', async () => {
+		const a = await labour();
+		const b = await labour({ assigneeId: await seedUser(db, 'someone') });
+		const c = await labour();
+		const lone = await createState(db, actor, realmId, {
 			key: 'solo',
 			label: 'Solo',
 			color: '#333333',
 			icon: 'circle'
 		});
-		const only = labour({ stateId: lone.id });
-		const all = ask({ column: 1 });
+		const only = await labour({ stateId: lone.id });
+		const all = await ask({ column: 1 });
 		const score = (id: number) => all.results.find((r) => r.labourId === id)!.score;
 		expect([a.id, b.id, c.id].map(score)).toEqual([1, 0.5, 0]);
 		expect(score(only.id)).toBe(1);
 
-		const middle = ask(
+		const middle = await ask(
 			{ column: 1 },
 			{
 				filter: {
-					assigneeIds: [db.select().from(labours).where(eq(labours.id, b.id)).get()!.assigneeId]
+					assigneeIds: [
+						(await db.select().from(labours).where(eq(labours.id, b.id)).limit(1))[0]!.assigneeId
+					]
 				}
 			}
 		);
 		expect(middle.results.map((r) => [r.labourId, r.score])).toEqual([[b.id, 0.5]]);
 	});
 
-	it('rescales keywords over the candidates, not every Labour', () => {
-		const strong = labour({ title: 'boss boss boss fight', assigneeId: seedUser(db, 'u1') });
-		const weak = labour({ title: 'boss', description: 'unrelated filler text here too' });
-		labour({ title: 'nothing' });
-		const everyone = ask({ keywords: 1 }, { query: 'boss fight' });
+	it('rescales keywords over the candidates, not every Labour', async () => {
+		const strong = await labour({
+			title: 'boss boss boss fight',
+			assigneeId: await seedUser(db, 'u1')
+		});
+		const weak = await labour({ title: 'boss', description: 'unrelated filler text here too' });
+		await labour({ title: 'nothing' });
+		const everyone = await ask({ keywords: 1 }, { query: 'boss fight' });
 		expect(everyone.results[0]).toMatchObject({ labourId: strong.id, score: 1 });
 
-		const narrowed = ask({ keywords: 1 }, { query: 'boss fight', filter: { assigneeIds: [null] } });
+		const narrowed = await ask(
+			{ keywords: 1 },
+			{ query: 'boss fight', filter: { assigneeIds: [null] } }
+		);
 		expect(narrowed.results[0]).toMatchObject({ labourId: weak.id, score: 1 });
 		expect(narrowed.results.at(-1)!.score).toBe(0);
 	});
 
-	it('takes 0.5 and counts it for an Attribute the Labour lacks, and 0 for a held tags without the member', () => {
-		const other = seedRealm(db, 'BM').id;
-		defineAttribute(db, actor, realmId, {
+	it('takes 0.5 and counts it for an Attribute the Labour lacks, and 0 for a held tags without the member', async () => {
+		const other = (await seedRealm(db, 'BM')).id;
+		await defineAttribute(db, actor, realmId, {
 			key: 'impact',
 			kind: 'scale',
 			label: 'I',
 			rubric: 'x',
 			spec: { min: 0, max: 10 }
 		});
-		defineAttribute(db, actor, realmId, {
+		await defineAttribute(db, actor, realmId, {
 			key: 'topic',
 			kind: 'tags',
 			label: 'T',
@@ -444,12 +449,12 @@ describe('features', () => {
 				]
 			}
 		});
-		const set = labour();
-		const unset = labour();
-		const away = seedLabour(db, { realmId: other });
-		setValues(db, actor, set.id, { impact: 5, topic: ['audio'] });
+		const set = await labour();
+		const unset = await labour();
+		const away = await seedLabour(db, { realmId: other });
+		await setValues(db, actor, set.id, { impact: 5, topic: ['audio'] });
 
-		const result = ask({ impact: 2, 'topic:ui': 4 }, { limit: 50 });
+		const result = await ask({ impact: 2, 'topic:ui': 4 }, { limit: 50 });
 		const item = (id: number) => result.results.find((r) => r.labourId === id)!;
 		expect(item(set.id).score).toBeCloseTo(2 * 0.5 + 0, 12);
 		expect(item(unset.id).score).toBeCloseTo(2 * 0.5 + 4 * 0.5, 12);
@@ -457,15 +462,15 @@ describe('features', () => {
 		expect(result.coverage.missing).toEqual({ impact: 2, 'topic:ui': 2 });
 	});
 
-	it('shows values as stored, in show order, omitting unset ones', () => {
-		defineAttribute(db, actor, realmId, {
+	it('shows values as stored, in show order, omitting unset ones', async () => {
+		await defineAttribute(db, actor, realmId, {
 			key: 'impact',
 			kind: 'scale',
 			label: 'I',
 			rubric: 'x',
 			spec: { min: 0, max: 10 }
 		});
-		defineAttribute(db, actor, realmId, {
+		await defineAttribute(db, actor, realmId, {
 			key: 'topic',
 			kind: 'tags',
 			label: 'T',
@@ -477,11 +482,16 @@ describe('features', () => {
 				]
 			}
 		});
-		defineAttribute(db, actor, realmId, { key: 'why', kind: 'text', label: 'W', rubric: 'x' });
-		const a = labour();
-		const b = labour();
-		setValues(db, actor, a.id, { impact: 7, topic: ['ui', 'audio'], why: 'because' });
-		const result = ask({ age: 1 }, { show: ['topic', 'why', 'impact', 'nope'] });
+		await defineAttribute(db, actor, realmId, {
+			key: 'why',
+			kind: 'text',
+			label: 'W',
+			rubric: 'x'
+		});
+		const a = await labour();
+		const b = await labour();
+		await setValues(db, actor, a.id, { impact: 7, topic: ['ui', 'audio'], why: 'because' });
+		const result = await ask({ age: 1 }, { show: ['topic', 'why', 'impact', 'nope'] });
 		expect(Object.keys(result.results[0].values!)).toEqual(['topic', 'why', 'impact']);
 		expect(result.results[0].values).toEqual({ topic: ['audio', 'ui'], why: 'because', impact: 7 });
 		expect(result.results.find((r) => r.labourId === b.id)!.values).toEqual({});
@@ -490,13 +500,13 @@ describe('features', () => {
 });
 
 describe('weights', () => {
-	it('puts unmatched, later and keywords-without-query keys in ignored, weights before show', () => {
-		const old = labour();
-		db.update(labours)
+	it('puts unmatched, later and keywords-without-query keys in ignored, weights before show', async () => {
+		const old = await labour();
+		await db
+			.update(labours)
 			.set({ createdAt: ago(30) })
-			.where(eq(labours.id, old.id))
-			.run();
-		const result = ask(
+			.where(eq(labours.id, old.id));
+		const result = await ask(
 			{ similarity: 1, rank: 1, priority: 1, keywords: 1, bogus: 1, 'bogus:one': 1, age: 1 },
 			{ show: ['absent'] }
 		);
@@ -512,56 +522,65 @@ describe('weights', () => {
 		expect(Object.keys(result.results[0].contributions)).toEqual(['age']);
 	});
 
-	it('ignores a bare tags or text key', () => {
-		defineAttribute(db, actor, realmId, {
+	it('ignores a bare tags or text key', async () => {
+		await defineAttribute(db, actor, realmId, {
 			key: 'topic',
 			kind: 'tags',
 			label: 'T',
 			rubric: 'x',
 			spec: { members: [{ key: 'ui', label: 'UI' }] }
 		});
-		defineAttribute(db, actor, realmId, { key: 'why', kind: 'text', label: 'W', rubric: 'x' });
-		labour();
-		expect(ask({ topic: 1, why: 1, 'why:ui': 1 }).ignored).toEqual(['topic', 'why', 'why:ui']);
+		await defineAttribute(db, actor, realmId, {
+			key: 'why',
+			kind: 'text',
+			label: 'W',
+			rubric: 'x'
+		});
+		await labour();
+		expect((await ask({ topic: 1, why: 1, 'why:ui': 1 })).ignored).toEqual([
+			'topic',
+			'why',
+			'why:ui'
+		]);
 	});
 
-	it('lists the five largest contributions by size, ties in weight order, without zeros', () => {
-		const a = labour();
-		db.update(labours)
+	it('lists the five largest contributions by size, ties in weight order, without zeros', async () => {
+		const a = await labour();
+		await db
+			.update(labours)
 			.set({ createdAt: ago(30) })
-			.where(eq(labours.id, a.id))
-			.run();
-		db.insert(links)
-			.values({ fromId: labour().id, toId: a.id, type: 'evidence', setBy: actor.id })
-			.run();
-		const result = ask({ age: 2, evidence: -4, mentions: 3, unblocks: 3, activity: 0.01 });
+			.where(eq(labours.id, a.id));
+		await db
+			.insert(links)
+			.values({ fromId: (await labour()).id, toId: a.id, type: 'evidence', setBy: actor.id });
+		const result = await ask({ age: 2, evidence: -4, mentions: 3, unblocks: 3, activity: 0.01 });
 		const only = result.results.find((r) => r.labourId === a.id)!;
 		expect(Object.keys(only.contributions)).toEqual(['evidence', 'age', 'activity']);
 	});
 });
 
 describe('filters', () => {
-	it('adds Closed Labours by includeClosed', () => {
-		const open = labour();
-		const recent = labour({ stateId: closedStateId(realmId) });
-		const old = labour({ stateId: closedStateId(realmId) });
-		db.update(labours)
+	it('adds Closed Labours by includeClosed', async () => {
+		const open = await labour();
+		const recent = await labour({ stateId: await closedStateId(realmId) });
+		const old = await labour({ stateId: await closedStateId(realmId) });
+		await db
+			.update(labours)
 			.set({ updatedAt: ago(3) })
-			.where(eq(labours.id, recent.id))
-			.run();
-		db.update(labours)
+			.where(eq(labours.id, recent.id));
+		await db
+			.update(labours)
 			.set({ updatedAt: ago(40) })
-			.where(eq(labours.id, old.id))
-			.run();
-		const ids = (filter?: Parameters<typeof survey>[2]['filter']) =>
-			ask({ age: 1 }, { filter, limit: 50 }).results.map((r) => r.labourId);
-		expect(ids()).toEqual([open.id]);
-		expect(ids({ includeClosed: true })).toEqual([open.id, recent.id, old.id]);
-		expect(ids({ includeClosed: { withinDays: 30 } })).toEqual([open.id, recent.id]);
+			.where(eq(labours.id, old.id));
+		const ids = async (filter?: Parameters<typeof survey>[2]['filter']) =>
+			(await ask({ age: 1 }, { filter, limit: 50 })).results.map((r) => r.labourId);
+		expect(await ids()).toEqual([open.id]);
+		expect(await ids({ includeClosed: true })).toEqual([open.id, recent.id, old.id]);
+		expect(await ids({ includeClosed: { withinDays: 30 } })).toEqual([open.id, recent.id]);
 	});
 
-	it('filters by assignee, labels, has, quest and unblocked', () => {
-		defineAttribute(db, actor, realmId, {
+	it('filters by assignee, labels, has, quest and unblocked', async () => {
+		await defineAttribute(db, actor, realmId, {
 			key: 'topic',
 			kind: 'tags',
 			label: 'T',
@@ -573,48 +592,52 @@ describe('filters', () => {
 				]
 			}
 		});
-		const ada = seedUser(db, 'ada1');
-		const a = labour({ assigneeId: ada, labels: ['bug', 'ui'] });
-		const b = labour({ labels: ['bug'] });
-		const c = labour({ assigneeId: ada });
-		setValues(db, actor, a.id, { topic: ['ui'] });
-		setValues(db, actor, b.id, { topic: ['audio'] });
+		const ada = await seedUser(db, 'ada1');
+		const a = await labour({ assigneeId: ada, labels: ['bug', 'ui'] });
+		const b = await labour({ labels: ['bug'] });
+		const c = await labour({ assigneeId: ada });
+		await setValues(db, actor, a.id, { topic: ['ui'] });
+		await setValues(db, actor, b.id, { topic: ['audio'] });
 		const [rank] = generateNKeysBetween(null, null, 1);
-		const quest = db
-			.insert(quests)
-			.values({ realmId: anyRealmId(db), name: 'Q', ownerId: actor.id })
-			.returning()
-			.get();
-		db.insert(questLabours).values({ questId: quest.id, labourId: c.id, rank }).run();
-		db.insert(links).values({ fromId: a.id, toId: c.id, type: 'blocks', setBy: actor.id }).run();
+		const quest = (
+			await db
+				.insert(quests)
+				.values({ realmId: await anyRealmId(db), name: 'Q', ownerId: actor.id })
+				.returning()
+		)[0];
+		await db.insert(questLabours).values({ questId: quest.id, labourId: c.id, rank });
+		await db.insert(links).values({ fromId: a.id, toId: c.id, type: 'blocks', setBy: actor.id });
 
-		const ids = (filter: NonNullable<Parameters<typeof survey>[2]['filter']>) =>
-			ask({ age: 1 }, { filter, limit: 50 }).results.map((r) => r.labourId);
-		expect(ids({ assigneeIds: [ada] })).toEqual([a.id, c.id]);
-		expect(ids({ assigneeIds: [null] })).toEqual([b.id]);
-		expect(ids({ assigneeIds: [ada, null] })).toEqual([a.id, b.id, c.id]);
-		expect(ids({ labels: ['bug'] })).toEqual([a.id, b.id]);
-		expect(ids({ labels: ['BUG', 'ui'] })).toEqual([a.id]);
-		expect(ids({ has: ['topic:ui'] })).toEqual([a.id]);
-		expect(ids({ has: ['topic:ui', 'topic:audio'] })).toEqual([]);
-		expect(ids({ has: ['nope:ui'] })).toEqual([]);
-		expect(ids({ questId: quest.id })).toEqual([c.id]);
-		expect(ids({ unblocked: true })).toEqual([a.id, b.id]);
+		const ids = async (filter: NonNullable<Parameters<typeof survey>[2]['filter']>) =>
+			(await ask({ age: 1 }, { filter, limit: 50 })).results.map((r) => r.labourId);
+		expect(await ids({ assigneeIds: [ada] })).toEqual([a.id, c.id]);
+		expect(await ids({ assigneeIds: [null] })).toEqual([b.id]);
+		expect(await ids({ assigneeIds: [ada, null] })).toEqual([a.id, b.id, c.id]);
+		expect(await ids({ labels: ['bug'] })).toEqual([a.id, b.id]);
+		expect(await ids({ labels: ['BUG', 'ui'] })).toEqual([a.id]);
+		expect(await ids({ has: ['topic:ui'] })).toEqual([a.id]);
+		expect(await ids({ has: ['topic:ui', 'topic:audio'] })).toEqual([]);
+		expect(await ids({ has: ['nope:ui'] })).toEqual([]);
+		expect(await ids({ questId: quest.id })).toEqual([c.id]);
+		expect(await ids({ unblocked: true })).toEqual([a.id, b.id]);
 
-		db.update(labours)
-			.set({ stateId: closedStateId(realmId) })
-			.where(eq(labours.id, a.id))
-			.run();
-		expect(ids({ unblocked: true })).toEqual([b.id, c.id]);
+		await db
+			.update(labours)
+			.set({ stateId: await closedStateId(realmId) })
+			.where(eq(labours.id, a.id));
+		expect(await ids({ unblocked: true })).toEqual([b.id, c.id]);
 	});
 });
 
 describe('storage', () => {
-	it('stores the request and results and changes nothing else', () => {
-		const a = labour();
-		const before = db.select().from(labours).where(eq(labours.id, a.id)).get()!.updatedAt;
-		const result = ask({ age: 1 }, { query: '  hello  ', show: ['x'] });
-		const row = db.select().from(surveys).where(eq(surveys.id, result.surveyId)).get()!;
+	it('stores the request and results and changes nothing else', async () => {
+		const a = await labour();
+		const before = (await db.select().from(labours).where(eq(labours.id, a.id)).limit(1))[0]!
+			.updatedAt;
+		const result = await ask({ age: 1 }, { query: '  hello  ', show: ['x'] });
+		const row = (
+			await db.select().from(surveys).where(eq(surveys.id, result.surveyId)).limit(1)
+		)[0]!;
 		expect(row.createdAt).toEqual(NOW);
 		expect(row.actorId).toBe(actor.id);
 		expect(row.forId).toBe(actor.id);
@@ -628,98 +651,114 @@ describe('storage', () => {
 			limit: 15,
 			show: ['x']
 		});
-		expect(db.select().from(labours).where(eq(labours.id, a.id)).get()!.updatedAt).toEqual(before);
+		expect(
+			(await db.select().from(labours).where(eq(labours.id, a.id)).limit(1))[0]!.updatedAt
+		).toEqual(before);
 	});
 
-	it('prunes only Surveys older than the retention', () => {
-		labour();
-		const old = ask({ age: 1 }, {}, { now: ago(31) }).surveyId;
-		const edge = ask({ age: 1 }, {}, { now: ago(30) }).surveyId;
-		const fresh = ask({ age: 1 }).surveyId;
-		expect(pruneSurveys(db, 30 * DAY, NOW.getTime())).toBe(1);
-		expect(
-			db
-				.select({ id: surveys.id })
-				.from(surveys)
-				.all()
-				.map((r) => r.id)
-		).toEqual([edge, fresh]);
+	it('prunes only Surveys older than the retention', async () => {
+		await labour();
+		const old = (await ask({ age: 1 }, {}, { now: ago(31) })).surveyId;
+		const edge = (await ask({ age: 1 }, {}, { now: ago(30) })).surveyId;
+		const fresh = (await ask({ age: 1 })).surveyId;
+		expect(await pruneSurveys(db, 30 * DAY, NOW.getTime())).toBe(1);
+		expect((await db.select({ id: surveys.id }).from(surveys)).map((r) => r.id)).toEqual([
+			edge,
+			fresh
+		]);
 		expect(old).toBeLessThan(edge);
 	});
 
-	it('prunes at startup and on the interval, and stops when told', () => {
+	it('prunes at startup and on the interval, and stops when told', async () => {
 		vi.useFakeTimers({ now: NOW });
-		labour();
-		ask({ age: 1 }, {}, { now: ago(40) });
-		const stop = scheduleAgentPruning(db, 30 * DAY, 1000);
-		expect(db.select().from(surveys).all()).toHaveLength(0);
+		await labour();
+		await ask({ age: 1 }, {}, { now: ago(40) });
+		const stop = await scheduleAgentPruning(db, 30 * DAY, 1000);
+		expect(await db.select().from(surveys)).toHaveLength(0);
 
-		ask({ age: 1 }, {}, { now: ago(40) });
+		await ask({ age: 1 }, {}, { now: ago(40) });
 		vi.advanceTimersByTime(1000);
-		expect(db.select().from(surveys).all()).toHaveLength(0);
+		expect(await db.select().from(surveys)).toHaveLength(0);
 
 		stop();
-		ask({ age: 1 }, {}, { now: ago(40) });
+		await ask({ age: 1 }, {}, { now: ago(40) });
 		vi.advanceTimersByTime(5000);
-		expect(db.select().from(surveys).all()).toHaveLength(1);
+		expect(await db.select().from(surveys)).toHaveLength(1);
 	});
 });
 
 describe('validation', () => {
-	const code = (input: Parameters<typeof survey>[2]) => {
+	const code = async (input: Parameters<typeof survey>[2]) => {
 		try {
-			survey(db, actor, input, { now: NOW });
+			await survey(db, actor, input, { now: NOW });
 		} catch (error) {
 			return (error as { code?: string }).code;
 		}
 		return 'ok';
 	};
 
-	it('refuses out-of-range and malformed requests as invalid', () => {
-		labour();
+	it('refuses out-of-range and malformed requests as invalid', async () => {
+		await labour();
 		const w = { age: 1 };
-		expect(code({ weights: {} })).toBe('invalid');
-		expect(code({ weights: { age: 11 } })).toBe('invalid');
-		expect(code({ weights: { age: Infinity } })).toBe('invalid');
-		expect(code({ weights: { Age: 1 } })).toBe('invalid');
+		expect(await code({ weights: {} })).toBe('invalid');
+		expect(await code({ weights: { age: 11 } })).toBe('invalid');
+		expect(await code({ weights: { age: Infinity } })).toBe('invalid');
+		expect(await code({ weights: { Age: 1 } })).toBe('invalid');
 		expect(
-			code({ weights: Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`k${i}`, 1])) })
+			await code({
+				weights: Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`k${i}`, 1]))
+			})
 		).toBe('invalid');
-		expect(code({ weights: w, temperature: 2.1 })).toBe('invalid');
-		expect(code({ weights: w, limit: 0 })).toBe('invalid');
-		expect(code({ weights: w, limit: 51 })).toBe('invalid');
-		expect(code({ weights: w, limit: 1.5 })).toBe('invalid');
-		expect(code({ weights: w, query: 'x'.repeat(501) })).toBe('invalid');
-		expect(code({ weights: w, show: Array.from({ length: 17 }, (_, i) => `k${i}`) })).toBe(
+		expect(await code({ weights: w, temperature: 2.1 })).toBe('invalid');
+		expect(await code({ weights: w, limit: 0 })).toBe('invalid');
+		expect(await code({ weights: w, limit: 51 })).toBe('invalid');
+		expect(await code({ weights: w, limit: 1.5 })).toBe('invalid');
+		expect(await code({ weights: w, query: 'x'.repeat(501) })).toBe('invalid');
+		expect(await code({ weights: w, show: Array.from({ length: 17 }, (_, i) => `k${i}`) })).toBe(
 			'invalid'
 		);
-		expect(code({ weights: w, show: ['Bad'] })).toBe('invalid');
-		expect(code({ weights: w, realmIds: [] })).toBe('invalid');
-		expect(code({ weights: w, filter: { assigneeIds: [] } })).toBe('invalid');
-		expect(code({ weights: w, filter: { has: ['plain'] } })).toBe('invalid');
-		expect(code({ weights: w, filter: { includeClosed: { withinDays: 0 } } })).toBe('invalid');
-		expect(code({ weights: w, filter: { includeClosed: { withinDays: 3651 } } })).toBe('invalid');
-		expect(code({ weights: w, query: '   ' })).toBe('ok');
-		expect(code({ weights: { age: -10, 'a-b_c:d-e': 10 } })).toBe('ok');
+		expect(await code({ weights: w, show: ['Bad'] })).toBe('invalid');
+		expect(await code({ weights: w, realmIds: [] })).toBe('invalid');
+		expect(await code({ weights: w, filter: { assigneeIds: [] } })).toBe('invalid');
+		expect(await code({ weights: w, filter: { has: ['plain'] } })).toBe('invalid');
+		expect(await code({ weights: w, filter: { includeClosed: { withinDays: 0 } } })).toBe(
+			'invalid'
+		);
+		expect(await code({ weights: w, filter: { includeClosed: { withinDays: 3651 } } })).toBe(
+			'invalid'
+		);
+		expect(await code({ weights: w, query: '   ' })).toBe('ok');
+		expect(await code({ weights: { age: -10, 'a-b_c:d-e': 10 } })).toBe('ok');
 	});
 
-	it('refuses lists past their caps as invalid', () => {
-		labour();
+	it('refuses lists past their caps as invalid', async () => {
+		await labour();
 		const w = { age: 1 };
 		const many = <T>(size: number, item: (i: number) => T) =>
 			Array.from({ length: size }, (_, i) => item(i));
-		expect(code({ weights: w, realmIds: many(65, (i) => i + 1) })).toBe('invalid');
-		expect(code({ weights: w, filter: { assigneeIds: many(65, (i) => i + 1) } })).toBe('invalid');
-		expect(code({ weights: w, filter: { has: many(33, (i) => `topic:m${i}`) } })).toBe('invalid');
-		expect(code({ weights: w, filter: { labels: many(21, (i) => `l${i}`) } })).toBe('invalid');
+		expect(await code({ weights: w, realmIds: many(65, (i) => i + 1) })).toBe('invalid');
+		expect(await code({ weights: w, filter: { assigneeIds: many(65, (i) => i + 1) } })).toBe(
+			'invalid'
+		);
+		expect(await code({ weights: w, filter: { has: many(33, (i) => `topic:m${i}`) } })).toBe(
+			'invalid'
+		);
+		expect(await code({ weights: w, filter: { labels: many(21, (i) => `l${i}`) } })).toBe(
+			'invalid'
+		);
 	});
 
-	it('runs every list at its cap without an internal error', () => {
-		labour();
-		const realms = [realmId, ...Array.from({ length: 63 }, (_, i) => seedRealm(db, `X${i}`).id)];
-		const users = Array.from({ length: 64 }, (_, i) => seedUser(db, `cap${i}`));
+	it('runs every list at its cap without an internal error', async () => {
+		await labour();
+		const realms = [
+			realmId,
+			...(await Promise.all(
+				Array.from({ length: 63 }, async (_, i) => (await seedRealm(db, `X${i}`)).id)
+			))
+		];
+		const users = await Promise.all(Array.from({ length: 64 }, (_, i) => seedUser(db, `cap${i}`)));
 		expect(
-			code({
+			await code({
 				weights: { age: 1 },
 				realmIds: realms,
 				filter: {
@@ -729,22 +768,22 @@ describe('validation', () => {
 				}
 			})
 		).toBe('ok');
-		expect(code({ weights: { age: 1 }, realmIds: realms.map((id) => id + 1000) })).toBe(
+		expect(await code({ weights: { age: 1 }, realmIds: realms.map((id) => id + 1000) })).toBe(
 			'not_found'
 		);
 	});
 
-	it('refuses unknown Realm, User and Quest ids as not_found', () => {
+	it('refuses unknown Realm, User and Quest ids as not_found', async () => {
 		const w = { age: 1 };
-		expect(code({ weights: w, realmIds: [999] })).toBe('not_found');
-		expect(code({ weights: w, forUserId: 999 })).toBe('not_found');
-		expect(code({ weights: w, filter: { assigneeIds: [999] } })).toBe('not_found');
-		expect(code({ weights: w, filter: { questId: 999 } })).toBe('not_found');
+		expect(await code({ weights: w, realmIds: [999] })).toBe('not_found');
+		expect(await code({ weights: w, forUserId: 999 })).toBe('not_found');
+		expect(await code({ weights: w, filter: { assigneeIds: [999] } })).toBe('not_found');
+		expect(await code({ weights: w, filter: { questId: 999 } })).toBe('not_found');
 	});
 
-	it('treats an empty query as absent so keywords is ignored', () => {
-		labour();
-		expect(ask({ keywords: 1 }, { query: '  ' }).ignored).toEqual(['keywords']);
+	it('treats an empty query as absent so keywords is ignored', async () => {
+		await labour();
+		expect((await ask({ keywords: 1 }, { query: '  ' })).ignored).toEqual(['keywords']);
 	});
 });
 
@@ -781,57 +820,72 @@ describe('performance', () => {
 		return Buffer.from(vector.buffer);
 	}
 
-	function insertAll<T>(rows: T[], insert: (part: T[]) => void) {
-		for (let at = 0; at < rows.length; at += ADD_EVERY) insert(rows.slice(at, at + ADD_EVERY));
+	async function insertAll<T>(rows: T[], insert: (part: T[]) => unknown) {
+		for (let at = 0; at < rows.length; at += ADD_EVERY)
+			await insert(rows.slice(at, at + ADD_EVERY));
 	}
 
 	// `n` Labours spread over the Realms in turn, two columns each, with Attribute values, Links,
 	// Quests of 100 Labours, Comments, Mentions, Appraisals and needed Skills on them, and Skills held
 	// by the workers.
-	function seedBench(perf: Db, keys: string[], n: number) {
-		const admin = seedActor(perf);
-		const realmIds = keys.map((key) => seedRealm(perf, key).id);
-		const stateIds = realmIds.map((id) => {
-			const doing = createState(perf, admin, id, {
-				key: 'doing',
-				label: 'Doing',
-				color: '#222222',
-				icon: 'circle'
-			});
-			const todo = perf
-				.select()
-				.from(states)
-				.where(and(eq(states.realmId, id), eq(states.key, 'todo')))
-				.get()!;
-			return [todo.id, doing.id];
-		});
-		const workers = Array.from({ length: 10 }, (_, i) => seedUser(perf, `worker${i}`));
-		const attributeIds = realmIds.map((id) => {
-			const impact = defineAttribute(perf, admin, id, {
-				key: 'impact',
-				kind: 'scale',
-				label: 'I',
-				rubric: 'x',
-				spec: { min: 0, max: 10 }
-			}).attribute;
-			const topic = defineAttribute(perf, admin, id, {
-				key: 'topic',
-				kind: 'tags',
-				label: 'T',
-				rubric: 'x',
-				spec: {
-					members: [
-						{ key: 'ui', label: 'UI' },
-						{ key: 'audio', label: 'Audio' },
-						{ key: 'boss', label: 'Boss' }
-					]
-				}
-			}).attribute;
-			return { impact: impact.id, topic: topic.id };
-		});
+	async function seedBench(perf: Db, keys: string[], n: number) {
+		const admin = await seedActor(perf);
+		const realmIds = await Promise.all(keys.map(async (key) => (await seedRealm(perf, key)).id));
+		const stateIds = await Promise.all(
+			realmIds.map(async (id) => {
+				const doing = await createState(perf, admin, id, {
+					key: 'doing',
+					label: 'Doing',
+					color: '#222222',
+					icon: 'circle'
+				});
+				const todo = (
+					await perf
+						.select()
+						.from(states)
+						.where(and(eq(states.realmId, id), eq(states.key, 'todo')))
+						.limit(1)
+				)[0]!;
+				return [todo.id, doing.id];
+			})
+		);
+		const workers = await Promise.all(
+			Array.from({ length: 10 }, (_, i) => seedUser(perf, `worker${i}`))
+		);
+		const attributeIds = await Promise.all(
+			realmIds.map(async (id) => {
+				const impact = (
+					await defineAttribute(perf, admin, id, {
+						key: 'impact',
+						kind: 'scale',
+						label: 'I',
+						rubric: 'x',
+						spec: { min: 0, max: 10 }
+					})
+				).attribute;
+				const topic = (
+					await defineAttribute(perf, admin, id, {
+						key: 'topic',
+						kind: 'tags',
+						label: 'T',
+						rubric: 'x',
+						spec: {
+							members: [
+								{ key: 'ui', label: 'UI' },
+								{ key: 'audio', label: 'Audio' },
+								{ key: 'boss', label: 'Boss' }
+							]
+						}
+					})
+				).attribute;
+				return { impact: impact.id, topic: topic.id };
+			})
+		);
 
-		const skillIds = ['vfx', 'audio', 'design'].map(
-			(key) => defineSkill(perf, admin, { key, label: key }).id
+		const skillIds = await Promise.all(
+			['vfx', 'audio', 'design'].map(
+				async (key) => (await defineSkill(perf, admin, { key, label: key })).id
+			)
 		);
 
 		const perRealm = Math.ceil(n / keys.length);
@@ -871,14 +925,14 @@ describe('performance', () => {
 		const realmKey = new Map(realmIds.map((id, r) => [id, keys[r]]));
 
 		const questIds: number[] = [];
-		perf.transaction((tx) => {
-			insertAll(rows, (part) => tx.insert(labours).values(part).run());
-			insertAll(
+		await transact(perf, async (tx) => {
+			await insertAll(rows, async (part) => await tx.insert(labours).values(part));
+			await insertAll(
 				rows.map((row) => ({
 					key: `${realmKey.get(row.realmId)}-${row.number}`,
 					labourId: row.id!
 				})),
-				(part) => tx.insert(labourKeys).values(part).run()
+				async (part) => await tx.insert(labourKeys).values(part)
 			);
 
 			const held: (typeof labourAttributes.$inferInsert)[] = [];
@@ -897,9 +951,9 @@ describe('performance', () => {
 					held.push({ ...base, attributeId: ids.topic, value });
 				}
 			}
-			insertAll(held, (part) => tx.insert(labourAttributes).values(part).run());
+			await insertAll(held, async (part) => await tx.insert(labourAttributes).values(part));
 
-			insertAll(
+			await insertAll(
 				workers.flatMap((userId, w) =>
 					skillIds.slice(0, 1 + (w % 3)).map((skillId, s) => ({
 						userId,
@@ -910,7 +964,7 @@ describe('performance', () => {
 						setAt: NOW
 					}))
 				),
-				(part) => tx.insert(userSkills).values(part).run()
+				async (part) => await tx.insert(userSkills).values(part)
 			);
 			const needed: (typeof labourNeeds.$inferInsert)[] = [];
 			for (const row of rows) {
@@ -927,7 +981,7 @@ describe('performance', () => {
 					});
 				}
 			}
-			insertAll(needed, (part) => tx.insert(labourNeeds).values(part).run());
+			await insertAll(needed, async (part) => await tx.insert(labourNeeds).values(part));
 
 			const reports: (typeof pulses.$inferInsert)[] = [];
 			realmIds.forEach((realmId, r) => {
@@ -953,7 +1007,7 @@ describe('performance', () => {
 					});
 				}
 			});
-			insertAll(reports, (part) => tx.insert(pulses).values(part).run());
+			await insertAll(reports, async (part) => await tx.insert(pulses).values(part));
 
 			const habits: (typeof pulses.$inferInsert)[] = [];
 			realmIds.forEach((_, r) => {
@@ -975,7 +1029,7 @@ describe('performance', () => {
 					});
 				}
 			});
-			insertAll(habits, (part) => tx.insert(pulses).values(part).run());
+			await insertAll(habits, async (part) => await tx.insert(pulses).values(part));
 
 			const edges = new Map<string, typeof links.$inferInsert>();
 			for (let from = 1; from <= Math.floor(n * 0.6); from += 1) {
@@ -991,21 +1045,22 @@ describe('performance', () => {
 						setAt: NOW
 					});
 			}
-			insertAll([...edges.values()], (part) => tx.insert(links).values(part).run());
+			await insertAll([...edges.values()], async (part) => await tx.insert(links).values(part));
 
 			const members: (typeof questLabours.$inferInsert)[] = [];
 			for (let q = 0; q < n / 200; q += 1) {
-				const questId = tx
-					.insert(quests)
-					.values({ realmId: anyRealmId(db), name: `Q${q}`, ownerId: admin.id })
-					.returning()
-					.get().id;
+				const questId = (
+					await tx
+						.insert(quests)
+						.values({ realmId: await anyRealmId(db), name: `Q${q}`, ownerId: admin.id })
+						.returning()
+				)[0].id;
 				questIds.push(questId);
 				const rankList = generateNKeysBetween(null, null, 100);
 				for (let m = 0; m < 100; m += 1)
 					members.push({ questId, labourId: ((q * 97 + m * 31) % n) + 1, rank: rankList[m] });
 			}
-			insertAll(members, (part) => tx.insert(questLabours).values(part).run());
+			await insertAll(members, async (part) => await tx.insert(questLabours).values(part));
 
 			const notes: (typeof comments.$inferInsert)[] = [];
 			for (let i = 0; i < n * 0.8; i += 1) {
@@ -1016,7 +1071,7 @@ describe('performance', () => {
 					createdAt: ago(i % 90)
 				});
 			}
-			insertAll(notes, (part) => tx.insert(comments).values(part).run());
+			await insertAll(notes, async (part) => await tx.insert(comments).values(part));
 
 			const briefs: (typeof appraisals.$inferInsert)[] = [];
 			for (let i = 1; i <= n; i += 2) {
@@ -1033,9 +1088,9 @@ describe('performance', () => {
 						: {})
 				});
 			}
-			insertAll(briefs, (part) => tx.insert(appraisals).values(part).run());
+			await insertAll(briefs, async (part) => await tx.insert(appraisals).values(part));
 
-			insertAll(
+			await insertAll(
 				rows.map((row) => ({
 					labourId: row.id!,
 					model: MODEL_ID,
@@ -1047,14 +1102,14 @@ describe('performance', () => {
 					vector: vectorBlob(row.id!),
 					embeddedAt: NOW
 				})),
-				(part) => tx.insert(labourVectors).values(part).run()
+				async (part) => await tx.insert(labourVectors).values(part)
 			);
 		});
-		rebuildDerived(perf);
+		await rebuildDerived(perf);
 		return { admin, realmIds, workers, questIds };
 	}
 
-	type Bench = ReturnType<typeof seedBench>;
+	type Bench = Awaited<ReturnType<typeof seedBench>>;
 
 	const everything = (bench: Bench, more: Partial<Parameters<typeof survey>[2]> = {}) => ({
 		query: 'boss telegraph',
@@ -1066,9 +1121,13 @@ describe('performance', () => {
 	});
 
 	// Each weight alone puts a candidate that scores above 0 on top, so no loader came back empty.
-	function expectEveryFeature(perf: Db, bench: Bench, more: Partial<Parameters<typeof survey>[2]>) {
+	async function expectEveryFeature(
+		perf: Db,
+		bench: Bench,
+		more: Partial<Parameters<typeof survey>[2]>
+	) {
 		for (const key of Object.keys(WEIGHTS)) {
-			const { results } = survey(
+			const { results } = await survey(
 				perf,
 				bench.admin,
 				{ ...everything(bench, more), weights: { [key]: 1 }, temperature: 0, limit: 1 },
@@ -1078,66 +1137,70 @@ describe('performance', () => {
 		}
 	}
 
-	function medianMs(label: string, run: () => void): number {
-		run();
-		const times = [0, 1, 2].map(() => {
+	async function medianMs(label: string, run: () => Promise<unknown>): Promise<number> {
+		await run();
+		const times: number[] = [];
+		for (let i = 0; i < 3; i++) {
 			const start = performance.now();
-			run();
-			return performance.now() - start;
-		});
+			await run();
+			times.push(performance.now() - start);
+		}
 		times.sort((a, b) => a - b);
 		console.info(`${label}: ${times.map((t) => t.toFixed(1)).join(', ')} ms`);
 		return times[1];
 	}
 
-	it('scores 5,000 Labours with every feature in under 200 ms', { timeout: 120_000 }, () => {
-		const perf = testDb();
+	it('scores 5,000 Labours with every feature in under 200 ms', { timeout: 120_000 }, async () => {
+		const perf = await testDb();
 		try {
-			const bench = seedBench(perf, ['PA', 'PB', 'PC'], 5000);
+			const bench = await seedBench(perf, ['PA', 'PB', 'PC'], 5000);
 			const run = () =>
 				survey(perf, bench.admin, everything(bench), { now: NOW, queryVector: QUERY_VECTOR });
-			const first = run();
+			const first = await run();
 			expect(first.coverage.candidates).toBe(5000);
 			expect(first.coverage.unembedded).toBe(0);
 			expect(first.coverage.missing.similarity).toBeUndefined();
 			expect(first.coverage.stale).toBeGreaterThan(0);
 			expect(first.results).toHaveLength(15);
-			expectEveryFeature(perf, bench, {});
-			expect(medianMs('survey at 5,000', run)).toBeLessThan(budget(200));
+			await expectEveryFeature(perf, bench, {});
+			expect(await medianMs('survey at 5,000', run)).toBeLessThan(budget(200));
 		} finally {
-			perf.$client.close();
+			await perf.$client.end();
 		}
 	});
 
 	it(
 		'scores the Sentiment features at 5,000 Labours holding a 64-member tags Attribute in under 200 ms',
 		{ timeout: 120_000 },
-		() => {
-			const perf = testDb();
+		async () => {
+			const perf = await testDb();
 			try {
-				const bench = seedBench(perf, ['PA', 'PB', 'PC'], 5000);
+				const bench = await seedBench(perf, ['PA', 'PB', 'PC'], 5000);
 				const members = Array.from({ length: 64 }, (_, i) => ({
 					key: `m${i}`,
 					label: `M${i}`,
 					rubric: 'r'.repeat(1000)
 				}));
 				const fat = new Map(
-					bench.realmIds.map((id) => [
-						id,
-						defineAttribute(perf, bench.admin, id, {
-							key: 'fat',
-							kind: 'tags',
-							label: 'F',
-							rubric: 'x',
-							spec: { members }
-						}).attribute.id
-					])
+					await Promise.all(
+						bench.realmIds.map(async (id): Promise<[number, number]> => [
+							id,
+							(
+								await defineAttribute(perf, bench.admin, id, {
+									key: 'fat',
+									kind: 'tags',
+									label: 'F',
+									rubric: 'x',
+									spec: { members }
+								})
+							).attribute.id
+						])
+					)
 				);
-				const everyone = perf
+				const everyone = await perf
 					.select({ id: labours.id, realmId: labours.realmId })
-					.from(labours)
-					.all();
-				insertAll(
+					.from(labours);
+				await insertAll(
 					everyone.map((row) => ({
 						realmId: row.realmId,
 						labourId: row.id,
@@ -1147,7 +1210,7 @@ describe('performance', () => {
 						via: null,
 						setAt: NOW
 					})),
-					(part) => perf.insert(labourAttributes).values(part).run()
+					async (part) => await perf.insert(labourAttributes).values(part)
 				);
 				const run = () =>
 					survey(
@@ -1156,12 +1219,12 @@ describe('performance', () => {
 						{ weights: { sentiment: 1, pain: 1, delight: 1 }, temperature: 0 },
 						{ now: NOW }
 					);
-				expect(run().coverage.candidates).toBe(5000);
-				expect(medianMs('sentiment features over fat tags at 5,000', run)).toBeLessThan(
+				expect((await run()).coverage.candidates).toBe(5000);
+				expect(await medianMs('sentiment features over fat tags at 5,000', run)).toBeLessThan(
 					budget(200)
 				);
 			} finally {
-				perf.$client.close();
+				await perf.$client.end();
 			}
 		}
 	);
@@ -1169,12 +1232,12 @@ describe('performance', () => {
 	it(
 		'reads no Labour text: 5,000 Labours with 50 KB descriptions survey as fast as short ones',
 		{ timeout: 300_000 },
-		() => {
-			const perf = testDb();
+		async () => {
+			const perf = await testDb();
 			try {
-				const admin = seedActor(perf);
-				const realm = seedRealm(perf, 'PA');
-				const ownerId = seedUser(perf, 'owner');
+				const admin = await seedActor(perf);
+				const realm = await seedRealm(perf, 'PA');
+				const ownerId = await seedUser(perf, 'owner');
 				const total = 5000;
 				const ranks = generateNKeysBetween(null, null, total);
 				const filler = 'The boss telegraphs its swing too late for players to react. '.repeat(900);
@@ -1191,10 +1254,10 @@ describe('performance', () => {
 					updatedAt: ago(i % 30)
 				}));
 				expect(rows[0].description).toHaveLength(50_000);
-				perf.transaction((tx) => {
-					insertAll(rows, (part) => tx.insert(labours).values(part).run());
-					rebuildEmbeddingInputs(tx);
-					insertAll(
+				await transact(perf, async (tx) => {
+					await insertAll(rows, async (part) => await tx.insert(labours).values(part));
+					await rebuildEmbeddingInputs(tx);
+					await insertAll(
 						rows.map((row) => ({
 							labourId: row.id,
 							model: MODEL_ID,
@@ -1202,7 +1265,7 @@ describe('performance', () => {
 							vector: vectorBlob(row.id),
 							embeddedAt: NOW
 						})),
-						(part) => tx.insert(labourVectors).values(part).run()
+						async (part) => await tx.insert(labourVectors).values(part)
 					);
 				});
 				const run = (weights: Record<string, number>) => () =>
@@ -1213,15 +1276,15 @@ describe('performance', () => {
 						{ now: NOW, queryVector: QUERY_VECTOR }
 					);
 
-				const first = run({ similarity: 1, age: 1 })();
+				const first = await run({ similarity: 1, age: 1 })();
 				expect(first.coverage).toMatchObject({ candidates: total, unembedded: 0, missing: {} });
 				expect(first.results[0].contributions.similarity).toBeGreaterThan(0);
 				expect(
-					medianMs('similarity and age at 5,000 × 50 KB', run({ similarity: 1, age: 1 }))
+					await medianMs('similarity and age at 5,000 × 50 KB', run({ similarity: 1, age: 1 }))
 				).toBeLessThan(budget(200));
-				expect(medianMs('age at 5,000 × 50 KB', run({ age: 1 }))).toBeLessThan(budget(100));
+				expect(await medianMs('age at 5,000 × 50 KB', run({ age: 1 }))).toBeLessThan(budget(100));
 			} finally {
-				perf.$client.close();
+				await perf.$client.end();
 			}
 		}
 	);
@@ -1229,10 +1292,14 @@ describe('performance', () => {
 	it(
 		'costs by the candidates, not the database: 5,000 and 100 of 40,000 Labours',
 		{ timeout: 300_000 },
-		() => {
-			const perf = testDb();
+		async () => {
+			const perf = await testDb();
 			try {
-				const bench = seedBench(perf, ['PA', 'PB', 'PC', 'PD', 'PE', 'PF', 'PG', 'PH'], 40_000);
+				const bench = await seedBench(
+					perf,
+					['PA', 'PB', 'PC', 'PD', 'PE', 'PF', 'PG', 'PH'],
+					40_000
+				);
 				const oneRealm = { realmIds: [bench.realmIds[0]] };
 				const oneQuest = { filter: { questId: bench.questIds[0] } };
 				const run = (more: Partial<Parameters<typeof survey>[2]>) => () =>
@@ -1241,15 +1308,17 @@ describe('performance', () => {
 						queryVector: QUERY_VECTOR
 					});
 
-				expect(run(oneRealm)().coverage.candidates).toBe(5000);
-				expectEveryFeature(perf, bench, oneRealm);
-				expect(medianMs('survey at 5,000 of 40,000', run(oneRealm))).toBeLessThan(budget(200));
+				expect((await run(oneRealm)()).coverage.candidates).toBe(5000);
+				await expectEveryFeature(perf, bench, oneRealm);
+				expect(await medianMs('survey at 5,000 of 40,000', run(oneRealm))).toBeLessThan(
+					budget(200)
+				);
 
-				expect(run(oneQuest)().coverage.candidates).toBe(100);
-				expectEveryFeature(perf, bench, oneQuest);
-				expect(medianMs('survey at 100 of 40,000', run(oneQuest))).toBeLessThan(budget(50));
+				expect((await run(oneQuest)()).coverage.candidates).toBe(100);
+				await expectEveryFeature(perf, bench, oneQuest);
+				expect(await medianMs('survey at 100 of 40,000', run(oneQuest))).toBeLessThan(budget(50));
 			} finally {
-				perf.$client.close();
+				await perf.$client.end();
 			}
 		}
 	);

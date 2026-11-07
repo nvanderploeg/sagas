@@ -13,6 +13,7 @@ import { count } from '../present.ts';
 import * as refs from '../refs.ts';
 import { reply } from '../result.ts';
 import { labourRef, pageShape, realmRef, type Tools } from '../tool.ts';
+import { filterAsync, mapAll } from '#lib/server/async.ts';
 
 const linkShape = z.strictObject({
 	type: z
@@ -87,27 +88,31 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 				labours: z.array(itemShape).min(1).max(BATCH_MAX).describe(`1 to ${BATCH_MAX} items`)
 			}
 		},
-		(args) => {
-			const items = args.labours.map((item): AppraiseItem => ({
-				labourId: refs.labourId(db, item.labour, actor),
-				brief: item.brief,
-				refs: item.refs,
-				values: item.values,
-				links: item.links?.map((link) => ({
-					type: link.type,
-					to: link.to === undefined ? undefined : refs.labourId(db, link.to, actor),
-					from: link.from === undefined ? undefined : refs.labourId(db, link.from, actor),
-					note: link.note,
-					remove: link.remove
-				})),
-				needs: item.needs,
-				stamp: item.stamp
-			}));
-			const results = appraise(db, actor, items);
-			const appraised = results.map((result) => ({
-				labour: refs.labourKey(db, result.labourId),
-				stamped: result.stamped
-			}));
+		async (args) => {
+			const items = await Promise.all(
+				args.labours.map(async (item): Promise<AppraiseItem> => ({
+					labourId: await refs.labourId(db, item.labour, actor),
+					brief: item.brief,
+					refs: item.refs,
+					values: item.values,
+					links: await mapAll(item.links, async (link) => ({
+						type: link.type,
+						to: link.to === undefined ? undefined : await refs.labourId(db, link.to, actor),
+						from: link.from === undefined ? undefined : await refs.labourId(db, link.from, actor),
+						note: link.note,
+						remove: link.remove
+					})),
+					needs: item.needs,
+					stamp: item.stamp
+				}))
+			);
+			const results = await appraise(db, actor, items);
+			const appraised = await Promise.all(
+				results.map(async (result) => ({
+					labour: await refs.labourKey(db, result.labourId),
+					stamped: result.stamped
+				}))
+			);
 			const stamped = appraised.filter((entry) => entry.stamped).length;
 			return reply(
 				{ appraised },
@@ -129,17 +134,19 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 					.describe(`1 to ${LINK_BATCH_MAX} changes; others stay`)
 			}
 		},
-		(args) => {
-			changeLinks(
+		async (args) => {
+			await changeLinks(
 				db,
 				actor,
-				args.links.map((link) => ({
-					type: link.type,
-					from: refs.labourId(db, link.from, actor),
-					to: refs.labourId(db, link.to, actor),
-					note: link.note,
-					remove: link.remove === true
-				}))
+				await Promise.all(
+					args.links.map(async (link) => ({
+						type: link.type,
+						from: await refs.labourId(db, link.from, actor),
+						to: await refs.labourId(db, link.to, actor),
+						note: link.note,
+						remove: link.remove === true
+					}))
+				)
 			);
 			return reply({ changed: args.links.length }, `Changed ${count(args.links.length, 'Link')}`);
 		}
@@ -153,15 +160,15 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 				"Get a Labour's whole agent layer: Brief, References, Attribute values, Links, needed Skills and the 10 newest Mentions of it in other Labours' text, the stamp of its last Appraisal, and `contentHash`, the hash of what it holds now. Take `contentHash` before you read the Labour, then pass it back as `stamp` to appraise.",
 			input: { labour: labourRef }
 		},
-		(args, present) => {
-			const view = readAppraisal(db, refs.labourId(db, args.labour, actor));
-			const key = refs.labourKey(db, view.labourId);
-			const setBy = (id: number | null) => (id === null ? null : present.username(id));
+		async (args, present) => {
+			const view = await readAppraisal(db, await refs.labourId(db, args.labour, actor));
+			const key = await refs.labourKey(db, view.labourId);
+			const setBy = async (id: number | null) => (id === null ? null : await present.username(id));
 			const data = {
 				labour: key,
 				brief: view.brief,
 				refs: view.refs,
-				setBy: setBy(view.setBy),
+				setBy: await setBy(view.setBy),
 				via: view.via,
 				setAt: view.setAt?.toISOString() ?? null,
 				contentHash: view.contentHash,
@@ -170,47 +177,62 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 						? null
 						: {
 								contentHash: view.stamp.contentHash,
-								appraisedBy: present.username(view.stamp.appraisedBy),
+								appraisedBy: await present.username(view.stamp.appraisedBy),
 								appraisedVia: view.stamp.appraisedVia,
 								appraisedAt: view.stamp.appraisedAt.toISOString()
 							},
 				unappraised: view.unappraised,
 				stale: view.stale,
-				values: view.values.map((value) => ({
-					key: value.key,
-					kind: value.kind,
-					value: value.value,
-					setBy: present.username(value.setBy),
-					via: value.via,
-					setAt: value.setAt.toISOString(),
-					stale: value.stale
-				})),
-				links: view.links
-					.filter((link) => canSeeLabour(db, actor, link.from) && canSeeLabour(db, actor, link.to))
-					.map((link) => ({
+				values: await Promise.all(
+					view.values.map(async (value) => ({
+						key: value.key,
+						kind: value.kind,
+						value: value.value,
+						setBy: await present.username(value.setBy),
+						via: value.via,
+						setAt: value.setAt.toISOString(),
+						stale: value.stale
+					}))
+				),
+				links: await Promise.all(
+					(
+						await filterAsync(
+							view.links,
+							async (link) =>
+								(await canSeeLabour(db, actor, link.from)) &&
+								(await canSeeLabour(db, actor, link.to))
+						)
+					).map(async (link) => ({
 						type: link.type,
-						from: refs.labourKey(db, link.from),
-						to: refs.labourKey(db, link.to),
+						from: await refs.labourKey(db, link.from),
+						to: await refs.labourKey(db, link.to),
 						note: link.note,
-						setBy: present.username(link.setBy),
+						setBy: await present.username(link.setBy),
 						via: link.via,
 						setAt: link.setAt.toISOString()
-					})),
-				needs: view.needs.map((need) => ({
-					skill: need.key,
-					level: need.level,
-					setBy: present.username(need.setBy),
-					via: need.via,
-					setAt: need.setAt.toISOString()
-				})),
-				mentions: view.mentions
-					.filter((mention) => canSeeLabour(db, actor, mention.sourceLabourId))
-					.map((mention) => ({
-						in: refs.labourKey(db, mention.sourceLabourId),
+					}))
+				),
+				needs: await Promise.all(
+					view.needs.map(async (need) => ({
+						skill: need.key,
+						level: need.level,
+						setBy: await present.username(need.setBy),
+						via: need.via,
+						setAt: need.setAt.toISOString()
+					}))
+				),
+				mentions: await Promise.all(
+					(
+						await filterAsync(view.mentions, (mention) =>
+							canSeeLabour(db, actor, mention.sourceLabourId)
+						)
+					).map(async (mention) => ({
+						in: await refs.labourKey(db, mention.sourceLabourId),
 						comment: mention.commentId,
-						by: present.username(mention.authorId),
+						by: await present.username(mention.authorId),
 						firstSeenAt: mention.firstSeenAt.toISOString()
 					}))
+				)
 			};
 			const state = view.unappraised ? 'unappraised' : view.stale ? 'stale' : 'current';
 			return reply(
@@ -232,20 +254,22 @@ export function registerAppraisalTools({ db, actor, define }: Tools): void {
 				...pageShape
 			}
 		},
-		(args) => {
-			const page = listUnappraised(
+		async (args) => {
+			const page = await listUnappraised(
 				db,
 				{
-					realms: visibleRealmIds(db, actor) ?? undefined,
-					realmId: args.realm === undefined ? undefined : refs.realmId(db, args.realm, actor),
+					realms: (await visibleRealmIds(db, actor)) ?? undefined,
+					realmId: args.realm === undefined ? undefined : await refs.realmId(db, args.realm, actor),
 					includeClosed: args.include_closed
 				},
 				{ offset: args.offset, limit: args.limit }
 			);
-			const labours = page.items.map(({ labourId, reason }) => {
-				const { key, title } = readLabour(db, labourId);
-				return { labour: key, title, reason };
-			});
+			const labours = await Promise.all(
+				page.items.map(async ({ labourId, reason }) => {
+					const { key, title } = await readLabour(db, labourId);
+					return { labour: key, title, reason };
+				})
+			);
 			const end = args.offset + labours.length;
 			const nextOffset = end < page.total ? end : null;
 			const more = nextOffset === null ? '' : `; next offset ${nextOffset}`;

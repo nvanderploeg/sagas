@@ -50,20 +50,22 @@ import {
 	updateLabour
 } from './labours.ts';
 import type { Actor } from './write.ts';
+import { inTransaction } from '#lib/server/db/tx.ts';
 
 let db: Db;
 let actor: Actor;
 let published: SagasEvent[];
 let unsubscribe: () => void;
 
-beforeEach(() => {
-	db = testDb();
+beforeEach(async () => {
+	db = await testDb();
 	actor = {
-		id: db
-			.insert(users)
-			.values({ kind: 'agent', username: 'writer', displayName: 'The Writer' })
-			.returning()
-			.get().id
+		id: (
+			await db
+				.insert(users)
+				.values({ kind: 'agent', username: 'writer', displayName: 'The Writer' })
+				.returning()
+		)[0].id
 	};
 	published = [];
 	unsubscribe = subscribe((event) => published.push(event));
@@ -71,25 +73,24 @@ beforeEach(() => {
 
 afterEach(() => {
 	unsubscribe();
-	db.$client.close();
 });
 
 const style = (key: string) => ({ key, label: key, color: '#000000', icon: 'dot' });
 const json = (value: unknown) => JSON.parse(JSON.stringify(value));
-const lastSeq = () => db.select().from(events).all().at(-1)?.seq ?? 0;
+const lastSeq = async () => (await db.select().from(events)).at(-1)?.seq ?? 0;
 
 // Runs one write and returns the Events it recorded, after checking they were published as stored.
-function recorded(action: () => unknown): SagasEvent[] {
-	const before = lastSeq();
+async function recorded(action: () => unknown): Promise<SagasEvent[]> {
+	const before = await lastSeq();
 	published = [];
-	action();
-	const found = eventsSince(db, before);
+	await action();
+	const found = await eventsSince(db, before);
 	expect(published).toEqual(found);
 	return found;
 }
 
-function expectOneEvent(action: () => unknown): SagasEvent {
-	const found = recorded(action);
+async function expectOneEvent(action: () => unknown): Promise<SagasEvent> {
+	const found = await recorded(action);
 	expect(found).toHaveLength(1);
 	return found[0];
 }
@@ -97,8 +98,8 @@ function expectOneEvent(action: () => unknown): SagasEvent {
 const shape = (found: SagasEvent[]) => found.map((e) => [e.type, e.data]);
 
 describe('the Event record', () => {
-	it("carries the seq, type, time, the actor's display info and the data", () => {
-		const event = expectOneEvent(() =>
+	it("carries the seq, type, time, the actor's display info and the data", async () => {
+		const event = await expectOneEvent(() =>
 			createRealm(db, actor, { name: 'Amber', key: 'AM', initialState: TODO })
 		);
 
@@ -113,117 +114,119 @@ describe('the Event record', () => {
 		expect(event.createdAt).toBeInstanceOf(Date);
 	});
 
-	it('names the API token the write came through, in the live Event and in replay', () => {
+	it('names the API token the write came through, in the live Event and in replay', async () => {
 		const via = {
-			tokenId: insertApiToken(db, actor.id, 'norm-mint-main').id,
+			tokenId: (await insertApiToken(db, actor.id, 'norm-mint-main')).id,
 			name: 'norm-mint-main'
 		};
 
-		const event = expectOneEvent(() =>
+		const event = await expectOneEvent(() =>
 			createRealm(db, { ...actor, via }, { name: 'Amber', key: 'AM', initialState: TODO })
 		);
 
 		expect(event.actor.via).toEqual(via);
-		expect(eventsSince(db, event.seq - 1)[0].actor.via).toEqual(via);
+		expect((await eventsSince(db, event.seq - 1))[0].actor.via).toEqual(via);
 	});
 });
 
 describe('Realm config writes', () => {
-	it('record one Event each, carrying the Realm config and the State or Substate they touch', () => {
-		const realm = seedRealm(db, 'AM');
+	it('record one Event each, carrying the Realm config and the State or Substate they touch', async () => {
+		const realm = await seedRealm(db, 'AM');
 		const todo = realm.initialStateId!;
 		let doingId = 0;
 		let reviewId = 0;
 		let qaId = 0;
-		const config = () => json(readRealm(db, realm.id));
+		const config = async () => json(await readRealm(db, realm.id));
 
-		const cases: [string, () => void, () => object][] = [
+		const cases: [string, () => unknown, () => Promise<object>][] = [
 			[
 				'realm.updated',
 				() => updateRealm(db, actor, realm.id, { name: 'Amber' }),
-				() => ({ realm: config() })
+				async () => ({ realm: await config() })
 			],
 			[
 				'state.created',
-				() => (doingId = createState(db, actor, realm.id, style('doing')).id),
-				() => ({ realm: config(), stateId: doingId })
+				async () => (doingId = (await createState(db, actor, realm.id, style('doing'))).id),
+				async () => ({ realm: await config(), stateId: doingId })
 			],
 			[
 				'state.updated',
 				() => updateState(db, actor, doingId, { label: 'Doing' }),
-				() => ({ realm: config(), stateId: doingId })
+				async () => ({ realm: await config(), stateId: doingId })
 			],
 			[
 				'state.updated',
 				() => moveState(db, actor, doingId, 0),
-				() => ({ realm: config(), stateId: doingId })
+				async () => ({ realm: await config(), stateId: doingId })
 			],
 			[
 				'realm.updated',
 				() => setInitialState(db, actor, realm.id, doingId),
-				() => ({ realm: config() })
+				async () => ({ realm: await config() })
 			],
 			[
 				'substate.created',
-				() => (reviewId = createSubstate(db, actor, todo, style('review')).id),
-				() => ({ realm: config(), stateId: todo, substateId: reviewId })
+				async () => (reviewId = (await createSubstate(db, actor, todo, style('review'))).id),
+				async () => ({ realm: await config(), stateId: todo, substateId: reviewId })
 			],
 			[
 				'substate.created',
-				() => (qaId = createSubstate(db, actor, todo, style('qa')).id),
-				() => ({ realm: config(), stateId: todo, substateId: qaId })
+				async () => (qaId = (await createSubstate(db, actor, todo, style('qa'))).id),
+				async () => ({ realm: await config(), stateId: todo, substateId: qaId })
 			],
 			[
 				'substate.updated',
 				() => updateSubstate(db, actor, qaId, { color: '#ffffff' }),
-				() => ({ realm: config(), stateId: todo, substateId: qaId })
+				async () => ({ realm: await config(), stateId: todo, substateId: qaId })
 			],
 			[
 				'substate.updated',
 				() => moveSubstate(db, actor, qaId, 0),
-				() => ({ realm: config(), stateId: todo, substateId: qaId })
+				async () => ({ realm: await config(), stateId: todo, substateId: qaId })
 			],
 			[
 				'state.updated',
 				() => setDefaultSubstate(db, actor, todo, qaId),
-				() => ({ realm: config(), stateId: todo })
+				async () => ({ realm: await config(), stateId: todo })
 			],
 			[
 				'substate.deleted',
 				() => deleteSubstate(db, actor, reviewId),
-				() => ({ realm: config(), stateId: todo, substateId: reviewId })
+				async () => ({ realm: await config(), stateId: todo, substateId: reviewId })
 			],
 			[
 				'state.deleted',
-				() => {
-					setInitialState(db, actor, realm.id, todo);
-					deleteState(db, actor, doingId);
+				async () => {
+					await setInitialState(db, actor, realm.id, todo);
+					await deleteState(db, actor, doingId);
 				},
-				() => ({ realm: config(), stateId: doingId })
+				async () => ({ realm: await config(), stateId: doingId })
 			]
 		];
 
 		for (const [type, action, data] of cases) {
-			const found = recorded(action);
+			const found = await recorded(action);
 			const event = found.at(-1)!;
 			expect(event.type, type).toBe(type);
-			expect(event.data, type).toEqual(data());
+			expect(event.data, type).toEqual(await data());
 		}
 	});
 
-	it('records realm.created with the config, and realm.deleted with the Labours it took', () => {
+	it('records realm.created with the config, and realm.deleted with the Labours it took', async () => {
 		let realmId = 0;
-		const created = expectOneEvent(
-			() => (realmId = createRealm(db, actor, { name: 'Amber', key: 'AM', initialState: TODO }).id)
+		const created = await expectOneEvent(
+			async () =>
+				(realmId = (await createRealm(db, actor, { name: 'Amber', key: 'AM', initialState: TODO }))
+					.id)
 		);
 		expect(created).toMatchObject({
 			type: 'realm.created',
-			data: { realm: json(readRealm(db, realmId)) }
+			data: { realm: json(await readRealm(db, realmId)) }
 		});
-		const a = seedLabour(db, { realmId });
-		const b = seedLabour(db, { realmId, parentId: a.id });
+		const a = await seedLabour(db, { realmId });
+		const b = await seedLabour(db, { realmId, parentId: a.id });
 
-		const deleted = expectOneEvent(() => deleteRealm(db, actor, realmId));
+		const deleted = await expectOneEvent(() => deleteRealm(db, actor, realmId));
 
 		expect(deleted).toMatchObject({
 			type: 'realm.deleted',
@@ -231,15 +234,15 @@ describe('Realm config writes', () => {
 		});
 	});
 
-	it('records the new key of every Labour in a Realm whose key is renamed', () => {
-		const realm = seedRealm(db, 'AM');
-		const a = seedLabour(db, { realmId: realm.id });
-		const b = seedLabour(db, { realmId: realm.id });
+	it('records the new key of every Labour in a Realm whose key is renamed', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const a = await seedLabour(db, { realmId: realm.id });
+		const b = await seedLabour(db, { realmId: realm.id });
 
-		const found = recorded(() => renameRealmKey(db, actor, realm.id, 'AB'));
+		const found = await recorded(() => renameRealmKey(db, actor, realm.id, 'AB'));
 
 		expect(shape(found)).toEqual([
-			['realm.updated', { realm: json(readRealm(db, realm.id)) }],
+			['realm.updated', { realm: json(await readRealm(db, realm.id)) }],
 			[
 				'labour.rekeyed',
 				{
@@ -253,290 +256,309 @@ describe('Realm config writes', () => {
 		]);
 	});
 
-	it("records each Labour a State's first Substate takes in, with its updatedAt moved", () => {
-		const realm = seedRealm(db, 'AM');
+	it("records each Labour a State's first Substate takes in, with its updatedAt moved", async () => {
+		const realm = await seedRealm(db, 'AM');
 		const todo = realm.initialStateId!;
-		const a = seedLabour(db, { realmId: realm.id });
-		const b = seedLabour(db, { realmId: realm.id });
-		db.update(labours)
-			.set({ updatedAt: new Date(0) })
-			.run();
+		const a = await seedLabour(db, { realmId: realm.id });
+		const b = await seedLabour(db, { realmId: realm.id });
+		await db.update(labours).set({ updatedAt: new Date(0) });
 		let substateId = 0;
 
-		const found = recorded(() => (substateId = createSubstate(db, actor, todo, style('rev')).id));
+		const found = await recorded(
+			async () => (substateId = (await createSubstate(db, actor, todo, style('rev'))).id)
+		);
 
 		expect(shape(found)).toEqual([
-			['substate.created', { realm: json(readRealm(db, realm.id)), stateId: todo, substateId }],
-			['labour.updated', { labour: json(readLabour(db, a.id)) }],
-			['labour.updated', { labour: json(readLabour(db, b.id)) }]
+			[
+				'substate.created',
+				{ realm: json(await readRealm(db, realm.id)), stateId: todo, substateId }
+			],
+			['labour.updated', { labour: json(await readLabour(db, a.id)) }],
+			['labour.updated', { labour: json(await readLabour(db, b.id)) }]
 		]);
-		expect(readLabour(db, a.id)).toMatchObject({ substateId });
-		expect(readLabour(db, a.id).updatedAt.getTime()).toBeGreaterThan(0);
+		expect(await readLabour(db, a.id)).toMatchObject({ substateId });
+		expect((await readLabour(db, a.id)).updatedAt.getTime()).toBeGreaterThan(0);
 	});
 
-	it('deletes the Quests of a deleted Realm, one quest.deleted each, and spares the Labours they listed', () => {
-		const am = seedRealm(db, 'AM');
-		const bl = seedRealm(db, 'BL');
-		const kept = seedLabour(db, { realmId: bl.id });
-		const quest = createQuest(db, actor, { realmId: am.id, name: 'Q', ownerId: actor.id });
-		addQuestLabour(db, actor, quest.id, kept.id);
+	it('deletes the Quests of a deleted Realm, one quest.deleted each, and spares the Labours they listed', async () => {
+		const am = await seedRealm(db, 'AM');
+		const bl = await seedRealm(db, 'BL');
+		const kept = await seedLabour(db, { realmId: bl.id });
+		const quest = await createQuest(db, actor, { realmId: am.id, name: 'Q', ownerId: actor.id });
+		await addQuestLabour(db, actor, quest.id, kept.id);
 
-		const found = recorded(() => deleteRealm(db, actor, am.id));
+		const found = await recorded(() => deleteRealm(db, actor, am.id));
 
 		expect(shape(found).map(([type]) => type)).toEqual(['realm.deleted', 'quest.deleted']);
 		expect(found[1].data).toEqual({ id: quest.id, realmId: am.id });
-		expect(readLabour(db, kept.id).id).toBe(kept.id);
+		expect((await readLabour(db, kept.id)).id).toBe(kept.id);
 	});
 
-	it('records the Children it detaches in other Realms and the Quests it shrinks when deleting a Realm', () => {
-		const am = seedRealm(db, 'AM');
-		const bl = seedRealm(db, 'BL');
-		const parent = seedLabour(db, { realmId: am.id });
-		const child = seedLabour(db, { realmId: bl.id, parentId: parent.id });
-		const quest = createQuest(db, actor, {
+	it('records the Children it detaches in other Realms and the Quests it shrinks when deleting a Realm', async () => {
+		const am = await seedRealm(db, 'AM');
+		const bl = await seedRealm(db, 'BL');
+		const parent = await seedLabour(db, { realmId: am.id });
+		const child = await seedLabour(db, { realmId: bl.id, parentId: parent.id });
+		const quest = await createQuest(db, actor, {
 			realmId: bl.id,
 			name: 'Launch',
 			ownerId: actor.id
 		});
-		addQuestLabour(db, actor, quest.id, parent.id);
-		addQuestLabour(db, actor, quest.id, child.id);
-		db.update(labours)
-			.set({ updatedAt: new Date(0) })
-			.run();
-		db.update(quests)
-			.set({ updatedAt: new Date(0) })
-			.run();
+		await addQuestLabour(db, actor, quest.id, parent.id);
+		await addQuestLabour(db, actor, quest.id, child.id);
+		await db.update(labours).set({ updatedAt: new Date(0) });
+		await db.update(quests).set({ updatedAt: new Date(0) });
 
-		const found = recorded(() => deleteRealm(db, actor, am.id));
+		const found = await recorded(() => deleteRealm(db, actor, am.id));
 
-		const after = readQuest(db, quest.id);
+		const after = await readQuest(db, quest.id);
 		expect(shape(found)).toEqual([
 			['realm.deleted', { realmId: am.id, labourIds: [parent.id] }],
-			['labour.reparented', { labour: json(readLabour(db, child.id)) }],
+			['labour.reparented', { labour: json(await readLabour(db, child.id)) }],
 			['quest.labours_removed', { quest: json(after), labourIds: [parent.id] }]
 		]);
-		expect(readLabour(db, child.id).parentId).toBeNull();
-		expect(readLabour(db, child.id).updatedAt.getTime()).toBeGreaterThan(0);
+		expect((await readLabour(db, child.id)).parentId).toBeNull();
+		expect((await readLabour(db, child.id)).updatedAt.getTime()).toBeGreaterThan(0);
 		expect(after.progress).toEqual({ closed: 0, total: 1 });
 		expect(after.updatedAt.getTime()).toBeGreaterThan(0);
 	});
 });
 
 describe('Labour writes', () => {
-	it('record one Event each, carrying the Labour with its current key', () => {
-		const am = seedRealm(db, 'AM');
-		const bl = seedRealm(db, 'BL');
-		const ownerId = seedUser(db, 'ada');
-		const parent = seedLabour(db, { realmId: bl.id, ownerId });
+	it('record one Event each, carrying the Labour with its current key', async () => {
+		const am = await seedRealm(db, 'AM');
+		const bl = await seedRealm(db, 'BL');
+		const ownerId = await seedUser(db, 'ada');
+		const parent = await seedLabour(db, { realmId: bl.id, ownerId });
 		let labourId = 0;
-		const labour = () => ({ labour: json(readLabour(db, labourId)) });
+		const labour = async () => ({ labour: json(await readLabour(db, labourId)) });
 
-		const created = expectOneEvent(
-			() => (labourId = createLabour(db, actor, { realmId: am.id, title: 'Fix', ownerId }).id)
+		const created = await expectOneEvent(
+			async () =>
+				(labourId = (await createLabour(db, actor, { realmId: am.id, title: 'Fix', ownerId })).id)
 		);
-		expect(created).toMatchObject({ type: 'labour.created', data: labour() });
-		expect(labour().labour).toMatchObject({ key: 'AM-1', closed: false });
+		expect(created).toMatchObject({ type: 'labour.created', data: await labour() });
+		expect((await labour()).labour).toMatchObject({ key: 'AM-1', closed: false });
 
-		const updated = expectOneEvent(() => updateLabour(db, actor, labourId, { title: 'Fixed' }));
-		expect(updated).toMatchObject({ type: 'labour.updated', data: labour() });
+		const updated = await expectOneEvent(() =>
+			updateLabour(db, actor, labourId, { title: 'Fixed' })
+		);
+		expect(updated).toMatchObject({ type: 'labour.updated', data: await labour() });
 
-		const reparented = expectOneEvent(() => setParent(db, actor, labourId, parent.id));
-		expect(reparented).toMatchObject({ type: 'labour.reparented', data: labour() });
+		const reparented = await expectOneEvent(() => setParent(db, actor, labourId, parent.id));
+		expect(reparented).toMatchObject({ type: 'labour.reparented', data: await labour() });
 
-		const moved = expectOneEvent(() => moveLabour(db, actor, labourId, { realmId: bl.id }));
-		expect(moved).toMatchObject({ type: 'labour.moved', data: labour() });
-		expect(labour().labour).toMatchObject({ key: 'BL-2', realmId: bl.id });
+		const moved = await expectOneEvent(() => moveLabour(db, actor, labourId, { realmId: bl.id }));
+		expect(moved).toMatchObject({ type: 'labour.moved', data: await labour() });
+		expect((await labour()).labour).toMatchObject({ key: 'BL-2', realmId: bl.id });
 	});
 
-	it('records a rank change as just the Labour, its State and its new Rank', () => {
-		const realm = seedRealm(db, 'AM');
-		const a = seedLabour(db, { realmId: realm.id });
-		seedLabour(db, { realmId: realm.id });
+	it('records a rank change as just the Labour, its State and its new Rank', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const a = await seedLabour(db, { realmId: realm.id });
+		await seedLabour(db, { realmId: realm.id });
 
-		const ranked = expectOneEvent(() => rankLabour(db, actor, a.id, 'bottom'));
+		const ranked = await expectOneEvent(() => rankLabour(db, actor, a.id, 'bottom'));
 
 		expect(ranked).toMatchObject({
 			type: 'labour.ranked',
-			data: { id: a.id, stateId: a.stateId, rank: readLabour(db, a.id).rank }
+			data: { id: a.id, stateId: a.stateId, rank: (await readLabour(db, a.id)).rank }
 		});
 		expect(Object.keys(ranked.data).sort()).toEqual(['id', 'rank', 'stateId']);
 	});
 
-	it('records an update that changes only the Rank as labour.ranked', () => {
-		const realm = seedRealm(db, 'AM');
-		const a = seedLabour(db, { realmId: realm.id });
-		seedLabour(db, { realmId: realm.id });
+	it('records an update that changes only the Rank as labour.ranked', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const a = await seedLabour(db, { realmId: realm.id });
+		await seedLabour(db, { realmId: realm.id });
 
-		const ranked = expectOneEvent(() =>
+		const ranked = await expectOneEvent(() =>
 			updateLabour(db, actor, a.id, { title: a.title, stateId: a.stateId, placement: 'bottom' })
 		);
 
 		expect(shape([ranked])).toEqual([
-			['labour.ranked', { id: a.id, stateId: a.stateId, rank: readLabour(db, a.id).rank }]
+			['labour.ranked', { id: a.id, stateId: a.stateId, rank: (await readLabour(db, a.id)).rank }]
 		]);
-		expect(readLabour(db, a.id).updatedAt).toEqual(a.updatedAt);
+		expect((await readLabour(db, a.id)).updatedAt).toEqual(a.updatedAt);
 	});
 
-	it('records an update that changes the Rank with another field as labour.updated', () => {
-		const realm = seedRealm(db, 'AM');
-		const a = seedLabour(db, { realmId: realm.id });
-		seedLabour(db, { realmId: realm.id });
+	it('records an update that changes the Rank with another field as labour.updated', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const a = await seedLabour(db, { realmId: realm.id });
+		await seedLabour(db, { realmId: realm.id });
 
-		const updated = expectOneEvent(() =>
+		const updated = await expectOneEvent(() =>
 			updateLabour(db, actor, a.id, { title: 'Renamed', placement: 'bottom' })
 		);
 
-		expect(shape([updated])).toEqual([['labour.updated', { labour: json(readLabour(db, a.id)) }]]);
+		expect(shape([updated])).toEqual([
+			['labour.updated', { labour: json(await readLabour(db, a.id)) }]
+		]);
 	});
 
-	it('records the Children it detaches and the Quests it shrinks when deleting a Labour', () => {
-		const am = seedRealm(db, 'AM');
-		const bl = seedRealm(db, 'BL');
-		const parent = seedLabour(db, { realmId: am.id });
-		const near = seedLabour(db, { realmId: am.id, parentId: parent.id });
-		const far = seedLabour(db, { realmId: bl.id, parentId: parent.id });
-		const first = createQuest(db, actor, {
-			realmId: anyRealmId(db),
+	it('records the Children it detaches and the Quests it shrinks when deleting a Labour', async () => {
+		const am = await seedRealm(db, 'AM');
+		const bl = await seedRealm(db, 'BL');
+		const parent = await seedLabour(db, { realmId: am.id });
+		const near = await seedLabour(db, { realmId: am.id, parentId: parent.id });
+		const far = await seedLabour(db, { realmId: bl.id, parentId: parent.id });
+		const first = await createQuest(db, actor, {
+			realmId: await anyRealmId(db),
 			name: 'One',
 			ownerId: actor.id
 		});
-		const second = createQuest(db, actor, {
-			realmId: anyRealmId(db),
+		const second = await createQuest(db, actor, {
+			realmId: await anyRealmId(db),
 			name: 'Two',
 			ownerId: actor.id
 		});
-		addQuestLabour(db, actor, first.id, parent.id);
-		addQuestLabour(db, actor, second.id, far.id);
-		addQuestLabour(db, actor, second.id, parent.id);
-		db.update(quests)
-			.set({ updatedAt: new Date(0) })
-			.run();
+		await addQuestLabour(db, actor, first.id, parent.id);
+		await addQuestLabour(db, actor, second.id, far.id);
+		await addQuestLabour(db, actor, second.id, parent.id);
+		await db.update(quests).set({ updatedAt: new Date(0) });
 
-		const found = recorded(() => deleteLabour(db, actor, parent.id));
+		const found = await recorded(() => deleteLabour(db, actor, parent.id));
 
 		expect(shape(found)).toEqual([
 			['labour.deleted', { id: parent.id, realmId: am.id }],
-			['labour.reparented', { labour: json(readLabour(db, near.id)) }],
-			['labour.reparented', { labour: json(readLabour(db, far.id)) }],
-			['quest.labours_removed', { quest: json(readQuest(db, first.id)), labourIds: [parent.id] }],
-			['quest.labours_removed', { quest: json(readQuest(db, second.id)), labourIds: [parent.id] }]
+			['labour.reparented', { labour: json(await readLabour(db, near.id)) }],
+			['labour.reparented', { labour: json(await readLabour(db, far.id)) }],
+			[
+				'quest.labours_removed',
+				{ quest: json(await readQuest(db, first.id)), labourIds: [parent.id] }
+			],
+			[
+				'quest.labours_removed',
+				{ quest: json(await readQuest(db, second.id)), labourIds: [parent.id] }
+			]
 		]);
-		expect(readLabour(db, far.id).parentId).toBeNull();
-		expect(readQuest(db, first.id).updatedAt.getTime()).toBeGreaterThan(0);
+		expect((await readLabour(db, far.id)).parentId).toBeNull();
+		expect((await readQuest(db, first.id)).updatedAt.getTime()).toBeGreaterThan(0);
 	});
 });
 
 describe('Quest writes', () => {
-	it('record one Event each, carrying the Quest with its member Labours in order', () => {
-		const am = seedRealm(db, 'AM');
-		const bl = seedRealm(db, 'BL');
-		const a = seedLabour(db, { realmId: am.id });
-		const b = seedLabour(db, { realmId: bl.id });
-		const c = seedLabour(db, { realmId: bl.id, parentId: b.id });
+	it('record one Event each, carrying the Quest with its member Labours in order', async () => {
+		const am = await seedRealm(db, 'AM');
+		const bl = await seedRealm(db, 'BL');
+		const a = await seedLabour(db, { realmId: am.id });
+		const b = await seedLabour(db, { realmId: bl.id });
+		const c = await seedLabour(db, { realmId: bl.id, parentId: b.id });
 		let questId = 0;
-		const quest = () => json(readQuest(db, questId));
+		const quest = async () => json(await readQuest(db, questId));
 
 		const cases: [string, () => unknown, () => object][] = [
 			[
 				'quest.created',
-				() =>
-					(questId = createQuest(db, actor, {
-						realmId: anyRealmId(db),
-						name: 'Launch',
-						ownerId: actor.id
-					}).id),
-				() => ({ quest: quest() })
+				async () =>
+					(questId = (
+						await createQuest(db, actor, {
+							realmId: await anyRealmId(db),
+							name: 'Launch',
+							ownerId: actor.id
+						})
+					).id),
+				async () => ({ quest: await quest() })
 			],
 			[
 				'quest.updated',
 				() => updateQuest(db, actor, questId, { name: 'Ship' }),
-				() => ({ quest: quest() })
+				async () => ({ quest: await quest() })
 			],
 			[
 				'quest.labours_added',
 				() => addQuestLabour(db, actor, questId, a.id),
-				() => ({ quest: quest(), labourIds: [a.id] })
+				async () => ({ quest: await quest(), labourIds: [a.id] })
 			],
 			[
 				'quest.labours_added',
 				() => addQuestLabourWithChildren(db, actor, questId, b.id),
-				() => ({ quest: quest(), labourIds: [b.id, c.id] })
+				async () => ({ quest: await quest(), labourIds: [b.id, c.id] })
 			],
 			[
 				'quest.labour_ranked',
 				() => rankQuestLabour(db, actor, questId, a.id, 'bottom'),
-				() => ({ quest: quest(), labourId: a.id })
+				async () => ({ quest: await quest(), labourId: a.id })
 			],
 			[
 				'quest.labours_removed',
 				() => removeQuestLabour(db, actor, questId, a.id),
-				() => ({ quest: quest(), labourIds: [a.id] })
+				async () => ({ quest: await quest(), labourIds: [a.id] })
 			]
 		];
 		for (const [type, action, data] of cases) {
-			const event = expectOneEvent(action);
+			const event = await expectOneEvent(action);
 			expect(event.type, type).toBe(type);
-			expect(event.data, type).toEqual(data());
+			expect(event.data, type).toEqual(await data());
 		}
-		expect(quest().labours.map((t: { id: number }) => t.id)).toEqual([b.id, c.id]);
+		expect((await quest()).labours.map((t: { id: number }) => t.id)).toEqual([b.id, c.id]);
 
-		const deleted = expectOneEvent(() => deleteQuest(db, actor, questId));
+		const deleted = await expectOneEvent(() => deleteQuest(db, actor, questId));
 		expect(deleted).toMatchObject({ type: 'quest.deleted', data: { id: questId } });
 	});
 });
 
 describe('bulk Quest membership', () => {
-	it('records one Event per call, naming only the Labours that changed', () => {
-		const realm = seedRealm(db, 'AM');
-		const [a, b, c] = [1, 2, 3].map(() => seedLabour(db, { realmId: realm.id }));
-		const questId = createQuest(db, actor, {
-			realmId: anyRealmId(db),
-			name: 'Launch',
-			ownerId: actor.id
-		}).id;
-		addQuestLabour(db, actor, questId, b.id);
-		const quest = () => json(readQuest(db, questId));
+	it('records one Event per call, naming only the Labours that changed', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const [a, b, c] = await Promise.all([1, 2, 3].map(() => seedLabour(db, { realmId: realm.id })));
+		const questId = (
+			await createQuest(db, actor, {
+				realmId: await anyRealmId(db),
+				name: 'Launch',
+				ownerId: actor.id
+			})
+		).id;
+		await addQuestLabour(db, actor, questId, b.id);
+		const quest = async () => json(await readQuest(db, questId));
 
-		const added = recorded(() => addQuestLabours(db, actor, questId, [a.id, b.id, c.id]));
+		const added = await recorded(() => addQuestLabours(db, actor, questId, [a.id, b.id, c.id]));
 		expect(shape(added)).toEqual([
-			['quest.labours_added', { quest: quest(), labourIds: [a.id, c.id] }]
+			['quest.labours_added', { quest: await quest(), labourIds: [a.id, c.id] }]
 		]);
 
-		const removed = recorded(() => removeQuestLabours(db, actor, questId, [c.id, a.id]));
+		const removed = await recorded(() => removeQuestLabours(db, actor, questId, [c.id, a.id]));
 		expect(shape(removed)).toEqual([
-			['quest.labours_removed', { quest: quest(), labourIds: [c.id, a.id] }]
+			['quest.labours_removed', { quest: await quest(), labourIds: [c.id, a.id] }]
 		]);
 	});
 
-	it('records no Event when every Labour is skipped', () => {
-		const realm = seedRealm(db, 'AM');
-		const a = seedLabour(db, { realmId: realm.id });
-		const questId = createQuest(db, actor, {
-			realmId: anyRealmId(db),
-			name: 'Launch',
-			ownerId: actor.id
-		}).id;
-		addQuestLabour(db, actor, questId, a.id);
+	it('records no Event when every Labour is skipped', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const a = await seedLabour(db, { realmId: realm.id });
+		const questId = (
+			await createQuest(db, actor, {
+				realmId: await anyRealmId(db),
+				name: 'Launch',
+				ownerId: actor.id
+			})
+		).id;
+		await addQuestLabour(db, actor, questId, a.id);
 
-		const found = recorded(() => {
-			addQuestLabours(db, actor, questId, [a.id]);
-			removeQuestLabours(db, actor, questId, [seedLabour(db, { realmId: realm.id }).id]);
+		const found = await recorded(async () => {
+			await addQuestLabours(db, actor, questId, [a.id]);
+			await removeQuestLabours(db, actor, questId, [
+				(await seedLabour(db, { realmId: realm.id })).id
+			]);
 		});
 
 		expect(found.filter((e) => e.type.startsWith('quest.'))).toEqual([]);
 	});
 
-	it('records nothing when a Labour is unknown', () => {
-		const realm = seedRealm(db, 'AM');
-		const a = seedLabour(db, { realmId: realm.id });
-		const questId = createQuest(db, actor, {
-			realmId: anyRealmId(db),
-			name: 'Launch',
-			ownerId: actor.id
-		}).id;
+	it('records nothing when a Labour is unknown', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const a = await seedLabour(db, { realmId: realm.id });
+		const questId = (
+			await createQuest(db, actor, {
+				realmId: await anyRealmId(db),
+				name: 'Launch',
+				ownerId: actor.id
+			})
+		).id;
 
-		const found = recorded(() =>
-			expect(() => addQuestLabours(db, actor, questId, [a.id, 999])).toThrow(DomainError)
+		const found = await recorded(
+			async () =>
+				await expect(addQuestLabours(db, actor, questId, [a.id, 999])).rejects.toThrow(DomainError)
 		);
 
 		expect(found).toEqual([]);
@@ -544,18 +566,18 @@ describe('bulk Quest membership', () => {
 });
 
 describe('no-op writes', () => {
-	it('records no Event for a write that changes nothing', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id, title: 'Same' });
+	it('records no Event for a write that changes nothing', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id, title: 'Same' });
 
-		const found = recorded(() => {
-			updateRealm(db, actor, realm.id, { name: realm.name });
-			renameRealmKey(db, actor, realm.id, 'am');
-			setInitialState(db, actor, realm.id, realm.initialStateId!);
-			updateState(db, actor, realm.initialStateId!, { label: TODO.label });
-			moveState(db, actor, realm.initialStateId!, 0);
-			updateLabour(db, actor, labour.id, { title: 'Same', stateId: labour.stateId });
-			setParent(db, actor, labour.id, null);
+		const found = await recorded(async () => {
+			await updateRealm(db, actor, realm.id, { name: realm.name });
+			await renameRealmKey(db, actor, realm.id, 'am');
+			await setInitialState(db, actor, realm.id, realm.initialStateId!);
+			await updateState(db, actor, realm.initialStateId!, { label: TODO.label });
+			await moveState(db, actor, realm.initialStateId!, 0);
+			await updateLabour(db, actor, labour.id, { title: 'Same', stateId: labour.stateId });
+			await setParent(db, actor, labour.id, null);
 		});
 
 		expect(found).toEqual([]);
@@ -563,50 +585,51 @@ describe('no-op writes', () => {
 });
 
 describe('failed writes', () => {
-	it('leaves no Event and publishes nothing when a write is refused', () => {
-		const realm = seedRealm(db, 'AM');
-		const labour = seedLabour(db, { realmId: realm.id });
+	it('leaves no Event and publishes nothing when a write is refused', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
 
-		const found = recorded(() => {
+		const found = await recorded(async () => {
 			for (const action of [
 				() => createLabour(db, actor, { realmId: realm.id, title: 'x', ownerId: 999 }),
 				() => setParent(db, actor, labour.id, labour.id),
-				() => deleteState(db, actor, listStates(db, realm.id).at(-1)!.id),
+				async () => deleteState(db, actor, (await listStates(db, realm.id)).at(-1)!.id),
 				() => renameRealmKey(db, actor, realm.id, '1')
 			]) {
-				expect(action).toThrow(DomainError);
+				await expect(action()).rejects.toThrow(DomainError);
 			}
 		});
 
 		expect(found).toEqual([]);
 	});
 
-	it('rolls back the write with its Events when recording them fails', () => {
-		const realm = seedRealm(db, 'AM');
+	it('rolls back the write with its Events when recording them fails', async () => {
+		const realm = await seedRealm(db, 'AM');
 		const ghost = { id: 999 };
-		const before = db.select().from(labours).all();
+		const before = await db.select().from(labours);
 
-		const found = recorded(() =>
-			expect(() =>
-				createLabour(db, ghost, { realmId: realm.id, title: 'x', ownerId: actor.id })
-			).toThrow()
+		const found = await recorded(
+			async () =>
+				await expect(
+					createLabour(db, ghost, { realmId: realm.id, title: 'x', ownerId: actor.id })
+				).rejects.toThrow()
 		);
 
 		expect(found).toEqual([]);
-		expect(db.select().from(labours).all()).toEqual(before);
+		expect(await db.select().from(labours)).toEqual(before);
 	});
 });
 
 describe('publishing', () => {
-	it("publishes a write's Events after its commit, with consecutive seqs, as stored", () => {
-		const am = seedRealm(db, 'AM');
-		const bl = seedRealm(db, 'BL');
-		const parent = seedLabour(db, { realmId: am.id });
-		seedLabour(db, { realmId: bl.id, parentId: parent.id });
+	it("publishes a write's Events after its commit, with consecutive seqs, as stored", async () => {
+		const am = await seedRealm(db, 'AM');
+		const bl = await seedRealm(db, 'BL');
+		const parent = await seedLabour(db, { realmId: am.id });
+		await seedLabour(db, { realmId: bl.id, parentId: parent.id });
 		const inside: boolean[] = [];
-		const stop = subscribe(() => inside.push(db.$client.inTransaction));
+		const stop = subscribe(() => inside.push(inTransaction()));
 
-		const found = recorded(() => deleteRealm(db, actor, am.id));
+		const found = await recorded(() => deleteRealm(db, actor, am.id));
 		stop();
 
 		expect(found.length).toBeGreaterThan(1);

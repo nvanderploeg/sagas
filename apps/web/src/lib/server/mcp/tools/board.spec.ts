@@ -11,7 +11,7 @@ let db: Db;
 let client: Client;
 
 beforeEach(async () => {
-	db = testDb();
+	db = await testDb();
 	const admin = await createFirstAdmin(db, {
 		username: 'root',
 		displayName: 'Root',
@@ -25,7 +25,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	await client.close();
-	db.$client.close();
 });
 
 describe('show_board', () => {

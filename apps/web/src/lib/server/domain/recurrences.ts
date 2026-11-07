@@ -11,6 +11,7 @@ import { nextOccurrence, occurrence, parseDate, requireTimezone, type Unit } fro
 import { requireText } from './validate.ts';
 import { requireActiveMember, requireRealmRole } from './access.ts';
 import type { Actor } from './write.ts';
+import { transact } from '#lib/server/db/tx.ts';
 
 const TITLE_MAX = 200;
 const EVERY_MAX = 1000;
@@ -45,34 +46,33 @@ function todayIn(zone: string, now: Date): string {
 	}).format(now);
 }
 
-function questIdsOf(db: Handle, recurrenceId: number): number[] {
-	return db
-		.select({ id: recurrenceQuests.questId })
-		.from(recurrenceQuests)
-		.where(eq(recurrenceQuests.recurrenceId, recurrenceId))
-		.orderBy(asc(recurrenceQuests.questId))
-		.all()
-		.map((row) => row.id);
+async function questIdsOf(db: Handle, recurrenceId: number): Promise<number[]> {
+	return (
+		await db
+			.select({ id: recurrenceQuests.questId })
+			.from(recurrenceQuests)
+			.where(eq(recurrenceQuests.recurrenceId, recurrenceId))
+			.orderBy(asc(recurrenceQuests.questId))
+	).map((row) => row.id);
 }
 
-export function getRecurrence(db: Handle, id: number): Recurrence {
-	const row = db.select().from(recurrences).where(eq(recurrences.id, id)).get();
+export async function getRecurrence(db: Handle, id: number): Promise<Recurrence> {
+	const row = (await db.select().from(recurrences).where(eq(recurrences.id, id)).limit(1))[0];
 	if (row === undefined) throw new DomainError('not_found', 'Recurrence not found');
 	return row;
 }
 
-export function readRecurrence(db: Handle, id: number): RecurrenceView {
-	return { ...getRecurrence(db, id), questIds: questIdsOf(db, id) };
+export async function readRecurrence(db: Handle, id: number): Promise<RecurrenceView> {
+	return { ...(await getRecurrence(db, id)), questIds: await questIdsOf(db, id) };
 }
 
-export function listRecurrences(db: Handle, realmId: number): RecurrenceView[] {
-	return db
+export async function listRecurrences(db: Handle, realmId: number): Promise<RecurrenceView[]> {
+	const rows = await db
 		.select({ id: recurrences.id })
 		.from(recurrences)
 		.where(eq(recurrences.realmId, realmId))
-		.orderBy(asc(recurrences.id))
-		.all()
-		.map((row) => readRecurrence(db, row.id));
+		.orderBy(asc(recurrences.id));
+	return Promise.all(rows.map((row) => readRecurrence(db, row.id)));
 }
 
 function requireCadence(unit: string, every: number): void {
@@ -84,18 +84,19 @@ function requireCadence(unit: string, every: number): void {
 	}
 }
 
-function requireQuests(db: Handle, actor: Actor, questIds: number[]): number[] {
+async function requireQuests(db: Handle, actor: Actor, questIds: number[]): Promise<number[]> {
 	const distinct = [...new Set(questIds)];
-	for (const id of distinct) requireRealmRole(db, actor, getQuest(db, id).realmId, 'editor');
+	for (const id of distinct)
+		await requireRealmRole(db, actor, (await getQuest(db, id)).realmId, 'editor');
 	return distinct;
 }
 
-function setQuests(db: Handle, recurrenceId: number, questIds: number[]): void {
-	db.delete(recurrenceQuests).where(eq(recurrenceQuests.recurrenceId, recurrenceId)).run();
+async function setQuests(db: Handle, recurrenceId: number, questIds: number[]): Promise<void> {
+	await db.delete(recurrenceQuests).where(eq(recurrenceQuests.recurrenceId, recurrenceId));
 	if (questIds.length > 0) {
-		db.insert(recurrenceQuests)
-			.values(questIds.map((questId) => ({ recurrenceId, questId })))
-			.run();
+		await db
+			.insert(recurrenceQuests)
+			.values(questIds.map((questId) => ({ recurrenceId, questId })));
 	}
 }
 
@@ -109,62 +110,63 @@ function checkDescription(value: string): string {
 	return value;
 }
 
-export function createRecurrence(
+export async function createRecurrence(
 	db: Db,
 	actor: Actor,
 	input: RecurrenceSpec,
 	now = new Date()
-): RecurrenceView {
-	const created = db.transaction((tx) => {
-		const realm = getRealm(tx, input.realmId);
-		requireRealmRole(tx, actor, realm.id, 'editor');
+): Promise<RecurrenceView> {
+	const created = await transact(db, async (tx) => {
+		const realm = await getRealm(tx, input.realmId);
+		await requireRealmRole(tx, actor, realm.id, 'editor');
 		const title = requireText(input.title, 'Recurrence title', TITLE_MAX);
 		const every = input.every ?? 1;
 		requireCadence(input.unit, every);
 		const timezone = requireTimezone(input.timezone ?? 'UTC');
 		const startsOn = input.startsOn ?? todayIn(timezone, now);
 		parseDate(startsOn);
-		const ownerId = requireUser(tx, input.ownerId, 'Owner');
-		requireActiveMember(tx, realm.id, ownerId, 'Owner');
+		const ownerId = await requireUser(tx, input.ownerId, 'Owner');
+		await requireActiveMember(tx, realm.id, ownerId, 'Owner');
 		const assigneeId =
-			input.assigneeId == null ? null : requireUser(tx, input.assigneeId, 'Assignee');
-		if (assigneeId !== null) requireActiveMember(tx, realm.id, assigneeId, 'Assignee');
-		const questIds = requireQuests(tx, actor, input.questIds ?? []);
+			input.assigneeId == null ? null : await requireUser(tx, input.assigneeId, 'Assignee');
+		if (assigneeId !== null) await requireActiveMember(tx, realm.id, assigneeId, 'Assignee');
+		const questIds = await requireQuests(tx, actor, input.questIds ?? []);
 
-		const row = tx
-			.insert(recurrences)
-			.values({
-				realmId: realm.id,
-				title,
-				description: checkDescription(input.description ?? ''),
-				ownerId,
-				assigneeId,
-				labels: normalizeLabels(input.labels ?? []),
-				unit: input.unit,
-				every,
-				startsOn,
-				timezone,
-				nextDueAt: occurrence({ unit: input.unit, every, startsOn, timezone }, 0)
-			})
-			.returning()
-			.get();
-		setQuests(tx, row.id, questIds);
+		const row = (
+			await tx
+				.insert(recurrences)
+				.values({
+					realmId: realm.id,
+					title,
+					description: checkDescription(input.description ?? ''),
+					ownerId,
+					assigneeId,
+					labels: normalizeLabels(input.labels ?? []),
+					unit: input.unit,
+					every,
+					startsOn,
+					timezone,
+					nextDueAt: occurrence({ unit: input.unit, every, startsOn, timezone }, 0)
+				})
+				.returning()
+		)[0];
+		await setQuests(tx, row.id, questIds);
 		return row.id;
 	});
-	runRecurrences(db, now);
+	await runRecurrences(db, now);
 	return readRecurrence(db, created);
 }
 
-export function updateRecurrence(
+export async function updateRecurrence(
 	db: Db,
 	actor: Actor,
 	id: number,
 	patch: RecurrencePatch,
 	now = new Date()
-): RecurrenceView {
-	db.transaction((tx) => {
-		const current = getRecurrence(tx, id);
-		requireRealmRole(tx, actor, current.realmId, 'editor');
+): Promise<RecurrenceView> {
+	await transact(db, async (tx) => {
+		const current = await getRecurrence(tx, id);
+		await requireRealmRole(tx, actor, current.realmId, 'editor');
 		const changes: Partial<typeof recurrences.$inferInsert> = {};
 		if (patch.title !== undefined) {
 			changes.title = requireText(patch.title, 'Recurrence title', TITLE_MAX);
@@ -173,14 +175,14 @@ export function updateRecurrence(
 			changes.description = checkDescription(patch.description);
 		}
 		if (patch.ownerId !== undefined) {
-			changes.ownerId = requireUser(tx, patch.ownerId, 'Owner');
-			requireActiveMember(tx, current.realmId, changes.ownerId, 'Owner');
+			changes.ownerId = await requireUser(tx, patch.ownerId, 'Owner');
+			await requireActiveMember(tx, current.realmId, changes.ownerId, 'Owner');
 		}
 		if (patch.assigneeId !== undefined) {
 			changes.assigneeId =
-				patch.assigneeId === null ? null : requireUser(tx, patch.assigneeId, 'Assignee');
+				patch.assigneeId === null ? null : await requireUser(tx, patch.assigneeId, 'Assignee');
 			if (changes.assigneeId !== null) {
-				requireActiveMember(tx, current.realmId, changes.assigneeId, 'Assignee');
+				await requireActiveMember(tx, current.realmId, changes.assigneeId, 'Assignee');
 			}
 		}
 		if (patch.labels !== undefined) changes.labels = normalizeLabels(patch.labels);
@@ -206,52 +208,54 @@ export function updateRecurrence(
 			}
 		}
 		if (patch.questIds !== undefined) {
-			setQuests(tx, id, requireQuests(tx, actor, patch.questIds));
+			await setQuests(tx, id, await requireQuests(tx, actor, patch.questIds));
 		}
-		tx.update(recurrences)
+		await tx
+			.update(recurrences)
 			.set({ ...changes, updatedAt: new Date() })
-			.where(eq(recurrences.id, id))
-			.run();
+			.where(eq(recurrences.id, id));
 	});
-	runRecurrences(db, now);
+	await runRecurrences(db, now);
 	return readRecurrence(db, id);
 }
 
 // The Labours it created stay; only the schedule goes.
-export function deleteRecurrence(db: Db, actor: Actor, id: number): void {
-	db.transaction((tx) => {
-		const current = getRecurrence(tx, id);
-		requireRealmRole(tx, actor, current.realmId, 'editor');
-		tx.delete(recurrences).where(eq(recurrences.id, id)).run();
+export async function deleteRecurrence(db: Db, actor: Actor, id: number): Promise<void> {
+	await transact(db, async (tx) => {
+		const current = await getRecurrence(tx, id);
+		await requireRealmRole(tx, actor, current.realmId, 'editor');
+		await tx.delete(recurrences).where(eq(recurrences.id, id));
 	});
 }
 
-function isFinished(db: Handle, labourId: number): { at: Date } | null {
-	const row = db
-		.select({ closed: states.isClosed, at: labours.updatedAt })
-		.from(labours)
-		.innerJoin(states, eq(states.id, labours.stateId))
-		.where(eq(labours.id, labourId))
-		.get();
+async function isFinished(db: Handle, labourId: number): Promise<{ at: Date } | null> {
+	const row = (
+		await db
+			.select({ closed: states.isClosed, at: labours.updatedAt })
+			.from(labours)
+			.innerJoin(states, eq(states.id, labours.stateId))
+			.where(eq(labours.id, labourId))
+			.limit(1)
+	)[0];
 	return row?.closed ? { at: row.at } : null;
 }
 
 // One pass over every unpaused Recurrence: schedule the next Labour for any whose last one is
 // finished, then create the Labour of any that is due. Returns the ids of the Labours created.
-export function runRecurrences(db: Db, now = new Date()): number[] {
+export async function runRecurrences(db: Db, now = new Date()): Promise<number[]> {
 	const created: number[] = [];
-	const rows = db.select().from(recurrences).where(eq(recurrences.paused, false)).all();
+	const rows = await db.select().from(recurrences).where(eq(recurrences.paused, false));
 	for (const row of rows) {
 		try {
 			let dueAt = row.nextDueAt;
 			if (dueAt === null) {
-				const finished = row.labourId === null ? { at: now } : isFinished(db, row.labourId);
+				const finished = row.labourId === null ? { at: now } : await isFinished(db, row.labourId);
 				if (finished === null) continue;
 				dueAt = nextOccurrence(row, finished.at);
-				db.update(recurrences).set({ nextDueAt: dueAt }).where(eq(recurrences.id, row.id)).run();
+				await db.update(recurrences).set({ nextDueAt: dueAt }).where(eq(recurrences.id, row.id));
 			}
 			if (dueAt.getTime() > now.getTime()) continue;
-			created.push(spawn(db, row));
+			created.push(await spawn(db, row));
 		} catch (error) {
 			console.error(`sagas recurrence ${row.id} could not run`, error);
 		}
@@ -259,9 +263,9 @@ export function runRecurrences(db: Db, now = new Date()): number[] {
 	return created;
 }
 
-function spawn(db: Db, row: Recurrence): number {
+async function spawn(db: Db, row: Recurrence): Promise<number> {
 	const actor: Actor = { id: row.ownerId };
-	const labour = createLabour(db, actor, {
+	const labour = await createLabour(db, actor, {
 		realmId: row.realmId,
 		title: row.title,
 		description: row.description,
@@ -270,14 +274,14 @@ function spawn(db: Db, row: Recurrence): number {
 		labels: row.labels,
 		recurrenceId: row.id
 	});
-	db.update(recurrences)
+	await db
+		.update(recurrences)
 		.set({ labourId: labour.id, nextDueAt: null, updatedAt: new Date() })
-		.where(eq(recurrences.id, row.id))
-		.run();
-	const questIds = questIdsOf(db, row.id);
+		.where(eq(recurrences.id, row.id));
+	const questIds = await questIdsOf(db, row.id);
 	for (const questId of questIds) {
 		try {
-			addQuestLabour(db, actor, questId, labour.id);
+			await addQuestLabour(db, actor, questId, labour.id);
 		} catch (error) {
 			console.error(`sagas recurrence ${row.id} could not add ${labour.key} to a Quest`, error);
 		}
@@ -285,15 +289,15 @@ function spawn(db: Db, row: Recurrence): number {
 	return labour.id;
 }
 
-export function scheduleRecurrences(db: Db, everyMs = 60 * 1000): () => void {
-	const tick = () => {
+export async function scheduleRecurrences(db: Db, everyMs = 60 * 1000): Promise<() => void> {
+	const tick = async () => {
 		try {
-			runRecurrences(db);
+			await runRecurrences(db);
 		} catch (error) {
 			console.error('sagas recurrences failed', error);
 		}
 	};
-	tick();
+	await tick();
 	const timer = setInterval(tick, everyMs);
 	timer.unref();
 	return () => clearInterval(timer);

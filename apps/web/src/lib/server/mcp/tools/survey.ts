@@ -16,6 +16,7 @@ import * as refs from '../refs.ts';
 import { reply } from '../result.ts';
 import { questRef, realmRef, userRef, type Tools } from '../tool.ts';
 import { pulseDto } from './sentiment.ts';
+import { mapAll } from '#lib/server/async.ts';
 
 const filterShape = z.strictObject({
 	include_closed: z
@@ -114,8 +115,8 @@ export function registerSurveyTools({ db, actor, define }: Tools): void {
 			const realms = args.realm === undefined ? undefined : [args.realm].flat();
 			const filter = args.filter;
 			const input: SurveyInput = {
-				realmIds: realms?.map((ref) => refs.realmId(db, ref, actor)),
-				forUserId: args.for === undefined ? undefined : refs.userId(db, args.for, actor),
+				realmIds: await mapAll(realms, (ref) => refs.realmId(db, ref, actor)),
+				forUserId: args.for === undefined ? undefined : await refs.userId(db, args.for, actor),
 				query: args.query,
 				weights: args.weights,
 				filter:
@@ -126,58 +127,64 @@ export function registerSurveyTools({ db, actor, define }: Tools): void {
 									filter.include_closed === undefined || filter.include_closed === true
 										? filter.include_closed
 										: { withinDays: filter.include_closed.within_days },
-								assigneeIds: filter.assignee?.map((ref) =>
-									ref === null ? null : refs.userId(db, ref, actor)
+								assigneeIds: await mapAll(filter.assignee, async (ref) =>
+									ref === null ? null : await refs.userId(db, ref, actor)
 								),
 								has: filter.has,
 								labels: filter.labels === undefined ? undefined : normalizeLabels(filter.labels),
 								questId:
-									filter.quest === undefined ? undefined : refs.questId(db, filter.quest, actor),
+									filter.quest === undefined
+										? undefined
+										: await refs.questId(db, filter.quest, actor),
 								unblocked: filter.unblocked
 							},
 				temperature: args.temperature,
 				limit: args.limit,
 				show: args.show
 			};
-			const request = checkSurvey(db, actor, input);
+			const request = await checkSurvey(db, actor, input);
 			const queryVector =
 				request.query !== undefined && Object.hasOwn(request.weights, 'similarity')
 					? await queryVectorFor(request.query)
 					: undefined;
-			const result = survey(db, actor, input, { queryVector });
+			const result = await survey(db, actor, input, { queryVector });
 			const dto = pulseDto(db, present);
 			const realmKeys = new Map(
-				db
-					.select({ id: realmsTable.id, key: realmsTable.key })
-					.from(realmsTable)
-					.where(
-						inArray(realmsTable.id, [...new Set(result.sentiment.map((entry) => entry.realmId))])
-					)
-					.all()
-					.map((row) => [row.id, row.key])
+				(
+					await db
+						.select({ id: realmsTable.id, key: realmsTable.key })
+						.from(realmsTable)
+						.where(
+							inArray(realmsTable.id, [...new Set(result.sentiment.map((entry) => entry.realmId))])
+						)
+				).map((row) => [row.id, row.key])
 			);
 			const data = {
 				survey: result.surveyId,
-				results: result.results.map((item) => ({
-					key: item.key,
-					path: `/l/${item.key}`,
-					url: present.url(`/l/${item.key}`),
-					title: item.title,
-					realm: item.realmKey,
-					state: item.stateKey,
-					assignee: item.assigneeId === null ? null : present.username(item.assigneeId),
-					brief: item.brief,
-					score: item.score,
-					contributions: item.contributions,
-					...(item.values === undefined ? {} : { values: item.values })
-				})),
-				sentiment: result.sentiment.map((entry) => ({
-					realm: realmKeys.get(entry.realmId)!,
-					key: entry.key,
-					volume: entry.volume,
-					mood: entry.mood,
-					pulses: entry.pulses.map(dto)
-				})),
+				results: await Promise.all(
+					result.results.map(async (item) => ({
+						key: item.key,
+						path: `/l/${item.key}`,
+						url: present.url(`/l/${item.key}`),
+						title: item.title,
+						realm: item.realmKey,
+						state: item.stateKey,
+						assignee: item.assigneeId === null ? null : await present.username(item.assigneeId),
+						brief: item.brief,
+						score: item.score,
+						contributions: item.contributions,
+						...(item.values === undefined ? {} : { values: item.values })
+					}))
+				),
+				sentiment: await Promise.all(
+					result.sentiment.map(async (entry) => ({
+						realm: realmKeys.get(entry.realmId)!,
+						key: entry.key,
+						volume: entry.volume,
+						mood: entry.mood,
+						pulses: await Promise.all(entry.pulses.map(dto))
+					}))
+				),
 				coverage: result.coverage,
 				ignored: result.ignored
 			};

@@ -8,17 +8,17 @@ import { int, perform, placement, signedIn, text } from '#lib/server/ui/form.ts'
 import { findRealmByKey, toJson } from '#lib/server/ui/reads.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-function realmFor(locals: App.Locals, key: string) {
-	const realm = findRealmByKey(getDb(), key, signedIn(locals));
+async function realmFor(locals: App.Locals, key: string) {
+	const realm = await findRealmByKey(getDb(), key, signedIn(locals));
 	if (!realm) error(404, 'No Realm has that key');
 	return realm;
 }
 
-export const load: PageServerLoad = ({ params, locals }) => {
-	const realm = realmFor(locals, params.key);
+export const load: PageServerLoad = async ({ params, locals }) => {
+	const realm = await realmFor(locals, params.key);
 	if (realm.key !== params.key) redirect(307, `/r/${realm.key}`);
 	try {
-		const { seq, value } = readAtSeq(getDb(), (tx) => readBoard(tx, realm.id));
+		const { seq, value } = await readAtSeq(getDb(), (tx) => readBoard(tx, realm.id));
 		return { seq, board: toJson(value) };
 	} catch (e) {
 		if (e instanceof DomainError && e.code === 'not_found') error(404, 'No Realm has that key');
@@ -30,9 +30,9 @@ export const actions: Actions = {
 	create: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const realm = realmFor(locals, params.key);
-		return perform('create', () => {
-			const labour = createLabour(getDb(), actor, {
+		const realm = await realmFor(locals, params.key);
+		return perform('create', async () => {
+			const labour = await createLabour(getDb(), actor, {
 				realmId: realm.id,
 				title: text(form, 'title'),
 				ownerId: actor.id,
@@ -48,12 +48,12 @@ export const actions: Actions = {
 		const actor = signedIn(locals);
 		const form = await request.formData();
 		const db = getDb();
-		return perform('move', () => {
+		return perform('move', async () => {
 			const id = int(form, 'labourId');
 			const stateId = int(form, 'stateId');
 			const where = placement(form);
-			if (readLabour(db, id).stateId === stateId) rankLabour(db, actor, id, where);
-			else updateLabour(db, actor, id, { stateId, placement: where });
+			if ((await readLabour(db, id)).stateId === stateId) await rankLabour(db, actor, id, where);
+			else await updateLabour(db, actor, id, { stateId, placement: where });
 		});
 	}
 };

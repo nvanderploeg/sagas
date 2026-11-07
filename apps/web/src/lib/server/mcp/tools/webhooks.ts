@@ -45,23 +45,25 @@ export function registerWebhookTools({ db, actor, define }: Tools): void {
 		return current;
 	};
 
-	const view = (info: WebhookInfo) => {
+	const view = async (info: WebhookInfo) => {
 		const stored = info.realmIds;
 		const keys = new Map(
 			stored === null || stored.length === 0
 				? []
-				: db
-						.select({ id: realms.id, key: realms.key })
-						.from(realms)
-						.where(inArray(realms.id, stored))
-						.all()
-						.map((r) => [r.id, r.key])
+				: (
+						await db
+							.select({ id: realms.id, key: realms.key })
+							.from(realms)
+							.where(inArray(realms.id, stored))
+					).map((r) => [r.id, r.key])
 		);
-		const owner = db
-			.select({ username: users.username })
-			.from(users)
-			.where(eq(users.id, info.ownerId))
-			.get()?.username;
+		const owner = (
+			await db
+				.select({ username: users.username })
+				.from(users)
+				.where(eq(users.id, info.ownerId))
+				.limit(1)
+		)[0]?.username;
 		return {
 			id: info.id,
 			owner: owner ?? null,
@@ -83,7 +85,7 @@ export function registerWebhookTools({ db, actor, define }: Tools): void {
 	const realmIds = (given: (string | number)[] | null | undefined) =>
 		given === undefined || given === null
 			? given
-			: given.map((ref) => refs.realmId(db, ref, actor));
+			: Promise.all(given.map((ref) => refs.realmId(db, ref, actor)));
 
 	define(
 		'create_webhook',
@@ -98,21 +100,21 @@ export function registerWebhookTools({ db, actor, define }: Tools): void {
 				realms: realmsField.optional()
 			}
 		},
-		(args) => {
+		async (args) => {
 			const current = env();
-			const { webhook, secret } = createWebhook(
+			const { webhook, secret } = await createWebhook(
 				db,
 				actor,
 				{
 					name: args.name,
 					url: args.url,
 					eventTypes: args.eventTypes,
-					realmIds: realmIds(args.realms)
+					realmIds: await realmIds(args.realms)
 				},
 				current
 			);
 			return reply(
-				{ webhook: view(webhook), secret },
+				{ webhook: await view(webhook), secret },
 				`Webhook ${webhook.id} created; its secret is shown only now`
 			);
 		}
@@ -126,10 +128,10 @@ export function registerWebhookTools({ db, actor, define }: Tools): void {
 				"List a User's Webhooks, without secrets. You can see your own; an Admin can see anyone's.",
 			input: { user: userRef.optional().describe('Username, "me" or id; defaults to you') }
 		},
-		(args) => {
+		async (args) => {
 			const current = env();
-			const owner = args.user === undefined ? actor.id : refs.userId(db, args.user, actor);
-			const webhooks = listWebhooks(db, actor, owner, current).map(view);
+			const owner = args.user === undefined ? actor.id : await refs.userId(db, args.user, actor);
+			const webhooks = await Promise.all((await listWebhooks(db, actor, owner, current)).map(view));
 			return reply({ webhooks }, count(webhooks.length, 'Webhook'));
 		}
 	);
@@ -149,10 +151,10 @@ export function registerWebhookTools({ db, actor, define }: Tools): void {
 				status: z.enum(['active', 'paused']).optional()
 			}
 		},
-		(args) => {
+		async (args) => {
 			const current = env();
-			getWebhook(db, actor, args.webhook, current);
-			const webhook = updateWebhook(
+			await getWebhook(db, actor, args.webhook, current);
+			const webhook = await updateWebhook(
 				db,
 				actor,
 				args.webhook,
@@ -160,12 +162,12 @@ export function registerWebhookTools({ db, actor, define }: Tools): void {
 					name: args.name,
 					url: args.url,
 					eventTypes: args.eventTypes,
-					realmIds: realmIds(args.realms),
+					realmIds: await realmIds(args.realms),
 					status: args.status
 				},
 				current
 			);
-			return reply({ webhook: view(webhook) }, `Updated Webhook ${webhook.id}`);
+			return reply({ webhook: await view(webhook) }, `Updated Webhook ${webhook.id}`);
 		}
 	);
 
@@ -177,8 +179,8 @@ export function registerWebhookTools({ db, actor, define }: Tools): void {
 				'Make a new secret for a Webhook. The old one keeps signing alongside it for 24 hours. The new secret is returned only now.',
 			input: { webhook: webhookId }
 		},
-		(args) => {
-			const { secret } = rotateWebhookSecret(db, actor, args.webhook, env());
+		async (args) => {
+			const { secret } = await rotateWebhookSecret(db, actor, args.webhook, env());
 			return reply(
 				{ secret },
 				`Webhook ${args.webhook} secret rotated; the new secret is shown only now`
@@ -209,8 +211,8 @@ export function registerWebhookTools({ db, actor, define }: Tools): void {
 			description: 'Delete a Webhook and its delivery log.',
 			input: { webhook: webhookId }
 		},
-		(args) => {
-			deleteWebhook(db, actor, args.webhook, env());
+		async (args) => {
+			await deleteWebhook(db, actor, args.webhook, env());
 			return reply({ deleted: args.webhook }, `Deleted Webhook ${args.webhook}`);
 		}
 	);
@@ -232,9 +234,12 @@ export function registerWebhookTools({ db, actor, define }: Tools): void {
 				limit: z.number().int().min(1).max(200).optional().describe('Page size, 1 to 200')
 			}
 		},
-		(args) => {
-			getWebhook(db, actor, args.webhook, env());
-			const page = listDeliveries(db, args.webhook, { before: args.before, limit: args.limit });
+		async (args) => {
+			await getWebhook(db, actor, args.webhook, env());
+			const page = await listDeliveries(db, args.webhook, {
+				before: args.before,
+				limit: args.limit
+			});
 			const deliveries = page.deliveries.map((d) => ({
 				id: d.id,
 				attemptedAt: d.attemptedAt.toISOString(),

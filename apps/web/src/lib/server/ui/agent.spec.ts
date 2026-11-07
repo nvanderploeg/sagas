@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { appraise, type LinkInput } from '../agent/appraisals.ts';
 import { defineAttribute, setValues, tuneRealm } from '../agent/attributes.ts';
 import { contentHash } from '../agent/content.ts';
@@ -18,6 +18,7 @@ import {
 	readRealmLayer,
 	readUserLayer
 } from './agent.ts';
+import { countStatements } from '#lib/server/test/db.ts';
 
 const DAY = 86_400_000;
 const NOW = new Date('2026-06-15T12:00:00.000Z');
@@ -27,42 +28,41 @@ let db: Db;
 let actor: Actor;
 let realm: { id: number };
 
-beforeEach(() => {
-	db = testDb();
-	actor = seedActor(db);
-	realm = seedRealm(db, 'AM');
+beforeEach(async () => {
+	db = await testDb();
+	actor = await seedActor(db);
+	realm = await seedRealm(db, 'AM');
 });
 
-afterEach(() => {
-	db.$client.close();
-});
-
-function statements(read: () => unknown): number {
-	const prepare = vi.spyOn(db.$client, 'prepare');
-	read();
-	const count = prepare.mock.calls.length;
-	prepare.mockRestore();
-	return count;
+function statements(run: () => unknown): Promise<number> {
+	return countStatements(run);
 }
 
 function labour(title = 'Labour') {
 	return seedLabour(db, { realmId: realm.id, ownerId: actor.id, title });
 }
 
-function attribute(key: string, kind: 'scale' | 'tags' | 'text', spec?: object, label?: string) {
-	return defineAttribute(
-		db,
-		actor,
-		realm.id,
-		{ key, kind, label: label ?? key, rubric: `About ${key}`, spec },
-		ago(10)
+async function attribute(
+	key: string,
+	kind: 'scale' | 'tags' | 'text',
+	spec?: object,
+	label?: string
+) {
+	return (
+		await defineAttribute(
+			db,
+			actor,
+			realm.id,
+			{ key, kind, label: label ?? key, rubric: `About ${key}`, spec },
+			ago(10)
+		)
 	).attribute;
 }
 
 describe('readLabourLayer', () => {
-	it('answers a Labour with nothing kept as an empty layer', () => {
-		const target = labour();
-		expect(readLabourLayer(db, actor, target.id)).toEqual({
+	it('answers a Labour with nothing kept as an empty layer', async () => {
+		const target = await labour();
+		expect(await readLabourLayer(db, actor, target.id)).toEqual({
 			brief: '',
 			refs: [],
 			setBy: null,
@@ -79,17 +79,17 @@ describe('readLabourLayer', () => {
 		});
 	});
 
-	it('shows values in Attribute order with labels and how people read them', () => {
-		const target = labour();
-		attribute('effort', 'scale', { min: 1, max: 5 }, 'Effort');
-		attribute('area', 'tags', {
+	it('shows values in Attribute order with labels and how people read them', async () => {
+		const target = await labour();
+		await attribute('effort', 'scale', { min: 1, max: 5 }, 'Effort');
+		await attribute('area', 'tags', {
 			members: [
 				{ key: 'ui', label: 'Interface' },
 				{ key: 'db', label: 'Database' }
 			]
 		});
-		attribute('why', 'text', undefined, 'Why');
-		setValues(
+		await attribute('why', 'text', undefined, 'Why');
+		await setValues(
 			db,
 			actor,
 			target.id,
@@ -97,7 +97,7 @@ describe('readLabourLayer', () => {
 			ago(5)
 		);
 
-		const { values } = readLabourLayer(db, actor, target.id);
+		const { values } = await readLabourLayer(db, actor, target.id);
 		expect(values.map(({ key, label, kind, display }) => ({ key, label, kind, display }))).toEqual([
 			{ key: 'effort', label: 'Effort', kind: 'scale', display: '3 / 5' },
 			{ key: 'area', label: 'area', kind: 'tags', display: 'Database, Interface' },
@@ -112,18 +112,24 @@ describe('readLabourLayer', () => {
 		});
 	});
 
-	it('marks a value stale once its Attribute is revised', () => {
-		const target = labour();
-		attribute('effort', 'scale', { min: 1, max: 5 });
-		setValues(db, actor, target.id, { effort: 2 }, ago(5));
-		defineAttribute(db, actor, realm.id, { key: 'effort', kind: 'scale', rubric: 'New' }, ago(1));
-		expect(readLabourLayer(db, actor, target.id).values[0].stale).toBe(true);
+	it('marks a value stale once its Attribute is revised', async () => {
+		const target = await labour();
+		await attribute('effort', 'scale', { min: 1, max: 5 });
+		await setValues(db, actor, target.id, { effort: 2 }, ago(5));
+		await defineAttribute(
+			db,
+			actor,
+			realm.id,
+			{ key: 'effort', kind: 'scale', rubric: 'New' },
+			ago(1)
+		);
+		expect((await readLabourLayer(db, actor, target.id)).values[0].stale).toBe(true);
 	});
 
-	it('carries the Brief, References, needs and the stamp', () => {
-		const target = labour();
-		defineSkill(db, actor, { key: 'netcode', label: 'Netcode' });
-		const [{ labourId }] = appraise(
+	it('carries the Brief, References, needs and the stamp', async () => {
+		const target = await labour();
+		await defineSkill(db, actor, { key: 'netcode', label: 'Netcode' });
+		const [{ labourId }] = await appraise(
 			db,
 			actor,
 			[
@@ -138,7 +144,7 @@ describe('readLabourLayer', () => {
 		);
 		expect(labourId).toBe(target.id);
 
-		const layer = readLabourLayer(db, actor, target.id);
+		const layer = await readLabourLayer(db, actor, target.id);
 		expect(layer.brief).toBe('Rubber-banding on join');
 		expect(layer.refs).toEqual([
 			{ href: 'https://example.com/a', label: 'Report' },
@@ -150,29 +156,29 @@ describe('readLabourLayer', () => {
 		expect(layer).toMatchObject({ stamp: null, unappraised: true, setBy: actor.id });
 	});
 
-	it('shows the stamp, and stale once the content changes', () => {
-		const target = labour();
-		const hash = contentHash(db, target.id);
-		appraise(db, actor, [{ labourId: target.id, stamp: hash }], ago(2));
-		expect(readLabourLayer(db, actor, target.id)).toMatchObject({
+	it('shows the stamp, and stale once the content changes', async () => {
+		const target = await labour();
+		const hash = await contentHash(db, target.id);
+		await appraise(db, actor, [{ labourId: target.id, stamp: hash }], ago(2));
+		expect(await readLabourLayer(db, actor, target.id)).toMatchObject({
 			stamp: { appraisedBy: actor.id, appraisedVia: null, appraisedAt: ago(2) },
 			unappraised: false,
 			stale: false
 		});
 
-		addComment(db, actor, target.id, 'Something new');
-		expect(readLabourLayer(db, actor, target.id)).toMatchObject({
+		await addComment(db, actor, target.id, 'Something new');
+		expect(await readLabourLayer(db, actor, target.id)).toMatchObject({
 			unappraised: false,
 			stale: true
 		});
 	});
 
-	it('gives Links a direction from this Labour and names the other end', () => {
-		const target = labour('Target');
-		const blocked = labour('Blocked');
-		const blocker = labour('Blocker');
-		const sibling = labour('Sibling');
-		appraise(db, actor, [
+	it('gives Links a direction from this Labour and names the other end', async () => {
+		const target = await labour('Target');
+		const blocked = await labour('Blocked');
+		const blocker = await labour('Blocker');
+		const sibling = await labour('Sibling');
+		await appraise(db, actor, [
 			{
 				labourId: target.id,
 				links: [
@@ -183,7 +189,7 @@ describe('readLabourLayer', () => {
 			}
 		]);
 
-		const { links, moreLinks } = readLabourLayer(db, actor, target.id);
+		const { links, moreLinks } = await readLabourLayer(db, actor, target.id);
 		expect(moreLinks).toBe(0);
 		expect(
 			links.map((link) => [link.type, link.direction, link.other.key, link.other.title, link.note])
@@ -194,25 +200,27 @@ describe('readLabourLayer', () => {
 		]);
 	});
 
-	it('caps Links and counts the rest', () => {
-		const target = labour();
-		const links: LinkInput[] = Array.from({ length: LINKS_SHOWN + 3 }, () => ({
-			type: 'relates',
-			to: labour().id
-		}));
+	it('caps Links and counts the rest', async () => {
+		const target = await labour();
+		const links: LinkInput[] = await Promise.all(
+			Array.from({ length: LINKS_SHOWN + 3 }, async () => ({
+				type: 'relates',
+				to: (await labour()).id
+			}))
+		);
 		for (let at = 0; at < links.length; at += 25) {
-			appraise(db, actor, [{ labourId: target.id, links: links.slice(at, at + 25) }]);
+			await appraise(db, actor, [{ labourId: target.id, links: links.slice(at, at + 25) }]);
 		}
-		const layer = readLabourLayer(db, actor, target.id);
+		const layer = await readLabourLayer(db, actor, target.id);
 		expect(layer.links).toHaveLength(LINKS_SHOWN);
 		expect(layer.moreLinks).toBe(3);
 	});
 
-	it('lists Mentions with their source Labour', () => {
-		const target = labour('Target');
-		const source = labour('Source');
-		addComment(db, actor, source.id, `See ${'AM-1'}`);
-		const { mentions } = readLabourLayer(db, actor, target.id);
+	it('lists Mentions with their source Labour', async () => {
+		const target = await labour('Target');
+		const source = await labour('Source');
+		await addComment(db, actor, source.id, `See ${'AM-1'}`);
+		const { mentions } = await readLabourLayer(db, actor, target.id);
 		expect(mentions).toHaveLength(1);
 		expect(mentions[0]).toMatchObject({
 			source: { id: source.id, key: 'AM-2', title: 'Source' },
@@ -221,19 +229,19 @@ describe('readLabourLayer', () => {
 		expect(mentions[0].commentId).toBeTypeOf('number');
 	});
 
-	it('is not found for a missing Labour', () => {
-		expect(() => readLabourLayer(db, actor, 999)).toThrow(DomainError);
+	it('is not found for a missing Labour', async () => {
+		await expect(readLabourLayer(db, actor, 999)).rejects.toThrow(DomainError);
 	});
 
-	it('reads in as many statements however much the Labour holds', () => {
-		const target = labour();
-		attribute('effort', 'scale', { min: 1, max: 5 });
-		defineSkill(db, actor, { key: 'art', label: 'Art' });
-		defineSkill(db, actor, { key: 'sound', label: 'Sound' });
-		const first = labour();
-		const kept = (others: { id: number }[]) => {
-			setValues(db, actor, target.id, { effort: 2 });
-			appraise(db, actor, [
+	it('reads in as many statements however much the Labour holds', async () => {
+		const target = await labour();
+		await attribute('effort', 'scale', { min: 1, max: 5 });
+		await defineSkill(db, actor, { key: 'art', label: 'Art' });
+		await defineSkill(db, actor, { key: 'sound', label: 'Sound' });
+		const first = await labour();
+		const kept = async (others: { id: number }[]) => {
+			await setValues(db, actor, target.id, { effort: 2 });
+			await appraise(db, actor, [
 				{
 					labourId: target.id,
 					brief: 'b',
@@ -246,20 +254,20 @@ describe('readLabourLayer', () => {
 					}))
 				}
 			]);
-			for (const other of others) addComment(db, actor, other.id, 'AM-1 again');
+			for (const other of others) await addComment(db, actor, other.id, 'AM-1 again');
 		};
-		kept([first]);
-		const few = statements(() => readLabourLayer(db, actor, target.id));
+		await kept([first]);
+		const few = await statements(() => readLabourLayer(db, actor, target.id));
 
-		kept([first, ...Array.from({ length: 6 }, () => labour())]);
-		expect(readLabourLayer(db, actor, target.id).links).toHaveLength(7);
-		expect(statements(() => readLabourLayer(db, actor, target.id))).toBe(few);
+		await kept([first, ...(await Promise.all(Array.from({ length: 6 }, () => labour())))]);
+		expect((await readLabourLayer(db, actor, target.id)).links).toHaveLength(7);
+		expect(await statements(() => readLabourLayer(db, actor, target.id))).toBe(few);
 	});
 });
 
 describe('readRealmLayer', () => {
-	it('answers a Realm with nothing kept as defaults', () => {
-		expect(readRealmLayer(db, actor, realm.id, NOW)).toEqual({
+	it('answers a Realm with nothing kept as defaults', async () => {
+		expect(await readRealmLayer(db, actor, realm.id, NOW)).toEqual({
 			notes: '',
 			halfLifeDays: 14,
 			loudness: 5,
@@ -272,19 +280,19 @@ describe('readRealmLayer', () => {
 		});
 	});
 
-	it('shows notes, Attributes with counts, Sentiment with labels and unfiled keys', () => {
-		const target = labour();
-		tuneRealm(
+	it('shows notes, Attributes with counts, Sentiment with labels and unfiled keys', async () => {
+		const target = await labour();
+		await tuneRealm(
 			db,
 			actor,
 			realm.id,
 			{ notes: '**Play** first', halfLifeDays: 7, loudness: 3 },
 			ago(9)
 		);
-		attribute('perf', 'scale', { min: 0, max: 4 }, 'Performance');
-		attribute('bugs', 'tags', { members: [{ key: 'crash', label: 'Crash' }] }, 'Bugs');
-		setValues(db, actor, target.id, { perf: 2, bugs: ['crash'] }, ago(5));
-		postPulses(
+		await attribute('perf', 'scale', { min: 0, max: 4 }, 'Performance');
+		await attribute('bugs', 'tags', { members: [{ key: 'crash', label: 'Crash' }] }, 'Bugs');
+		await setValues(db, actor, target.id, { perf: 2, bugs: ['crash'] }, ago(5));
+		await postPulses(
 			db,
 			actor,
 			realm.id,
@@ -296,7 +304,7 @@ describe('readRealmLayer', () => {
 			NOW
 		);
 
-		const layer = readRealmLayer(db, actor, realm.id, NOW);
+		const layer = await readRealmLayer(db, actor, realm.id, NOW);
 		expect(layer).toMatchObject({ notes: '**Play** first', halfLifeDays: 7, loudness: 3 });
 		expect(layer.attributes.map((a) => [a.key, a.label, a.held, a.stale])).toEqual([
 			['perf', 'Performance', 1, 0],
@@ -310,36 +318,36 @@ describe('readRealmLayer', () => {
 		expect(layer.unfiled).toEqual([{ rawKey: 'wishlist', volume: 1, count: 1 }]);
 	});
 
-	it('caps Sentiment and unfiled keys and counts the rest', () => {
+	it('caps Sentiment and unfiled keys and counts the rest', async () => {
 		const total = KEYS_SHOWN + 4;
-		for (let at = 0; at < total; at++) attribute(`k${at}`, 'scale', { min: 0, max: 4 });
+		for (let at = 0; at < total; at++) await attribute(`k${at}`, 'scale', { min: 0, max: 4 });
 		const keyed = Array.from({ length: total }, (_, at) => ({ key: `k${at}`, amount: 1, mood: 1 }));
 		const loose = Array.from({ length: total }, (_, at) => ({
 			key: `loose${at}`,
 			amount: 1,
 			mood: 1
 		}));
-		postPulses(db, actor, realm.id, keyed.slice(0, 24), NOW);
-		postPulses(db, actor, realm.id, loose.slice(0, 24), NOW);
+		await postPulses(db, actor, realm.id, keyed.slice(0, 24), NOW);
+		await postPulses(db, actor, realm.id, loose.slice(0, 24), NOW);
 
-		const layer = readRealmLayer(db, actor, realm.id, NOW);
+		const layer = await readRealmLayer(db, actor, realm.id, NOW);
 		expect(layer.sentiment).toHaveLength(KEYS_SHOWN);
 		expect(layer.moreSentiment).toBe(4);
 		expect(layer.unfiled).toHaveLength(KEYS_SHOWN);
 		expect(layer.moreUnfiled).toBe(4);
 	});
 
-	it('is not found for a missing Realm', () => {
-		expect(() => readRealmLayer(db, actor, 999)).toThrow(DomainError);
+	it('is not found for a missing Realm', async () => {
+		await expect(readRealmLayer(db, actor, 999)).rejects.toThrow(DomainError);
 	});
 
-	it('reads in as many statements however much the Realm holds', () => {
-		attribute('perf', 'scale', { min: 0, max: 4 });
-		postPulses(db, actor, realm.id, [{ key: 'perf', amount: 1, mood: 1 }], NOW);
-		const few = statements(() => readRealmLayer(db, actor, realm.id, NOW));
+	it('reads in as many statements however much the Realm holds', async () => {
+		await attribute('perf', 'scale', { min: 0, max: 4 });
+		await postPulses(db, actor, realm.id, [{ key: 'perf', amount: 1, mood: 1 }], NOW);
+		const few = await statements(() => readRealmLayer(db, actor, realm.id, NOW));
 
-		for (let at = 0; at < 8; at++) attribute(`more${at}`, 'scale', { min: 0, max: 4 });
-		postPulses(
+		for (let at = 0; at < 8; at++) await attribute(`more${at}`, 'scale', { min: 0, max: 4 });
+		await postPulses(
 			db,
 			actor,
 			realm.id,
@@ -350,44 +358,52 @@ describe('readRealmLayer', () => {
 			],
 			NOW
 		);
-		expect(statements(() => readRealmLayer(db, actor, realm.id, NOW))).toBe(few);
+		expect(await statements(() => readRealmLayer(db, actor, realm.id, NOW))).toBe(few);
 	});
 });
 
 describe('readUserLayer', () => {
-	function affinity(userId: number, attributeId: number, member: string | null, rawKey: string) {
-		db.insert(pulses)
-			.values({
-				userId,
-				attributeId,
-				member,
-				rawKey,
-				amount: 2,
-				mood: 1,
-				halfLifeDays: null,
-				authorId: actor.id,
-				createdAt: NOW
-			})
-			.run();
+	async function affinity(
+		userId: number,
+		attributeId: number,
+		member: string | null,
+		rawKey: string
+	) {
+		await db.insert(pulses).values({
+			userId,
+			attributeId,
+			member,
+			rawKey,
+			amount: 2,
+			mood: 1,
+			halfLifeDays: null,
+			authorId: actor.id,
+			createdAt: NOW
+		});
 	}
 
-	it('answers a User with nothing kept as empty', () => {
-		expect(readUserLayer(db, actor.id, NOW)).toEqual({
+	it('answers a User with nothing kept as empty', async () => {
+		expect(await readUserLayer(db, actor.id, NOW)).toEqual({
 			skills: [],
 			affinity: [],
 			moreAffinity: 0
 		});
 	});
 
-	it('shows Skills with labels and Affinity with its Realm and label', () => {
-		const user = seedUser(db, 'dev');
-		defineSkill(db, actor, { key: 'art', label: 'Art' });
-		defineSkill(db, actor, { key: 'netcode', label: 'Netcode' });
-		setSkills(db, actor, user, { netcode: 3, art: 5 });
-		const bugs = attribute('bugs', 'tags', { members: [{ key: 'crash', label: 'Crash' }] }, 'Bugs');
-		affinity(user, bugs.id, 'crash', 'bugs:crash');
+	it('shows Skills with labels and Affinity with its Realm and label', async () => {
+		const user = await seedUser(db, 'dev');
+		await defineSkill(db, actor, { key: 'art', label: 'Art' });
+		await defineSkill(db, actor, { key: 'netcode', label: 'Netcode' });
+		await setSkills(db, actor, user, { netcode: 3, art: 5 });
+		const bugs = await attribute(
+			'bugs',
+			'tags',
+			{ members: [{ key: 'crash', label: 'Crash' }] },
+			'Bugs'
+		);
+		await affinity(user, bugs.id, 'crash', 'bugs:crash');
 
-		expect(readUserLayer(db, user, NOW)).toEqual({
+		expect(await readUserLayer(db, user, NOW)).toEqual({
 			skills: [
 				{ key: 'art', label: 'Art', level: 5 },
 				{ key: 'netcode', label: 'Netcode', level: 3 }
@@ -399,35 +415,38 @@ describe('readUserLayer', () => {
 		});
 	});
 
-	it('keeps Users apart and caps Affinity', () => {
-		const user = seedUser(db, 'dev');
-		const other = seedUser(db, 'other');
+	it('keeps Users apart and caps Affinity', async () => {
+		const user = await seedUser(db, 'dev');
+		const other = await seedUser(db, 'other');
 		for (let at = 0; at < KEYS_SHOWN + 2; at++) {
-			affinity(user, attribute(`k${at}`, 'text').id, null, `k${at}`);
+			await affinity(user, (await attribute(`k${at}`, 'text')).id, null, `k${at}`);
 		}
-		affinity(other, attribute('mine', 'text').id, null, 'mine');
+		await affinity(other, (await attribute('mine', 'text')).id, null, 'mine');
 
-		const layer = readUserLayer(db, user, NOW);
+		const layer = await readUserLayer(db, user, NOW);
 		expect(layer.affinity).toHaveLength(KEYS_SHOWN);
 		expect(layer.moreAffinity).toBe(2);
 		expect(layer.affinity.map((entry) => entry.key)).not.toContain('mine');
-		expect(readUserLayer(db, other, NOW).affinity.map((entry) => entry.key)).toEqual(['mine']);
+		expect((await readUserLayer(db, other, NOW)).affinity.map((entry) => entry.key)).toEqual([
+			'mine'
+		]);
 	});
 
-	it('reads in as many statements however much the User holds', () => {
-		const user = seedUser(db, 'dev');
-		defineSkill(db, actor, { key: 'art', label: 'Art' });
-		setSkills(db, actor, user, { art: 2 });
-		affinity(user, attribute('a0', 'text').id, null, 'a0');
-		const few = statements(() => readUserLayer(db, user, NOW));
+	it('reads in as many statements however much the User holds', async () => {
+		const user = await seedUser(db, 'dev');
+		await defineSkill(db, actor, { key: 'art', label: 'Art' });
+		await setSkills(db, actor, user, { art: 2 });
+		await affinity(user, (await attribute('a0', 'text')).id, null, 'a0');
+		const few = await statements(() => readUserLayer(db, user, NOW));
 
-		defineSkill(db, actor, { key: 'sound', label: 'Sound' });
-		setSkills(db, actor, user, { sound: 4 });
-		for (let at = 1; at < 6; at++) affinity(user, attribute(`a${at}`, 'text').id, null, `a${at}`);
-		expect(statements(() => readUserLayer(db, user, NOW))).toBe(few);
+		await defineSkill(db, actor, { key: 'sound', label: 'Sound' });
+		await setSkills(db, actor, user, { sound: 4 });
+		for (let at = 1; at < 6; at++)
+			await affinity(user, (await attribute(`a${at}`, 'text')).id, null, `a${at}`);
+		expect(await statements(() => readUserLayer(db, user, NOW))).toBe(few);
 	});
 
-	it('is not found for a missing User', () => {
-		expect(() => readUserLayer(db, 999, NOW)).toThrow(DomainError);
+	it('is not found for a missing User', async () => {
+		await expect(readUserLayer(db, 999, NOW)).rejects.toThrow(DomainError);
 	});
 });

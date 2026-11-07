@@ -12,15 +12,20 @@ import {
 	toAuthUser,
 	type AuthUser
 } from './users.ts';
+import { transact } from '#lib/server/db/tx.ts';
 
-export function createInvite(db: Db, actor: AuthUser): { id: number; token: string } {
+export async function createInvite(
+	db: Db,
+	actor: AuthUser
+): Promise<{ id: number; token: string }> {
 	requireAdmin(actor);
 	const token = generateSecret(INVITE_PREFIX);
-	const row = db
-		.insert(invites)
-		.values({ tokenHash: hashSecret(token), createdByUserId: actor.id })
-		.returning({ id: invites.id })
-		.get();
+	const row = (
+		await db
+			.insert(invites)
+			.values({ tokenHash: hashSecret(token), createdByUserId: actor.id })
+			.returning({ id: invites.id })
+	)[0];
 	return { id: row.id, token };
 }
 
@@ -32,9 +37,9 @@ export type InviteInfo = {
 	usedByUserId: number | null;
 };
 
-export function listInvites(db: Db, actor: AuthUser): InviteInfo[] {
+export async function listInvites(db: Db, actor: AuthUser): Promise<InviteInfo[]> {
 	requireAdmin(actor);
-	return db
+	return await db
 		.select({
 			id: invites.id,
 			createdByUserId: invites.createdByUserId,
@@ -43,17 +48,18 @@ export function listInvites(db: Db, actor: AuthUser): InviteInfo[] {
 			usedByUserId: invites.usedByUserId
 		})
 		.from(invites)
-		.orderBy(invites.id)
-		.all();
+		.orderBy(invites.id);
 }
 
-export function isInviteOpen(db: Db, token: string): boolean {
+export async function isInviteOpen(db: Db, token: string): Promise<boolean> {
 	return (
-		db
-			.select({ id: invites.id })
-			.from(invites)
-			.where(and(eq(invites.tokenHash, hashSecret(token)), isNull(invites.usedAt)))
-			.get() !== undefined
+		(
+			await db
+				.select({ id: invites.id })
+				.from(invites)
+				.where(and(eq(invites.tokenHash, hashSecret(token)), isNull(invites.usedAt)))
+				.limit(1)
+		)[0] !== undefined
 	);
 }
 
@@ -67,25 +73,28 @@ export async function acceptInvite(
 	const displayName = requireText(input.displayName, 'Display name', 100);
 	const passwordHash = await hashPassword(input.password);
 
-	return db.transaction((tx) => {
-		const invite = tx
-			.select({ id: invites.id })
-			.from(invites)
-			.where(and(eq(invites.tokenHash, hashSecret(token)), isNull(invites.usedAt)))
-			.get();
+	return transact(db, async (tx) => {
+		const invite = (
+			await tx
+				.select({ id: invites.id })
+				.from(invites)
+				.where(and(eq(invites.tokenHash, hashSecret(token)), isNull(invites.usedAt)))
+				.limit(1)
+		)[0];
 		if (!invite) {
 			throw new DomainError('not_found', 'This invite is invalid or has already been used');
 		}
-		assertUsernameFree(tx, username);
-		const user = tx
-			.insert(users)
-			.values({ kind: 'human', username, displayName, passwordHash })
-			.returning()
-			.get();
-		tx.update(invites)
+		await assertUsernameFree(tx, username);
+		const user = (
+			await tx
+				.insert(users)
+				.values({ kind: 'human', username, displayName, passwordHash })
+				.returning()
+		)[0];
+		await tx
+			.update(invites)
 			.set({ usedAt: new Date(), usedByUserId: user.id })
-			.where(eq(invites.id, invite.id))
-			.run();
+			.where(eq(invites.id, invite.id));
 		return toAuthUser(user);
 	});
 }

@@ -25,48 +25,43 @@ export type QuestSpec = { realmId: number; name: string; description?: string; o
 export type QuestPatch = Partial<Omit<QuestSpec, 'realmId'>>;
 
 // Editing a Quest takes editor access to its Realm; the Labours it lists may be in any Realm.
-function editable(tx: Handle, actor: Actor, questId: number): Quest {
-	const quest = getQuest(tx, questId);
-	requireRealmRole(tx, actor, quest.realmId, 'editor');
+async function editable(tx: Handle, actor: Actor, questId: number): Promise<Quest> {
+	const quest = await getQuest(tx, questId);
+	await requireRealmRole(tx, actor, quest.realmId, 'editor');
 	return quest;
 }
 
-function membersOf(db: Handle, questId: number) {
-	return db
+async function membersOf(db: Handle, questId: number) {
+	return await db
 		.select({ id: questLabours.labourId, rank: questLabours.rank })
 		.from(questLabours)
 		.where(eq(questLabours.questId, questId))
-		.orderBy(asc(questLabours.rank))
-		.all();
+		.orderBy(asc(questLabours.rank));
 }
 
-export function listQuests(db: Handle): QuestView[] {
-	return db
-		.select({ id: quests.id })
-		.from(quests)
-		.orderBy(asc(quests.id))
-		.all()
-		.map((row) => readQuest(db, row.id));
+export async function listQuests(db: Handle): Promise<QuestView[]> {
+	const rows = await db.select({ id: quests.id }).from(quests).orderBy(asc(quests.id));
+	return Promise.all(rows.map((row) => readQuest(db, row.id)));
 }
 
-export function listLabourQuests(db: Handle, labourId: number): Quest[] {
-	getLabour(db, labourId);
-	return db
-		.select({ quest: quests })
-		.from(questLabours)
-		.innerJoin(quests, eq(quests.id, questLabours.questId))
-		.where(eq(questLabours.labourId, labourId))
-		.orderBy(asc(quests.id))
-		.all()
-		.map((row) => row.quest);
+export async function listLabourQuests(db: Handle, labourId: number): Promise<Quest[]> {
+	await getLabour(db, labourId);
+	return (
+		await db
+			.select({ quest: quests })
+			.from(questLabours)
+			.innerJoin(quests, eq(quests.id, questLabours.questId))
+			.where(eq(questLabours.labourId, labourId))
+			.orderBy(asc(quests.id))
+	).map((row) => row.quest);
 }
 
-function questOutcome(
+async function questOutcome(
 	db: Handle,
 	questId: number,
 	event: (quest: QuestView) => EventSpec
-): { value: QuestView; events: EventSpec[] } {
-	const quest = readQuest(db, questId);
+): Promise<{ value: QuestView; events: EventSpec[] }> {
+	const quest = await readQuest(db, questId);
 	return { value: quest, events: [event(quest)] };
 }
 
@@ -80,52 +75,58 @@ function checkDescription(value: string): string {
 	return value;
 }
 
-export function createQuest(db: Db, actor: Actor, input: QuestSpec): QuestView {
+export async function createQuest(db: Db, actor: Actor, input: QuestSpec): Promise<QuestView> {
 	const name = requireText(input.name, 'Quest name', 120);
 	const description = checkDescription(input.description ?? '');
-	return write(db, actor, (tx) => {
-		getRealm(tx, input.realmId);
-		requireRealmRole(tx, actor, input.realmId, 'editor');
-		const ownerId = requireUser(tx, input.ownerId, 'Owner');
-		requireActiveMember(tx, input.realmId, ownerId, 'Owner');
-		const { id } = tx
-			.insert(quests)
-			.values({ realmId: input.realmId, name, description, ownerId })
-			.returning()
-			.get();
+	return write(db, actor, async (tx) => {
+		await getRealm(tx, input.realmId);
+		await requireRealmRole(tx, actor, input.realmId, 'editor');
+		const ownerId = await requireUser(tx, input.ownerId, 'Owner');
+		await requireActiveMember(tx, input.realmId, ownerId, 'Owner');
+		const { id } = (
+			await tx
+				.insert(quests)
+				.values({ realmId: input.realmId, name, description, ownerId })
+				.returning()
+		)[0];
 		return questOutcome(tx, id, (quest) => ({ type: 'quest.created', data: { quest } }));
 	});
 }
 
-export function updateQuest(db: Db, actor: Actor, questId: number, patch: QuestPatch): QuestView {
-	return write(db, actor, (tx) => {
-		const quest = editable(tx, actor, questId);
+export async function updateQuest(
+	db: Db,
+	actor: Actor,
+	questId: number,
+	patch: QuestPatch
+): Promise<QuestView> {
+	return write(db, actor, async (tx) => {
+		const quest = await editable(tx, actor, questId);
 		const changes: Partial<typeof quests.$inferInsert> = {};
 		if (patch.name !== undefined) changes.name = requireText(patch.name, 'Quest name', 120);
 		if (patch.description !== undefined) {
 			changes.description = checkDescription(patch.description);
 		}
 		if (patch.ownerId !== undefined) {
-			changes.ownerId = requireUser(tx, patch.ownerId, 'Owner');
-			requireActiveMember(tx, quest.realmId, changes.ownerId, 'Owner');
+			changes.ownerId = await requireUser(tx, patch.ownerId, 'Owner');
+			await requireActiveMember(tx, quest.realmId, changes.ownerId, 'Owner');
 		}
 
 		const changed = (Object.keys(changes) as (keyof Quest)[]).some(
 			(key) => changes[key as keyof typeof changes] !== quest[key]
 		);
-		if (!changed) return { value: readQuest(tx, questId), events: [] };
-		tx.update(quests)
+		if (!changed) return { value: await readQuest(tx, questId), events: [] };
+		await tx
+			.update(quests)
 			.set({ ...changes, updatedAt: new Date() })
-			.where(eq(quests.id, questId))
-			.run();
+			.where(eq(quests.id, questId));
 		return questOutcome(tx, questId, (quest) => ({ type: 'quest.updated', data: { quest } }));
 	});
 }
 
-export function deleteQuest(db: Db, actor: Actor, questId: number): void {
-	write(db, actor, (tx) => {
-		const quest = editable(tx, actor, questId);
-		tx.delete(quests).where(eq(quests.id, questId)).run();
+export async function deleteQuest(db: Db, actor: Actor, questId: number): Promise<void> {
+	await write(db, actor, async (tx) => {
+		const quest = await editable(tx, actor, questId);
+		await tx.delete(quests).where(eq(quests.id, questId));
 		return {
 			value: undefined,
 			events: [{ type: 'quest.deleted', data: { id: questId, realmId: quest.realmId } }]
@@ -134,27 +135,27 @@ export function deleteQuest(db: Db, actor: Actor, questId: number): void {
 }
 
 // Membership is explicit, per CONTEXT.md: never add the Labour's Children here.
-export function addQuestLabour(
+export async function addQuestLabour(
 	db: Db,
 	actor: Actor,
 	questId: number,
 	labourId: number,
 	placement: Placement = 'bottom'
-): QuestView {
-	return write(db, actor, (tx) => {
-		editable(tx, actor, questId);
-		requireRealmRole(tx, actor, getLabour(tx, labourId).realmId, 'viewer');
-		const members = membersOf(tx, questId);
+): Promise<QuestView> {
+	return write(db, actor, async (tx) => {
+		await editable(tx, actor, questId);
+		await requireRealmRole(tx, actor, (await getLabour(tx, labourId)).realmId, 'viewer');
+		const members = await membersOf(tx, questId);
 		if (members.some((member) => member.id === labourId)) {
 			throw new DomainError('conflict', 'The Labour is already in the Quest');
 		}
-		insertMember(
+		await insertMember(
 			tx,
 			questId,
 			labourId,
-			rankAt(members, { id: labourId }, placement, 'Quest', labourName(tx))
+			await rankAt(members, { id: labourId }, placement, 'Quest', labourName(tx))
 		);
-		touchQuest(tx, questId);
+		await touchQuest(tx, questId);
 		return questOutcome(tx, questId, (quest) => ({
 			type: 'quest.labours_added',
 			data: { quest, labourIds: [labourId] }
@@ -162,30 +163,37 @@ export function addQuestLabour(
 	});
 }
 
-export function addQuestLabourWithChildren(
+export async function addQuestLabourWithChildren(
 	db: Db,
 	actor: Actor,
 	questId: number,
 	labourId: number,
 	placement: Placement = 'bottom'
-): QuestView {
-	return write(db, actor, (tx) => {
-		editable(tx, actor, questId);
-		requireRealmRole(tx, actor, getLabour(tx, labourId).realmId, 'viewer');
-		const present = new Set(membersOf(tx, questId).map((member) => member.id));
-		const adding = [labourId, ...listChildren(tx, labourId).map((child) => child.id)].filter(
-			(id) => !present.has(id)
-		);
-		for (const id of adding) requireRealmRole(tx, actor, getLabour(tx, id).realmId, 'viewer');
+): Promise<QuestView> {
+	return write(db, actor, async (tx) => {
+		await editable(tx, actor, questId);
+		await requireRealmRole(tx, actor, (await getLabour(tx, labourId)).realmId, 'viewer');
+		const present = new Set((await membersOf(tx, questId)).map((member) => member.id));
+		const adding = [
+			labourId,
+			...(await listChildren(tx, labourId)).map((child) => child.id)
+		].filter((id) => !present.has(id));
+		for (const id of adding)
+			await requireRealmRole(tx, actor, (await getLabour(tx, id)).realmId, 'viewer');
 		if (adding.length === 0) {
 			throw new DomainError('conflict', 'The Labour and its Children are already in the Quest');
 		}
 		let next = placement;
 		for (const id of adding) {
-			insertMember(tx, questId, id, rankAt(membersOf(tx, questId), { id }, next, 'Quest'));
+			await insertMember(
+				tx,
+				questId,
+				id,
+				await rankAt(await membersOf(tx, questId), { id }, next, 'Quest')
+			);
 			next = { after: id };
 		}
-		touchQuest(tx, questId);
+		await touchQuest(tx, questId);
 		return questOutcome(tx, questId, (quest) => ({
 			type: 'quest.labours_added',
 			data: { quest, labourIds: adding }
@@ -197,38 +205,39 @@ export function addQuestLabourWithChildren(
 // already as asked. A Labour listed twice counts once.
 export type QuestLaboursChange = { quest: QuestView; labourIds: number[]; skipped: number[] };
 
-function distinctLabours(db: Handle, labourIds: number[]): number[] {
+async function distinctLabours(db: Handle, labourIds: number[]): Promise<number[]> {
 	const distinct = [...new Set(labourIds)];
-	for (const id of distinct) getLabour(db, id);
+	for (const id of distinct) await getLabour(db, id);
 	return distinct;
 }
 
 // One write and one Event for the whole list. Membership is explicit, per CONTEXT.md: never add
 // the Labours' Children here.
-export function addQuestLabours(
+export async function addQuestLabours(
 	db: Db,
 	actor: Actor,
 	questId: number,
 	labourIds: number[],
 	placement: Placement = 'bottom'
-): QuestLaboursChange {
-	return write(db, actor, (tx) => {
-		editable(tx, actor, questId);
-		const members = membersOf(tx, questId);
+): Promise<QuestLaboursChange> {
+	return write(db, actor, async (tx) => {
+		await editable(tx, actor, questId);
+		const members = await membersOf(tx, questId);
 		const present = new Set(members.map((member) => member.id));
-		const wanted = distinctLabours(tx, labourIds);
-		for (const id of wanted) requireRealmRole(tx, actor, getLabour(tx, id).realmId, 'viewer');
+		const wanted = await distinctLabours(tx, labourIds);
+		for (const id of wanted)
+			await requireRealmRole(tx, actor, (await getLabour(tx, id)).realmId, 'viewer');
 		const adding = wanted.filter((id) => !present.has(id));
 		const skipped = wanted.filter((id) => present.has(id));
 		if (adding.length === 0) {
-			return { value: { quest: readQuest(tx, questId), labourIds: [], skipped }, events: [] };
+			return { value: { quest: await readQuest(tx, questId), labourIds: [], skipped }, events: [] };
 		}
-		const ranks = ranksAt(members, placement, 'Quest', adding.length, labourName(tx));
-		tx.insert(questLabours)
-			.values(adding.map((labourId, i) => ({ questId, labourId, rank: ranks[i] })))
-			.run();
-		touchQuest(tx, questId);
-		const quest = readQuest(tx, questId);
+		const ranks = await ranksAt(members, placement, 'Quest', adding.length, labourName(tx));
+		await tx
+			.insert(questLabours)
+			.values(adding.map((labourId, i) => ({ questId, labourId, rank: ranks[i] })));
+		await touchQuest(tx, questId);
+		const quest = await readQuest(tx, questId);
 		return {
 			value: { quest, labourIds: adding, skipped },
 			events: [{ type: 'quest.labours_added', data: { quest, labourIds: adding } }]
@@ -236,26 +245,26 @@ export function addQuestLabours(
 	});
 }
 
-export function removeQuestLabours(
+export async function removeQuestLabours(
 	db: Db,
 	actor: Actor,
 	questId: number,
 	labourIds: number[]
-): QuestLaboursChange {
-	return write(db, actor, (tx) => {
-		editable(tx, actor, questId);
-		const present = new Set(membersOf(tx, questId).map((member) => member.id));
-		const wanted = distinctLabours(tx, labourIds);
+): Promise<QuestLaboursChange> {
+	return write(db, actor, async (tx) => {
+		await editable(tx, actor, questId);
+		const present = new Set((await membersOf(tx, questId)).map((member) => member.id));
+		const wanted = await distinctLabours(tx, labourIds);
 		const removing = wanted.filter((id) => present.has(id));
 		const skipped = wanted.filter((id) => !present.has(id));
 		if (removing.length === 0) {
-			return { value: { quest: readQuest(tx, questId), labourIds: [], skipped }, events: [] };
+			return { value: { quest: await readQuest(tx, questId), labourIds: [], skipped }, events: [] };
 		}
-		tx.delete(questLabours)
-			.where(and(eq(questLabours.questId, questId), inArray(questLabours.labourId, removing)))
-			.run();
-		touchQuest(tx, questId);
-		const quest = readQuest(tx, questId);
+		await tx
+			.delete(questLabours)
+			.where(and(eq(questLabours.questId, questId), inArray(questLabours.labourId, removing)));
+		await touchQuest(tx, questId);
+		const quest = await readQuest(tx, questId);
 		return {
 			value: { quest, labourIds: removing, skipped },
 			events: [{ type: 'quest.labours_removed', data: { quest, labourIds: removing } }]
@@ -263,20 +272,20 @@ export function removeQuestLabours(
 	});
 }
 
-export function removeQuestLabour(
+export async function removeQuestLabour(
 	db: Db,
 	actor: Actor,
 	questId: number,
 	labourId: number
-): QuestView {
-	return write(db, actor, (tx) => {
-		editable(tx, actor, questId);
-		const removed = tx
+): Promise<QuestView> {
+	return write(db, actor, async (tx) => {
+		await editable(tx, actor, questId);
+		const removed = await tx
 			.delete(questLabours)
-			.where(and(eq(questLabours.questId, questId), eq(questLabours.labourId, labourId)))
-			.run();
-		if (removed.changes === 0) throw new DomainError('not_found', 'The Labour is not in the Quest');
-		touchQuest(tx, questId);
+			.where(and(eq(questLabours.questId, questId), eq(questLabours.labourId, labourId)));
+		if ((removed.rowCount ?? 0) === 0)
+			throw new DomainError('not_found', 'The Labour is not in the Quest');
+		await touchQuest(tx, questId);
 		return questOutcome(tx, questId, (quest) => ({
 			type: 'quest.labours_removed',
 			data: { quest, labourIds: [labourId] }
@@ -284,25 +293,25 @@ export function removeQuestLabour(
 	});
 }
 
-export function rankQuestLabour(
+export async function rankQuestLabour(
 	db: Db,
 	actor: Actor,
 	questId: number,
 	labourId: number,
 	placement: Placement
-): QuestView {
-	return write(db, actor, (tx) => {
-		editable(tx, actor, questId);
-		const members = membersOf(tx, questId);
+): Promise<QuestView> {
+	return write(db, actor, async (tx) => {
+		await editable(tx, actor, questId);
+		const members = await membersOf(tx, questId);
 		const member = members.find((m) => m.id === labourId);
 		if (member === undefined) throw new DomainError('not_found', 'The Labour is not in the Quest');
-		const rank = rankAt(members, member, placement, 'Quest', labourName(tx));
-		if (rank === member.rank) return { value: readQuest(tx, questId), events: [] };
-		tx.update(questLabours)
+		const rank = await rankAt(members, member, placement, 'Quest', labourName(tx));
+		if (rank === member.rank) return { value: await readQuest(tx, questId), events: [] };
+		await tx
+			.update(questLabours)
 			.set({ rank })
-			.where(and(eq(questLabours.questId, questId), eq(questLabours.labourId, labourId)))
-			.run();
-		touchQuest(tx, questId);
+			.where(and(eq(questLabours.questId, questId), eq(questLabours.labourId, labourId)));
+		await touchQuest(tx, questId);
 		return questOutcome(tx, questId, (quest) => ({
 			type: 'quest.labour_ranked',
 			data: { quest, labourId }
@@ -310,6 +319,11 @@ export function rankQuestLabour(
 	});
 }
 
-function insertMember(db: Handle, questId: number, labourId: number, rank: string): void {
-	db.insert(questLabours).values({ questId, labourId, rank }).run();
+async function insertMember(
+	db: Handle,
+	questId: number,
+	labourId: number,
+	rank: string
+): Promise<void> {
+	await db.insert(questLabours).values({ questId, labourId, rank });
 }

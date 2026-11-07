@@ -9,6 +9,8 @@ import { STATE_KEY } from '../domain/validate.ts';
 import type { Actor } from '../domain/write.ts';
 import { readRealmAgent, type TagsSpec } from './attributes.ts';
 import { DAY_MS } from './survey/candidates.ts';
+import { transact } from '#lib/server/db/tx.ts';
+import { intList } from '#lib/server/db/lists.ts';
 
 export type EvidenceInput = { href: string; label?: string | null } | { labour: number };
 export type Evidence = { href: string; label: string | null } | { labour: number };
@@ -73,12 +75,9 @@ function invalid(message: string): never {
 	throw new DomainError('invalid', message);
 }
 
-const anyOf = (ids: readonly number[]) =>
-	sql`(SELECT value FROM json_each(${JSON.stringify(ids)}))`;
-
 // The weight of the Pulse aliased `p` at `now`.
 const weightOf = (now: Date) =>
-	sql`(CASE WHEN p.half_life_days IS NULL THEN p.amount ELSE p.amount * pow(2, -max(0, (${now.getTime()} - p.created_at) / (p.half_life_days * ${DAY}))) END)`;
+	sql`(CASE WHEN p.half_life_days IS NULL THEN p.amount ELSE p.amount * pow(2, -greatest(0, (${now.getTime()} - p.created_at) / (p.half_life_days * ${DAY}))) END)`;
 
 // A null `member` is a scale Attribute.
 export const keyOf = (attributeId: number, member: string | null) =>
@@ -96,20 +95,22 @@ const filedFor = (owner: Owner) =>
 
 // Totals of the filed Pulses of `owner` matching `where`, over the Pulse aliased `p`. An Affinity
 // total has a null `realmId`.
-export function totalsOf(db: Handle, where: SQL, now: Date, owner: Owner = 'realm') {
-	const rows = db.all<{
-		realmId: number | null;
-		attributeId: number;
-		member: string | null;
-		volume: number;
-		moody: number;
-	}>(sql`
-		SELECT p.realm_id AS realmId, p.attribute_id AS attributeId, p.member AS member,
+export async function totalsOf(db: Handle, where: SQL, now: Date, owner: Owner = 'realm') {
+	const rows = (
+		await db.execute<{
+			realmId: number | null;
+			attributeId: number;
+			member: string | null;
+			volume: number;
+			moody: number;
+		}>(sql`
+		SELECT p.realm_id AS "realmId", p.attribute_id AS "attributeId", p.member AS member,
 			sum(w) AS volume, sum(w * p.mood) AS moody
 		FROM (SELECT *, ${weightOf(now)} AS w FROM pulses p) p
 		WHERE ${filedFor(owner)} AND ${where}
 		GROUP BY p.realm_id, p.attribute_id, p.member
-	`);
+	`)
+	).rows;
 	return rows.map((row) => ({
 		realmId: row.realmId,
 		attributeId: row.attributeId,
@@ -124,17 +125,18 @@ type PulseRow = {
 	attributeId: number;
 	member: string | null;
 	note: string;
-	evidence: string;
+	evidence: Evidence[];
 	authorId: number;
 	createdAt: number;
 	weight: number;
 };
 
 // Ties go newest first.
-function heaviestOf(db: Handle, where: SQL, limit: number, now: Date, owner: Owner) {
-	const rows = db.all<PulseRow>(sql`
-		SELECT id, attribute_id AS attributeId, member, note, evidence, author_id AS authorId,
-			created_at AS createdAt, w AS weight
+async function heaviestOf(db: Handle, where: SQL, limit: number, now: Date, owner: Owner) {
+	const rows = (
+		await db.execute<PulseRow>(sql`
+		SELECT id, attribute_id AS "attributeId", member, note, evidence, author_id AS "authorId",
+			created_at AS "createdAt", w AS weight
 		FROM (
 			SELECT p.*, ${weightOf(now)} AS w,
 				row_number() OVER (
@@ -143,10 +145,11 @@ function heaviestOf(db: Handle, where: SQL, limit: number, now: Date, owner: Own
 				) AS rn
 			FROM pulses p
 			WHERE ${filedFor(owner)} AND ${where}
-		)
+		) ranked
 		WHERE rn <= ${limit}
 		ORDER BY attribute_id, member, rn
-	`);
+	`)
+	).rows;
 	const byKey = new Map<string, PulseRow[]>();
 	for (const row of rows) {
 		const key = keyOf(row.attributeId, row.member);
@@ -157,22 +160,22 @@ function heaviestOf(db: Handle, where: SQL, limit: number, now: Date, owner: Own
 	return byKey;
 }
 
-function liveLabours(db: Handle, ids: number[]): Set<number> {
+async function liveLabours(db: Handle, ids: number[]): Promise<Set<number>> {
 	if (ids.length === 0) return new Set();
-	const rows = db.all<{ id: number }>(
-		sql`SELECT id FROM labours WHERE id IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`
-	);
+	const rows = (
+		await db.execute<{ id: number }>(sql`SELECT id FROM labours WHERE id IN ${intList(ids)}`)
+	).rows;
 	return new Set(rows.map((row) => row.id));
 }
 
 // Evidence naming a deleted Labour is left out.
-function viewPulses(db: Handle, rows: PulseRow[]): Map<number, PulseView> {
-	const parsed = rows.map((row) => ({ row, evidence: JSON.parse(row.evidence) as Evidence[] }));
+async function viewPulses(db: Handle, rows: PulseRow[]): Promise<Map<number, PulseView>> {
+	const parsed = rows.map((row) => ({ row, evidence: row.evidence }));
 	const named = new Set<number>();
 	for (const { evidence } of parsed) {
 		for (const item of evidence) if ('labour' in item) named.add(item.labour);
 	}
-	const live = liveLabours(db, [...named]);
+	const live = await liveLabours(db, [...named]);
 	return new Map(
 		parsed.map(({ row, evidence }) => [
 			row.id,
@@ -188,25 +191,25 @@ function viewPulses(db: Handle, rows: PulseRow[]): Map<number, PulseView> {
 	);
 }
 
-export function heaviestPulses(
+export async function heaviestPulses(
 	db: Handle,
 	where: SQL,
 	limit: number,
 	now: Date,
 	owner: Owner = 'realm'
-): Map<string, PulseView[]> {
-	const byKey = heaviestOf(db, where, limit, now, owner);
-	const views = viewPulses(db, [...byKey.values()].flat());
+): Promise<Map<string, PulseView[]>> {
+	const byKey = await heaviestOf(db, where, limit, now, owner);
+	const views = await viewPulses(db, [...byKey.values()].flat());
 	return new Map([...byKey].map(([key, list]) => [key, list.map((row) => views.get(row.id)!)]));
 }
 
-export const inRealms = (realmIds: number[]) => sql`p.realm_id IN ${anyOf(realmIds)}`;
+export const inRealms = (realmIds: number[]) => sql`p.realm_id IN ${intList(realmIds)}`;
 export const inAttributes = (attributeIds: number[]) =>
-	sql`p.attribute_id IN ${anyOf(attributeIds)}`;
+	sql`p.attribute_id IN ${intList(attributeIds)}`;
 export const inKeys = (keys: { attributeId: number; member: string | null }[]) =>
 	sql`EXISTS (
-		SELECT 1 FROM json_each(${JSON.stringify(keys.map((k) => ({ a: k.attributeId, m: k.member })))}) k
-		WHERE json_extract(k.value, '$.a') = p.attribute_id AND json_extract(k.value, '$.m') IS p.member
+		SELECT 1 FROM unnest(${sql.param(keys.map((k) => k.attributeId))}::int[], ${sql.param(keys.map((k) => k.member))}::text[]) AS k(a, m)
+		WHERE k.a = p.attribute_id AND k.m IS NOT DISTINCT FROM p.member
 	)`;
 
 function parseKey(
@@ -225,12 +228,14 @@ function parseKey(
 type Filing = { attributeId: number; member: string | null };
 
 // The Attribute and member a key names in the Realm, when it files.
-function filingOf(db: Handle, realmId: number, key: { attr: string; member?: string }) {
-	const row = db
-		.select({ id: attributes.id, kind: attributes.kind, spec: attributes.spec })
-		.from(attributes)
-		.where(and(eq(attributes.realmId, realmId), eq(attributes.key, key.attr)))
-		.get();
+async function filingOf(db: Handle, realmId: number, key: { attr: string; member?: string }) {
+	const row = (
+		await db
+			.select({ id: attributes.id, kind: attributes.kind, spec: attributes.spec })
+			.from(attributes)
+			.where(and(eq(attributes.realmId, realmId), eq(attributes.key, key.attr)))
+			.limit(1)
+	)[0];
 	if (row === undefined) return null;
 	if (key.member === undefined) {
 		return row.kind === 'scale' ? { attributeId: row.id, member: null } : null;
@@ -334,63 +339,71 @@ function checkEvidence(raw: EvidenceInput[] | undefined, where: string): Evidenc
 	});
 }
 
-export function postPulses(
+export async function postPulses(
 	db: Db,
 	actor: Actor,
 	realmId: number,
 	items: PulseInput[],
 	now: Date = new Date()
-): { index: number; status: PulseStatus; id: number }[] {
+): Promise<{ index: number; status: PulseStatus; id: number }[]> {
 	if (!Array.isArray(items) || items.length < 1 || items.length > PULSES_MAX) {
 		invalid(`Post 1 to ${PULSES_MAX} Pulses at a time`);
 	}
-	return db.transaction((tx) => {
-		getRealm(tx, realmId);
-		requireRealmRole(tx, actor, realmId, 'editor');
+	return transact(db, async (tx) => {
+		await getRealm(tx, realmId);
+		await requireRealmRole(tx, actor, realmId, 'editor');
 		const checked = items.map(checkItem);
 		const named = new Set(
 			checked.flatMap((item) => item.evidence.flatMap((e) => ('labour' in e ? [e.labour] : [])))
 		);
-		for (const id of named) getLabour(tx, id);
-		const defaultHalfLife = readRealmAgent(tx, realmId).halfLifeDays;
+		for (const id of named) await getLabour(tx, id);
+		const defaultHalfLife = (await readRealmAgent(tx, realmId)).halfLifeDays;
 
-		return checked.map((item, index) => {
+		const results: { index: number; status: PulseStatus; id: number }[] = [];
+		for (const [index, item] of checked.entries()) {
 			if (item.ref !== null) {
-				const earlier = tx
-					.select({ id: pulses.id })
-					.from(pulses)
-					.where(
-						and(
-							eq(pulses.authorId, actor.id),
-							eq(pulses.ref, item.ref),
-							eq(pulses.rawKey, item.rawKey)
+				const earlier = (
+					await tx
+						.select({ id: pulses.id })
+						.from(pulses)
+						.where(
+							and(
+								eq(pulses.authorId, actor.id),
+								eq(pulses.ref, item.ref),
+								eq(pulses.rawKey, item.rawKey)
+							)
 						)
-					)
-					.get();
-				if (earlier !== undefined) return { index, status: 'skipped' as const, id: earlier.id };
+						.limit(1)
+				)[0];
+				if (earlier !== undefined) {
+					results.push({ index, status: 'skipped', id: earlier.id });
+					continue;
+				}
 			}
-			const filing: Filing | null = filingOf(tx, realmId, item);
-			const { id } = tx
-				.insert(pulses)
-				.values({
-					realmId,
-					attributeId: filing?.attributeId ?? null,
-					member: filing?.member ?? null,
-					rawKey: item.rawKey,
-					amount: item.amount,
-					mood: item.mood,
-					halfLifeDays: item.halfLifeDays === undefined ? defaultHalfLife : item.halfLifeDays,
-					note: item.note,
-					evidence: item.evidence,
-					ref: item.ref,
-					authorId: actor.id,
-					via: currentVia(),
-					createdAt: now
-				})
-				.returning({ id: pulses.id })
-				.get();
-			return { index, status: filing === null ? ('unfiled' as const) : ('filed' as const), id };
-		});
+			const filing: Filing | null = await filingOf(tx, realmId, item);
+			const { id } = (
+				await tx
+					.insert(pulses)
+					.values({
+						realmId,
+						attributeId: filing?.attributeId ?? null,
+						member: filing?.member ?? null,
+						rawKey: item.rawKey,
+						amount: item.amount,
+						mood: item.mood,
+						halfLifeDays: item.halfLifeDays === undefined ? defaultHalfLife : item.halfLifeDays,
+						note: item.note,
+						evidence: item.evidence,
+						ref: item.ref,
+						authorId: actor.id,
+						via: currentVia(),
+						createdAt: now
+					})
+					.returning({ id: pulses.id })
+			)[0];
+			results.push({ index, status: filing === null ? 'unfiled' : 'filed', id });
+		}
+		return results;
 	});
 }
 
@@ -405,27 +418,27 @@ function limitOf(given: number | undefined): number {
 const byVolume = (a: SentimentKey, b: SentimentKey) =>
 	b.volume - a.volume || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0) || a.realmId - b.realmId;
 
-export function readSentiment(
+export async function readSentiment(
 	db: Handle,
 	realmId: number,
 	opts: { limit?: number; now?: Date } = {}
-): SentimentView {
+): Promise<SentimentView> {
 	const now = opts.now ?? new Date();
 	const limit = limitOf(opts.limit);
-	getRealm(db, realmId);
-	const { loudness } = readRealmAgent(db, realmId);
+	await getRealm(db, realmId);
+	const { loudness } = await readRealmAgent(db, realmId);
 
 	const names = new Map(
-		db
-			.select({ id: attributes.id, key: attributes.key })
-			.from(attributes)
-			.where(eq(attributes.realmId, realmId))
-			.all()
-			.map((row) => [row.id, row.key])
+		(
+			await db
+				.select({ id: attributes.id, key: attributes.key })
+				.from(attributes)
+				.where(eq(attributes.realmId, realmId))
+		).map((row) => [row.id, row.key])
 	);
 	const where = sql`p.realm_id = ${realmId}`;
-	const listed = heaviestPulses(db, where, limit, now);
-	const keys = totalsOf(db, where, now)
+	const listed = await heaviestPulses(db, where, limit, now);
+	const keys = (await totalsOf(db, where, now))
 		.filter((total) => names.has(total.attributeId))
 		.map((total): SentimentKey => {
 			const attr = names.get(total.attributeId)!;
@@ -440,31 +453,31 @@ export function readSentiment(
 		})
 		.sort(byVolume);
 
-	return { asOf: now, keys, unfiled: readUnfiled(db, realmId, now) };
+	return { asOf: now, keys, unfiled: await readUnfiled(db, realmId, now) };
 }
 
-export function readAffinity(
+export async function readAffinity(
 	db: Handle,
 	userId: number,
 	opts: { limit?: number; now?: Date } = {}
-): SentimentView {
+): Promise<SentimentView> {
 	const now = opts.now ?? new Date();
 	const limit = limitOf(opts.limit);
-	getUser(db, userId);
+	await getUser(db, userId);
 
 	const where = sql`p.user_id = ${userId}`;
 	const names = new Map(
-		db
-			.select({ id: attributes.id, key: attributes.key, realmId: attributes.realmId })
-			.from(attributes)
-			.where(
-				sql`${attributes.id} IN (SELECT DISTINCT attribute_id FROM pulses WHERE user_id = ${userId})`
-			)
-			.all()
-			.map((row) => [row.id, row])
+		(
+			await db
+				.select({ id: attributes.id, key: attributes.key, realmId: attributes.realmId })
+				.from(attributes)
+				.where(
+					sql`${attributes.id} IN (SELECT DISTINCT attribute_id FROM pulses WHERE user_id = ${userId})`
+				)
+		).map((row) => [row.id, row])
 	);
-	const listed = heaviestPulses(db, where, limit, now, 'user');
-	const keys = totalsOf(db, where, now, 'user')
+	const listed = await heaviestPulses(db, where, limit, now, 'user');
+	const keys = (await totalsOf(db, where, now, 'user'))
 		.filter((total) => names.has(total.attributeId))
 		.map((total): SentimentKey => {
 			const attribute = names.get(total.attributeId)!;
@@ -482,15 +495,20 @@ export function readAffinity(
 	return { asOf: now, keys, unfiled: [] };
 }
 
-function readUnfiled(db: Handle, realmId: number, now: Date): SentimentView['unfiled'] {
-	const rows = db.all<{
-		rawKey: string;
-		volume: number;
-		count: number;
-		id: number;
-		note: string;
-	}>(sql`
-		SELECT t.raw_key AS rawKey, t.volume AS volume, t.cnt AS count, n.id AS id, n.note AS note
+async function readUnfiled(
+	db: Handle,
+	realmId: number,
+	now: Date
+): Promise<SentimentView['unfiled']> {
+	const rows = (
+		await db.execute<{
+			rawKey: string;
+			volume: number;
+			count: number;
+			id: number;
+			note: string;
+		}>(sql`
+		SELECT t.raw_key AS "rawKey", t.volume AS volume, t.cnt AS count, n.id AS id, n.note AS note
 		FROM (
 			SELECT p.raw_key, sum(${weightOf(now)}) AS volume, count(*) AS cnt
 			FROM pulses p
@@ -502,7 +520,8 @@ function readUnfiled(db: Handle, realmId: number, now: Date): SentimentView['unf
 			WHERE realm_id = ${realmId} AND attribute_id IS NULL AND raw_key = t.raw_key
 			ORDER BY created_at DESC, id DESC LIMIT 1
 		)
-	`);
+	`)
+	).rows;
 	return rows
 		.map((row) => ({
 			rawKey: row.rawKey,
@@ -515,54 +534,64 @@ function readUnfiled(db: Handle, realmId: number, now: Date): SentimentView['unf
 		);
 }
 
-export function filePulses(
+export async function filePulses(
 	db: Db,
 	actor: Actor,
 	realmId: number,
 	rawKey: string,
 	key: string
-): number {
-	return db.transaction((tx) => {
-		getRealm(tx, realmId);
-		requireRealmRole(tx, actor, realmId, 'editor');
+): Promise<number> {
+	return transact(db, async (tx) => {
+		await getRealm(tx, realmId);
+		await requireRealmRole(tx, actor, realmId, 'editor');
 		const from = parseKey(rawKey, 'raw_key');
 		const to = parseKey(key);
-		const target = filingOf(tx, realmId, to);
+		const target = await filingOf(tx, realmId, to);
 		if (target === null) invalid(`"${to.rawKey}" is not a key of this Realm`);
-		const source = filingOf(tx, realmId, from);
+		const source = await filingOf(tx, realmId, from);
 
 		const filedUnderSource =
 			source === null
-				? sql`0`
-				: sql`(attribute_id = ${source.attributeId} AND member IS ${source.member})`;
-		return tx.run(sql`
+				? sql`false`
+				: sql`(attribute_id = ${source.attributeId} AND member IS NOT DISTINCT FROM ${source.member})`;
+		return (
+			(
+				await tx.execute(sql`
 			UPDATE pulses SET attribute_id = ${target.attributeId}, member = ${target.member}
 			WHERE realm_id = ${realmId}
 				AND ((attribute_id IS NULL AND raw_key = ${from.rawKey}) OR ${filedUnderSource})
-				AND NOT (attribute_id IS ${target.attributeId} AND member IS ${target.member})
-		`).changes;
+				AND NOT (attribute_id IS NOT DISTINCT FROM ${target.attributeId} AND member IS NOT DISTINCT FROM ${target.member})
+		`)
+			).rowCount ?? 0
+		);
 	});
 }
 
-export function deletePulse(db: Db, actor: Actor, pulseId: number): void {
-	const pulse = db
-		.select({ realmId: pulses.realmId, userId: pulses.userId })
-		.from(pulses)
-		.where(eq(pulses.id, pulseId))
-		.get();
+export async function deletePulse(db: Db, actor: Actor, pulseId: number): Promise<void> {
+	const pulse = (
+		await db
+			.select({ realmId: pulses.realmId, userId: pulses.userId })
+			.from(pulses)
+			.where(eq(pulses.id, pulseId))
+			.limit(1)
+	)[0];
 	if (pulse === undefined) throw new DomainError('not_found', 'Pulse not found');
 	// A Realm's Pulses take an editor; an Affinity Pulse belongs to its User alone.
-	if (pulse.realmId !== null) requireRealmRole(db, actor, pulse.realmId, 'editor');
+	if (pulse.realmId !== null) await requireRealmRole(db, actor, pulse.realmId, 'editor');
 	else if (accessEnforced() && pulse.userId !== actor.id) {
 		throw new DomainError('not_found', 'Pulse not found');
 	}
-	db.delete(pulses).where(eq(pulses.id, pulseId)).run();
+	await db.delete(pulses).where(eq(pulses.id, pulseId));
 }
 
-export function prunePulses(db: Handle, now = Date.now()): number {
-	return db.run(sql`
+export async function prunePulses(db: Handle, now = Date.now()): Promise<number> {
+	return (
+		(
+			await db.execute(sql`
 		DELETE FROM pulses
 		WHERE half_life_days IS NOT NULL
 			AND created_at < ${now} - half_life_days * ${DAY} * ${FADED}
-	`).changes;
+	`)
+		).rowCount ?? 0
+	);
 }

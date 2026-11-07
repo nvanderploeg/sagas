@@ -5,8 +5,8 @@ export type FeatureContext = {
 	db: Handle;
 	// In board order.
 	candidates: Candidate[];
-	// The candidates' ids as one JSON array; read it through `json_each`, never as bound variables.
-	candidateIds: string;
+	// Bind through intList or intRows, never one parameter per id.
+	candidateIds: number[];
 	// Present when `needsQuery` is set.
 	query: string | undefined;
 	forUserId: number;
@@ -21,5 +21,5 @@ export type Feature = {
 	// Labour id to a value, in [0, 1] unless the feature says otherwise; null means no data, and a
 	// candidate left out takes 0.
 	// Read only rows tied to the candidates.
-	load(ctx: FeatureContext): Map<number, number | null>;
+	load(ctx: FeatureContext): Promise<Map<number, number | null>>;
 };

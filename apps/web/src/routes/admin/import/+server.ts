@@ -5,16 +5,21 @@ import {
 	requireSameOrigin
 } from '#lib/server/admin/guard.ts';
 import { BusyError } from '#lib/server/admin/import.ts';
-import { dataLayout } from '#lib/server/admin/layout.ts';
 import { BundleError } from '#lib/server/admin/manifest.ts';
 import { UploadError, createUploads } from '#lib/server/admin/upload.ts';
 import { importMaxBytes } from '#lib/server/config.ts';
+import { getDb } from '#lib/server/db/index.ts';
 import type { RequestHandler } from './$types';
 
-const uploads = createUploads(dataLayout, {
-	maxBytes: importMaxBytes,
-	maxExpandedBytes: importMaxBytes * 4
-});
+let uploads: ReturnType<typeof createUploads> | undefined;
+
+function uploadsFor() {
+	uploads ??= createUploads(getDb(), {
+		maxBytes: importMaxBytes,
+		maxExpandedBytes: importMaxBytes * 4
+	});
+	return uploads;
+}
 
 export const POST: RequestHandler = async ({ request, locals, url }) => {
 	requireAdminSession(locals);
@@ -27,13 +32,13 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
 	if (!Number.isSafeInteger(offset) || offset < 0) error(400, 'Bad offset');
 
 	try {
-		const pending = await uploads.append({
+		const imported = await uploadsFor().append({
 			id: url.searchParams.get('id') ?? '',
 			offset,
 			body: request.body,
 			final: url.searchParams.get('final') === '1'
 		});
-		return json({ pending });
+		return json({ imported });
 	} catch (e) {
 		if (e instanceof UploadError) error(e.status, e.message);
 		if (e instanceof BusyError) error(409, e.message);

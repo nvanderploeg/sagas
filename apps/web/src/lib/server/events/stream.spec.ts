@@ -25,15 +25,14 @@ import {
 let db: Db;
 let readers: ReadableStreamDefaultReader<Uint8Array>[];
 
-beforeEach(() => {
-	db = testDb();
+beforeEach(async () => {
+	db = await testDb();
 	readers = [];
 });
 
 afterEach(async () => {
 	vi.useRealTimers();
 	for (const reader of readers) await reader.cancel();
-	db.$client.close();
 });
 
 type Frame = { id?: string; event?: string; data?: string; comment?: string };
@@ -94,33 +93,33 @@ const control = (event: string, seq: number) => ({
 	event,
 	data: JSON.stringify({ seq })
 });
-const lastSeq = () => eventWindow(db).last;
+const lastSeq = async () => (await eventWindow(db)).last;
 
 describe('openEventStream', () => {
 	it('opens with ready carrying the last seq, then streams live Events only', async () => {
-		const realm = seedRealm(db, 'AM');
+		const realm = await seedRealm(db, 'AM');
 		const stream = open();
 
 		const opened = await stream.until(ready);
-		seedLabour(db, { realmId: realm.id });
+		await seedLabour(db, { realmId: realm.id });
 		const frames = await stream.until(countAtLeast(1));
 
 		expect(opened).toEqual([control('ready', 1)]);
 		const [labour] = events(frames);
-		const stored = eventsSince(db, 0).at(-1)!;
+		const stored = (await eventsSince(db, 0)).at(-1)!;
 		expect(labour).toMatchObject({ id: String(stored.seq), event: 'labour.created' });
 		expect(JSON.parse(labour.data!)).toEqual(JSON.parse(JSON.stringify(stored)));
 	});
 
 	it('replays every Event after the given seq, sends ready, then goes live without a gap', async () => {
-		const realm = seedRealm(db, 'AM');
-		seedLabour(db, { realmId: realm.id });
-		seedLabour(db, { realmId: realm.id });
+		const realm = await seedRealm(db, 'AM');
+		await seedLabour(db, { realmId: realm.id });
+		await seedLabour(db, { realmId: realm.id });
 		const since = 2;
 
 		const stream = open({ since });
 		const opened = await stream.until(ready);
-		seedLabour(db, { realmId: realm.id });
+		await seedLabour(db, { realmId: realm.id });
 		const frames = await stream.until(countAtLeast(2));
 
 		expect(opened.map((f) => f.event)).toEqual(['labour.created', 'ready']);
@@ -129,23 +128,23 @@ describe('openEventStream', () => {
 	});
 
 	it('replays the whole log from zero', async () => {
-		const realm = seedRealm(db, 'AM');
-		seedLabour(db, { realmId: realm.id });
+		const realm = await seedRealm(db, 'AM');
+		await seedLabour(db, { realmId: realm.id });
 
 		const frames = await open({ since: 0 }).until(ready);
 
-		expect(ids(frames)).toEqual(eventsSince(db, 0).map((e) => e.seq));
+		expect(ids(frames)).toEqual((await eventsSince(db, 0)).map((e) => e.seq));
 	});
 
 	it('sends reset, and no replay, when the seq is older than the oldest retained Event', async () => {
-		const realm = seedRealm(db, 'AM');
-		seedLabour(db, { realmId: realm.id });
-		const last = lastSeq();
-		pruneEvents(db, 1, Date.now() + 1000);
+		const realm = await seedRealm(db, 'AM');
+		await seedLabour(db, { realmId: realm.id });
+		const last = await lastSeq();
+		await pruneEvents(db, 1, Date.now() + 1000);
 
 		const stream = open({ since: 0 });
 		const opened = await stream.until(ready);
-		seedLabour(db, { realmId: realm.id });
+		await seedLabour(db, { realmId: realm.id });
 		const frames = await stream.until(countAtLeast(1));
 
 		expect(opened).toEqual([control('reset', last), control('ready', last)]);
@@ -153,7 +152,7 @@ describe('openEventStream', () => {
 	});
 
 	it('sends reset when the seq is newer than any Event this server has assigned', async () => {
-		seedRealm(db, 'AM');
+		await seedRealm(db, 'AM');
 
 		const frames = await open({ since: 50 }).until(ready);
 
@@ -161,28 +160,30 @@ describe('openEventStream', () => {
 	});
 
 	it('sends reset instead of a replay larger than the backlog cap', async () => {
-		const realm = seedRealm(db, 'AM');
-		for (let i = 0; i < 10; i++) seedLabour(db, { realmId: realm.id });
+		const realm = await seedRealm(db, 'AM');
+		for (let i = 0; i < 10; i++) await seedLabour(db, { realmId: realm.id });
 
 		const frames = await open({ since: 0, maxBacklogBytes: 2048 }).until(ready);
 
-		expect(frames).toEqual([control('reset', lastSeq()), control('ready', lastSeq())]);
+		expect(frames).toEqual([control('reset', await lastSeq()), control('ready', await lastSeq())]);
 	});
 
 	it('sends an Event once when it is both replayed and published live', async () => {
-		const realm = seedRealm(db, 'AM');
+		const realm = await seedRealm(db, 'AM');
 		let stream: ReturnType<typeof open> | undefined;
+		const concurrent: Promise<unknown>[] = [];
 		const stop = subscribe((event) => {
 			if (stream) return;
-			seedLabour(db, { realmId: realm.id });
+			concurrent.push(seedLabour(db, { realmId: realm.id }));
 			stream = open({ since: event.seq });
 		});
-		seedLabour(db, { realmId: realm.id });
+		await seedLabour(db, { realmId: realm.id });
 		stop();
-		const first = lastSeq();
+		await Promise.all(concurrent);
+		const first = await lastSeq();
 
 		await stream!.until(ready);
-		seedLabour(db, { realmId: realm.id });
+		await seedLabour(db, { realmId: realm.id });
 		const frames = await stream!.until(countAtLeast(2));
 
 		expect(ids(frames)).toEqual([first, first + 1]);
@@ -199,20 +200,20 @@ describe('openEventStream', () => {
 
 describe('backlog cap', () => {
 	it('ends a stream whose unread backlog exceeds the cap in bytes, so it reconnects and replays', async () => {
-		const realm = seedRealm(db, 'AM');
+		const realm = await seedRealm(db, 'AM');
 		const stream = open({ maxBacklogBytes: 2048 });
 
-		for (let i = 0; i < 10; i++) seedLabour(db, { realmId: realm.id });
+		for (let i = 0; i < 10; i++) await seedLabour(db, { realmId: realm.id });
 		await stream.until(() => false, 100);
 
 		expect(stream.isDone()).toBe(true);
 	});
 
 	it('keeps open a stream whose backlog of many Events stays within the cap', async () => {
-		const realm = seedRealm(db, 'AM');
+		const realm = await seedRealm(db, 'AM');
 		const stream = open({ maxBacklogBytes: 64 * 1024 });
 
-		for (let i = 0; i < 20; i++) seedLabour(db, { realmId: realm.id });
+		for (let i = 0; i < 20; i++) await seedLabour(db, { realmId: realm.id });
 		const frames = await stream.until(countAtLeast(20));
 
 		expect(stream.isDone()).toBe(false);
@@ -255,10 +256,10 @@ describe('stream lifetime', () => {
 	});
 
 	it('releases everything it holds when the backlog overflows', async () => {
-		const realm = seedRealm(db, 'AM');
+		const realm = await seedRealm(db, 'AM');
 		const stream = open({ guard, maxBacklogBytes: 2048 });
 
-		for (let i = 0; i < 10; i++) seedLabour(db, { realmId: realm.id });
+		for (let i = 0; i < 10; i++) await seedLabour(db, { realmId: realm.id });
 		await stream.until(() => false, 100);
 
 		expect(stream.isDone()).toBe(true);
@@ -266,11 +267,13 @@ describe('stream lifetime', () => {
 	});
 
 	it('leaves nothing behind when it ends while opening', async () => {
-		const realm = seedRealm(db, 'AM');
-		for (let i = 0; i < 6; i++) seedLabour(db, { realmId: realm.id });
+		const realm = await seedRealm(db, 'AM');
+		for (let i = 0; i < 6; i++) await seedLabour(db, { realmId: realm.id });
 
 		const stream = open({ guard, since: 0, maxBacklogBytes: 1 });
-		await stream.until(() => false, 100);
+		// Read nothing while it opens, so the backlog is what overflows.
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		await stream.until(() => false, 2000);
 
 		expect(stream.isDone()).toBe(true);
 		expect(held()).toEqual(nothing);
@@ -298,7 +301,7 @@ describe('stream lifetime', () => {
 
 describe('a stream bound to a credential', () => {
 	async function signedIn() {
-		const user = findUser(db, seedUser(db, 'ada'))!;
+		const user = (await findUser(db, await seedUser(db, 'ada')))!;
 		const stream = (credential: Credential, heartbeatMs = 60_000) => {
 			const opened = open({ guard: credentialGuard(db, credential), heartbeatMs });
 			return opened.until(ready).then(() => opened);
@@ -308,25 +311,25 @@ describe('a stream bound to a credential', () => {
 
 	it('ends as soon as its API token is revoked', async () => {
 		const { user, stream } = await signedIn();
-		const { id, token } = createApiToken(db, user, user.id, 'cli');
-		const other = createApiToken(db, user, user.id, 'other');
+		const { id, token } = await createApiToken(db, user, user.id, 'cli');
+		const other = await createApiToken(db, user, user.id, 'other');
 		const open = await stream(apiTokenCredential(token));
 
-		revokeApiToken(db, user, other.id);
+		await revokeApiToken(db, user, other.id);
 		await open.until(() => false, 50);
 		expect(open.isDone()).toBe(false);
 
-		revokeApiToken(db, user, id);
+		await revokeApiToken(db, user, id);
 		await open.until(() => false, 100);
 		expect(open.isDone()).toBe(true);
 	});
 
 	it('ends as soon as its session is deleted', async () => {
 		const { user, stream } = await signedIn();
-		const { token } = createSession(db, user.id);
+		const { token } = await createSession(db, user.id);
 		const open = await stream(sessionCredential(token));
 
-		deleteSession(db, token);
+		await deleteSession(db, token);
 		await open.until(() => false, 100);
 
 		expect(open.isDone()).toBe(true);
@@ -334,14 +337,12 @@ describe('a stream bound to a credential', () => {
 
 	it('ends on the next heartbeat once its session has expired', async () => {
 		const { user, stream } = await signedIn();
-		const { token } = createSession(db, user.id);
+		const { token } = await createSession(db, user.id);
 		const open = await stream(sessionCredential(token), 10);
 		await open.until((f) => f.some((x) => x.comment === 'ping'));
 		expect(open.isDone()).toBe(false);
 
-		db.update(sessions)
-			.set({ expiresAt: new Date(Date.now() - 1) })
-			.run();
+		await db.update(sessions).set({ expiresAt: new Date(Date.now() - 1) });
 		await open.until(() => false, 100);
 
 		expect(open.isDone()).toBe(true);
@@ -349,10 +350,10 @@ describe('a stream bound to a credential', () => {
 
 	it('ends on the next heartbeat once its API token is no longer valid', async () => {
 		const { user, stream } = await signedIn();
-		const { token } = createApiToken(db, user, user.id, 'cli');
+		const { token } = await createApiToken(db, user, user.id, 'cli');
 		const open = await stream(apiTokenCredential(token), 10);
 
-		db.update(apiTokens).set({ revokedAt: new Date() }).run();
+		await db.update(apiTokens).set({ revokedAt: new Date() });
 		await open.until(() => false, 100);
 
 		expect(open.isDone()).toBe(true);

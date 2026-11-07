@@ -16,15 +16,15 @@ export function registerBoardTools({ db, actor, define }: Tools): void {
 			input: { realm: realmRef },
 			meta: { ui: { resourceUri: BOARD_URI } }
 		},
-		(args, present) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			const realm = present.realm(realmId);
-			const page = queryLabours(
+		async (args, present) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			const realm = await present.realm(realmId);
+			const page = await queryLabours(
 				db,
-				{ realms: visibleRealmIds(db, actor) ?? undefined, realmId },
+				{ realms: (await visibleRealmIds(db, actor)) ?? undefined, realmId },
 				{ offset: 0, limit: BOARD_LIMIT }
 			);
-			const labours = present.labours(page.labours);
+			const labours = await present.labours(page.labours);
 			return reply(
 				{
 					realm: {

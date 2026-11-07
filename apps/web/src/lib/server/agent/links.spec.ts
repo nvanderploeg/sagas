@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import { deleteLabour, moveLabour } from '#lib/server/domain/labours.ts';
@@ -15,24 +15,23 @@ let other: Actor;
 let am: { id: number };
 let bl: { id: number };
 
-beforeEach(() => {
-	db = testDb();
-	actor = seedActor(db);
-	other = { id: seedUser(db, 'other') };
-	am = seedRealm(db, 'AM');
-	bl = seedRealm(db, 'BL');
-});
-
-afterEach(() => {
-	db.$client.close();
+beforeEach(async () => {
+	db = await testDb();
+	actor = await seedActor(db);
+	other = { id: await seedUser(db, 'other') };
+	am = await seedRealm(db, 'AM');
+	bl = await seedRealm(db, 'BL');
 });
 
 const day = (n: number) => new Date(Date.UTC(2030, 0, n));
 
-function expectDomainError(action: () => unknown, code: DomainError['code']): DomainError {
+async function expectDomainError(
+	action: () => unknown,
+	code: DomainError['code']
+): Promise<DomainError> {
 	let thrown: unknown;
 	try {
-		action();
+		await action();
 	} catch (error) {
 		thrown = error;
 	}
@@ -41,7 +40,7 @@ function expectDomainError(action: () => unknown, code: DomainError['code']): Do
 	return thrown as DomainError;
 }
 
-const mk = (realm: { id: number } = am) => seedLabour(db, { realmId: realm.id }).id;
+const mk = async (realm: { id: number } = am) => (await seedLabour(db, { realmId: realm.id })).id;
 
 type Entry = NonNullable<AppraiseItem['links']>[number];
 
@@ -53,65 +52,65 @@ const edges = (links: LinkView[]) => links.map((l) => [l.type, l.from, l.to]);
 describe('Link direction', () => {
 	it.each<LinkType>(['evidence', 'blocks', 'duplicates'])(
 		'makes the appraised Labour the from end of a %s Link named with to',
-		(type) => {
-			const [a, b] = [mk(), mk()];
+		async (type) => {
+			const [a, b] = [await mk(), await mk()];
 
-			link(a, { type, to: b });
+			await link(a, { type, to: b });
 
-			expect(edges(readLinks(db, a))).toEqual([[type, a, b]]);
+			expect(edges(await readLinks(db, a))).toEqual([[type, a, b]]);
 		}
 	);
 
 	it.each<LinkType>(['evidence', 'blocks', 'duplicates'])(
 		'makes the appraised Labour the to end of a %s Link named with from',
-		(type) => {
-			const [a, b] = [mk(), mk()];
+		async (type) => {
+			const [a, b] = [await mk(), await mk()];
 
-			link(a, { type, from: b });
+			await link(a, { type, from: b });
 
-			expect(edges(readLinks(db, a))).toEqual([[type, b, a]]);
+			expect(edges(await readLinks(db, a))).toEqual([[type, b, a]]);
 		}
 	);
 
-	it('stores the same Link whichever Labour names the other', () => {
-		const [a, b] = [mk(), mk()];
+	it('stores the same Link whichever Labour names the other', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		link(a, { type: 'evidence', to: b });
-		link(b, { type: 'evidence', from: a });
+		await link(a, { type: 'evidence', to: b });
+		await link(b, { type: 'evidence', from: a });
 
-		expect(readLinks(db, a)).toHaveLength(1);
+		expect(await readLinks(db, a)).toHaveLength(1);
 	});
 
-	it('keeps evidence in opposite directions as two Links', () => {
-		const [a, b] = [mk(), mk()];
+	it('keeps evidence in opposite directions as two Links', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		link(a, { type: 'evidence', to: b });
-		link(b, { type: 'evidence', to: a });
+		await link(a, { type: 'evidence', to: b });
+		await link(b, { type: 'evidence', to: a });
 
-		expect(edges(readLinks(db, a))).toEqual([
+		expect(edges(await readLinks(db, a))).toEqual([
 			['evidence', a, b],
 			['evidence', b, a]
 		]);
 	});
 
-	it('keeps duplicates in opposite directions as two Links', () => {
-		const [a, b] = [mk(), mk()];
+	it('keeps duplicates in opposite directions as two Links', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		link(a, { type: 'duplicates', to: b });
-		link(b, { type: 'duplicates', to: a });
+		await link(a, { type: 'duplicates', to: b });
+		await link(b, { type: 'duplicates', to: a });
 
-		expect(readLinks(db, a)).toHaveLength(2);
+		expect(await readLinks(db, a)).toHaveLength(2);
 	});
 
-	it('keeps Links of different types between the same pair', () => {
-		const [a, b] = [mk(), mk()];
+	it('keeps Links of different types between the same pair', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		link(a, { type: 'evidence', to: b });
-		link(a, { type: 'blocks', to: b });
-		link(a, { type: 'relates', to: b });
-		link(a, { type: 'duplicates', to: b });
+		await link(a, { type: 'evidence', to: b });
+		await link(a, { type: 'blocks', to: b });
+		await link(a, { type: 'relates', to: b });
+		await link(a, { type: 'duplicates', to: b });
 
-		expect(readLinks(db, a).map((l) => l.type)).toEqual([
+		expect((await readLinks(db, a)).map((l) => l.type)).toEqual([
 			'evidence',
 			'blocks',
 			'relates',
@@ -119,96 +118,96 @@ describe('Link direction', () => {
 		]);
 	});
 
-	it('adds one Link for the same (from, to, type) however often it is added', () => {
-		const [a, b] = [mk(), mk()];
+	it('adds one Link for the same (from, to, type) however often it is added', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		link(a, { type: 'blocks', to: b });
-		link(a, { type: 'blocks', to: b });
-		link(b, { type: 'blocks', from: a });
+		await link(a, { type: 'blocks', to: b });
+		await link(a, { type: 'blocks', to: b });
+		await link(b, { type: 'blocks', from: a });
 
-		expect(readLinks(db, a)).toHaveLength(1);
+		expect(await readLinks(db, a)).toHaveLength(1);
 	});
 });
 
 describe('relates', () => {
-	it('is stored with the lower id as from when the higher id names the lower with to', () => {
-		const [low, high] = [mk(), mk()];
+	it('is stored with the lower id as from when the higher id names the lower with to', async () => {
+		const [low, high] = [await mk(), await mk()];
 
-		link(high, { type: 'relates', to: low });
+		await link(high, { type: 'relates', to: low });
 
-		expect(edges(readLinks(db, low))).toEqual([['relates', low, high]]);
+		expect(edges(await readLinks(db, low))).toEqual([['relates', low, high]]);
 	});
 
-	it('is stored with the lower id as from when the higher id names the lower with from', () => {
-		const [low, high] = [mk(), mk()];
+	it('is stored with the lower id as from when the higher id names the lower with from', async () => {
+		const [low, high] = [await mk(), await mk()];
 
-		link(high, { type: 'relates', from: low });
+		await link(high, { type: 'relates', from: low });
 
-		expect(edges(readLinks(db, low))).toEqual([['relates', low, high]]);
+		expect(edges(await readLinks(db, low))).toEqual([['relates', low, high]]);
 	});
 
-	it('is stored with the lower id as from when the lower id names the higher', () => {
-		const [low, high] = [mk(), mk()];
+	it('is stored with the lower id as from when the lower id names the higher', async () => {
+		const [low, high] = [await mk(), await mk()];
 
-		link(low, { type: 'relates', to: high });
-		expect(edges(readLinks(db, high))).toEqual([['relates', low, high]]);
-		link(low, { type: 'relates', from: high });
-		expect(edges(readLinks(db, high))).toEqual([['relates', low, high]]);
+		await link(low, { type: 'relates', to: high });
+		expect(edges(await readLinks(db, high))).toEqual([['relates', low, high]]);
+		await link(low, { type: 'relates', from: high });
+		expect(edges(await readLinks(db, high))).toEqual([['relates', low, high]]);
 	});
 
-	it('is one Link however the two Labours name each other', () => {
-		const [low, high] = [mk(), mk()];
+	it('is one Link however the two Labours name each other', async () => {
+		const [low, high] = [await mk(), await mk()];
 
-		link(low, { type: 'relates', to: high });
-		link(high, { type: 'relates', to: low });
-		link(low, { type: 'relates', from: high });
-		link(high, { type: 'relates', from: low });
+		await link(low, { type: 'relates', to: high });
+		await link(high, { type: 'relates', to: low });
+		await link(low, { type: 'relates', from: high });
+		await link(high, { type: 'relates', from: low });
 
-		expect(readLinks(db, low)).toHaveLength(1);
+		expect(await readLinks(db, low)).toHaveLength(1);
 	});
 
-	it('is re-noted from the other end', () => {
-		const [low, high] = [mk(), mk()];
-		link(low, { type: 'relates', to: high, note: 'first' });
+	it('is re-noted from the other end', async () => {
+		const [low, high] = [await mk(), await mk()];
+		await link(low, { type: 'relates', to: high, note: 'first' });
 
-		link(high, { type: 'relates', to: low, note: 'second' });
+		await link(high, { type: 'relates', to: low, note: 'second' });
 
-		expect(readLinks(db, low)).toMatchObject([{ note: 'second' }]);
+		expect(await readLinks(db, low)).toMatchObject([{ note: 'second' }]);
 	});
 
-	it('is removed from either end', () => {
-		const [low, high] = [mk(), mk()];
+	it('is removed from either end', async () => {
+		const [low, high] = [await mk(), await mk()];
 
-		link(low, { type: 'relates', to: high });
-		link(high, { type: 'relates', to: low, remove: true });
-		expect(readLinks(db, low)).toEqual([]);
+		await link(low, { type: 'relates', to: high });
+		await link(high, { type: 'relates', to: low, remove: true });
+		expect(await readLinks(db, low)).toEqual([]);
 
-		link(low, { type: 'relates', to: high });
-		link(low, { type: 'relates', from: high, remove: true });
-		expect(readLinks(db, low)).toEqual([]);
+		await link(low, { type: 'relates', to: high });
+		await link(low, { type: 'relates', from: high, remove: true });
+		expect(await readLinks(db, low)).toEqual([]);
 	});
 
-	it('does not stop a pair relating while a directed Link of another type stands', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'blocks', to: b });
+	it('does not stop a pair relating while a directed Link of another type stands', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'blocks', to: b });
 
-		link(b, { type: 'relates', to: a });
+		await link(b, { type: 'relates', to: a });
 
-		expect(readLinks(db, a).map((l) => l.type)).toEqual(['blocks', 'relates']);
+		expect((await readLinks(db, a)).map((l) => l.type)).toEqual(['blocks', 'relates']);
 	});
 });
 
 describe('readLinks', () => {
-	it('is empty for a Labour with no Links', () => {
-		expect(readLinks(db, mk())).toEqual([]);
+	it('is empty for a Labour with no Links', async () => {
+		expect(await readLinks(db, await mk())).toEqual([]);
 	});
 
-	it('returns each Link in full', () => {
-		const [a, b] = [mk(), mk()];
+	it('returns each Link in full', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		link(a, { type: 'evidence', to: b, note: 'logs show it' }, day(3), other);
+		await link(a, { type: 'evidence', to: b, note: 'logs show it' }, day(3), other);
 
-		expect(readLinks(db, a)).toEqual([
+		expect(await readLinks(db, a)).toEqual([
 			{
 				type: 'evidence',
 				from: a,
@@ -221,26 +220,26 @@ describe('readLinks', () => {
 		]);
 	});
 
-	it('returns a Link from both its ends', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'duplicates', to: b });
+	it('returns a Link from both its ends', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'duplicates', to: b });
 
-		expect(readLinks(db, b)).toEqual(readLinks(db, a));
-		expect(readLinks(db, b)).toHaveLength(1);
+		expect(await readLinks(db, b)).toEqual(await readLinks(db, a));
+		expect(await readLinks(db, b)).toHaveLength(1);
 	});
 
-	it('orders by type, then from, then to', () => {
-		const [a, b, c, d] = [mk(), mk(), mk(), mk()];
-		link(b, { type: 'duplicates', to: d });
-		link(c, { type: 'evidence', to: b });
-		link(b, { type: 'relates', to: c });
-		link(a, { type: 'blocks', to: b });
-		link(b, { type: 'evidence', to: c });
-		link(b, { type: 'blocks', to: d });
-		link(a, { type: 'relates', to: b });
-		link(a, { type: 'evidence', to: b });
+	it('orders by type, then from, then to', async () => {
+		const [a, b, c, d] = [await mk(), await mk(), await mk(), await mk()];
+		await link(b, { type: 'duplicates', to: d });
+		await link(c, { type: 'evidence', to: b });
+		await link(b, { type: 'relates', to: c });
+		await link(a, { type: 'blocks', to: b });
+		await link(b, { type: 'evidence', to: c });
+		await link(b, { type: 'blocks', to: d });
+		await link(a, { type: 'relates', to: b });
+		await link(a, { type: 'evidence', to: b });
 
-		expect(edges(readLinks(db, b))).toEqual([
+		expect(edges(await readLinks(db, b))).toEqual([
 			['evidence', a, b],
 			['evidence', b, c],
 			['evidence', c, b],
@@ -252,92 +251,102 @@ describe('readLinks', () => {
 		]);
 	});
 
-	it('does not include Links between other Labours', () => {
-		const [a, b, c] = [mk(), mk(), mk()];
-		link(b, { type: 'evidence', to: c });
+	it('does not include Links between other Labours', async () => {
+		const [a, b, c] = [await mk(), await mk(), await mk()];
+		await link(b, { type: 'evidence', to: c });
 
-		expect(readLinks(db, a)).toEqual([]);
+		expect(await readLinks(db, a)).toEqual([]);
 	});
 });
 
 describe('Link notes', () => {
-	it('is empty when a new Link is added without one', () => {
-		const [a, b] = [mk(), mk()];
+	it('is empty when a new Link is added without one', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		link(a, { type: 'evidence', to: b });
+		await link(a, { type: 'evidence', to: b });
 
-		expect(readLinks(db, a)[0].note).toBe('');
+		expect((await readLinks(db, a))[0].note).toBe('');
 	});
 
-	it('is stored trimmed', () => {
-		const [a, b] = [mk(), mk()];
+	it('is stored trimmed', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		link(a, { type: 'evidence', to: b, note: '  spaced out \n' });
+		await link(a, { type: 'evidence', to: b, note: '  spaced out \n' });
 
-		expect(readLinks(db, a)[0].note).toBe('spaced out');
+		expect((await readLinks(db, a))[0].note).toBe('spaced out');
 	});
 
-	it('accepts 500 characters and refuses 501 as invalid', () => {
-		const [a, b] = [mk(), mk()];
+	it('accepts 500 characters and refuses 501 as invalid', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		link(a, { type: 'evidence', to: b, note: 'n'.repeat(500) });
-		expect(readLinks(db, a)[0].note).toHaveLength(500);
+		await link(a, { type: 'evidence', to: b, note: 'n'.repeat(500) });
+		expect((await readLinks(db, a))[0].note).toHaveLength(500);
 
-		expectDomainError(() => link(a, { type: 'evidence', to: b, note: 'n'.repeat(501) }), 'invalid');
-		expect(readLinks(db, a)[0].note).toHaveLength(500);
+		await expectDomainError(
+			() => link(a, { type: 'evidence', to: b, note: 'n'.repeat(501) }),
+			'invalid'
+		);
+		expect((await readLinks(db, a))[0].note).toHaveLength(500);
 	});
 
-	it('refuses an over-long note on a new Link without adding it', () => {
-		const [a, b] = [mk(), mk()];
+	it('refuses an over-long note on a new Link without adding it', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		expectDomainError(() => link(a, { type: 'blocks', to: b, note: 'n'.repeat(501) }), 'invalid');
+		await expectDomainError(
+			() => link(a, { type: 'blocks', to: b, note: 'n'.repeat(501) }),
+			'invalid'
+		);
 
-		expect(readLinks(db, a)).toEqual([]);
+		expect(await readLinks(db, a)).toEqual([]);
 	});
 
-	it('replaces the note of an existing Link when a note is given', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'evidence', to: b, note: 'old' });
+	it('replaces the note of an existing Link when a note is given', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'evidence', to: b, note: 'old' });
 
-		link(a, { type: 'evidence', to: b, note: 'new' });
+		await link(a, { type: 'evidence', to: b, note: 'new' });
 
-		expect(readLinks(db, a)).toMatchObject([{ note: 'new' }]);
+		expect(await readLinks(db, a)).toMatchObject([{ note: 'new' }]);
 	});
 
-	it('clears the note of an existing Link when an empty note is given', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'evidence', to: b, note: 'old' });
+	it('clears the note of an existing Link when an empty note is given', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'evidence', to: b, note: 'old' });
 
-		link(a, { type: 'evidence', to: b, note: '' });
+		await link(a, { type: 'evidence', to: b, note: '' });
 
-		expect(readLinks(db, a)[0].note).toBe('');
+		expect((await readLinks(db, a))[0].note).toBe('');
 	});
 
-	it('keeps the note of an existing Link when none is given', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'evidence', to: b, note: 'keep me' });
+	it('keeps the note of an existing Link when none is given', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'evidence', to: b, note: 'keep me' });
 
-		link(a, { type: 'evidence', to: b });
-		link(b, { type: 'evidence', from: a });
+		await link(a, { type: 'evidence', to: b });
+		await link(b, { type: 'evidence', from: a });
 
-		expect(readLinks(db, a)).toMatchObject([{ note: 'keep me' }]);
+		expect(await readLinks(db, a)).toMatchObject([{ note: 'keep me' }]);
 	});
 
-	it('sets setBy and setAt when a Link is added', () => {
-		const [a, b] = [mk(), mk()];
+	it('sets setBy and setAt when a Link is added', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		link(a, { type: 'evidence', to: b }, day(4), other);
+		await link(a, { type: 'evidence', to: b }, day(4), other);
 
-		expect(readLinks(db, a)[0]).toMatchObject({ setBy: other.id, via: null, setAt: day(4) });
+		expect((await readLinks(db, a))[0]).toMatchObject({
+			setBy: other.id,
+			via: null,
+			setAt: day(4)
+		});
 	});
 
-	it('sets setBy and setAt again when a Link is re-noted', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'evidence', to: b, note: 'first' }, day(2), actor);
+	it('sets setBy and setAt again when a Link is re-noted', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'evidence', to: b, note: 'first' }, day(2), actor);
 
-		link(a, { type: 'evidence', to: b, note: 'second' }, day(5), other);
+		await link(a, { type: 'evidence', to: b, note: 'second' }, day(5), other);
 
-		expect(readLinks(db, a)).toEqual([
+		expect(await readLinks(db, a)).toEqual([
 			{
 				type: 'evidence',
 				from: a,
@@ -350,10 +359,10 @@ describe('Link notes', () => {
 		]);
 	});
 
-	it('takes the last note when one item adds the same Link twice', () => {
-		const [a, b] = [mk(), mk()];
+	it('takes the last note when one item adds the same Link twice', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		appraise(
+		await appraise(
 			db,
 			actor,
 			[
@@ -368,94 +377,94 @@ describe('Link notes', () => {
 			day(2)
 		);
 
-		expect(readLinks(db, a)).toMatchObject([{ note: 'two' }]);
+		expect(await readLinks(db, a)).toMatchObject([{ note: 'two' }]);
 	});
 });
 
 describe('removing Links', () => {
-	it('deletes an existing Link', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'evidence', to: b });
+	it('deletes an existing Link', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'evidence', to: b });
 
-		link(a, { type: 'evidence', to: b, remove: true });
+		await link(a, { type: 'evidence', to: b, remove: true });
 
-		expect(readLinks(db, a)).toEqual([]);
-		expect(readLinks(db, b)).toEqual([]);
+		expect(await readLinks(db, a)).toEqual([]);
+		expect(await readLinks(db, b)).toEqual([]);
 	});
 
-	it('deletes a Link named from the other end', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'blocks', to: b });
+	it('deletes a Link named from the other end', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'blocks', to: b });
 
-		link(b, { type: 'blocks', from: a, remove: true });
+		await link(b, { type: 'blocks', from: a, remove: true });
 
-		expect(readLinks(db, a)).toEqual([]);
+		expect(await readLinks(db, a)).toEqual([]);
 	});
 
-	it('does nothing, and raises nothing, when the Link is absent', () => {
-		const [a, b, c] = [mk(), mk(), mk()];
-		link(a, { type: 'evidence', to: c });
-		const before = readLinks(db, a);
+	it('does nothing, and raises nothing, when the Link is absent', async () => {
+		const [a, b, c] = [await mk(), await mk(), await mk()];
+		await link(a, { type: 'evidence', to: c });
+		const before = await readLinks(db, a);
 
-		const [result] = link(a, { type: 'evidence', to: b, remove: true });
+		const [result] = await link(a, { type: 'evidence', to: b, remove: true });
 
 		expect(result.labourId).toBe(a);
-		expect(readLinks(db, a)).toEqual(before);
+		expect(await readLinks(db, a)).toEqual(before);
 	});
 
-	it('removes only the named type', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'evidence', to: b });
-		link(a, { type: 'blocks', to: b });
+	it('removes only the named type', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'evidence', to: b });
+		await link(a, { type: 'blocks', to: b });
 
-		link(a, { type: 'evidence', to: b, remove: true });
+		await link(a, { type: 'evidence', to: b, remove: true });
 
-		expect(edges(readLinks(db, a))).toEqual([['blocks', a, b]]);
+		expect(edges(await readLinks(db, a))).toEqual([['blocks', a, b]]);
 	});
 
-	it('removes only the named direction', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'evidence', to: b });
-		link(b, { type: 'evidence', to: a });
+	it('removes only the named direction', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'evidence', to: b });
+		await link(b, { type: 'evidence', to: a });
 
-		link(a, { type: 'evidence', to: b, remove: true });
+		await link(a, { type: 'evidence', to: b, remove: true });
 
-		expect(edges(readLinks(db, a))).toEqual([['evidence', b, a]]);
+		expect(edges(await readLinks(db, a))).toEqual([['evidence', b, a]]);
 	});
 
-	it('removes only the named other end', () => {
-		const [a, b, c] = [mk(), mk(), mk()];
-		link(a, { type: 'evidence', to: b });
-		link(a, { type: 'evidence', to: c });
+	it('removes only the named other end', async () => {
+		const [a, b, c] = [await mk(), await mk(), await mk()];
+		await link(a, { type: 'evidence', to: b });
+		await link(a, { type: 'evidence', to: c });
 
-		link(a, { type: 'evidence', to: b, remove: true });
+		await link(a, { type: 'evidence', to: b, remove: true });
 
-		expect(edges(readLinks(db, a))).toEqual([['evidence', a, c]]);
+		expect(edges(await readLinks(db, a))).toEqual([['evidence', a, c]]);
 	});
 
-	it('ignores a note given with remove', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'evidence', to: b, note: 'keep' });
+	it('ignores a note given with remove', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'evidence', to: b, note: 'keep' });
 
-		link(a, { type: 'evidence', to: b, note: 'ignored', remove: true });
+		await link(a, { type: 'evidence', to: b, note: 'ignored', remove: true });
 
-		expect(readLinks(db, a)).toEqual([]);
+		expect(await readLinks(db, a)).toEqual([]);
 	});
 
-	it('lets a Link be added anew after removal, with a fresh empty note', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'evidence', to: b, note: 'old' });
-		link(a, { type: 'evidence', to: b, remove: true });
+	it('lets a Link be added anew after removal, with a fresh empty note', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'evidence', to: b, note: 'old' });
+		await link(a, { type: 'evidence', to: b, remove: true });
 
-		link(a, { type: 'evidence', to: b });
+		await link(a, { type: 'evidence', to: b });
 
-		expect(readLinks(db, a)).toMatchObject([{ note: '' }]);
+		expect(await readLinks(db, a)).toMatchObject([{ note: '' }]);
 	});
 
-	it('removes a Link added earlier in the same batch', () => {
-		const [a, b] = [mk(), mk()];
+	it('removes a Link added earlier in the same batch', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		appraise(
+		await appraise(
 			db,
 			actor,
 			[
@@ -465,169 +474,176 @@ describe('removing Links', () => {
 			day(2)
 		);
 
-		expect(readLinks(db, a)).toEqual([]);
+		expect(await readLinks(db, a)).toEqual([]);
 	});
 });
 
 describe('Link entry validation', () => {
-	it('refuses an entry naming both to and from as invalid', () => {
-		const [a, b] = [mk(), mk()];
+	it('refuses an entry naming both to and from as invalid', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		expectDomainError(() => link(a, { type: 'evidence', to: b, from: b }), 'invalid');
+		await expectDomainError(() => link(a, { type: 'evidence', to: b, from: b }), 'invalid');
 	});
 
-	it('refuses an entry naming neither to nor from as invalid', () => {
-		const a = mk();
+	it('refuses an entry naming neither to nor from as invalid', async () => {
+		const a = await mk();
 
-		expectDomainError(() => link(a, { type: 'evidence' }), 'invalid');
+		await expectDomainError(() => link(a, { type: 'evidence' }), 'invalid');
 	});
 
-	it('refuses a removal naming neither end as invalid', () => {
-		const a = mk();
+	it('refuses a removal naming neither end as invalid', async () => {
+		const a = await mk();
 
-		expectDomainError(() => link(a, { type: 'evidence', remove: true }), 'invalid');
+		await expectDomainError(() => link(a, { type: 'evidence', remove: true }), 'invalid');
 	});
 
-	it('refuses a Link from a Labour to itself with to, as invalid', () => {
-		const a = mk();
+	it('refuses a Link from a Labour to itself with to, as invalid', async () => {
+		const a = await mk();
 
-		expectDomainError(() => link(a, { type: 'relates', to: a }), 'invalid');
+		await expectDomainError(() => link(a, { type: 'relates', to: a }), 'invalid');
 	});
 
-	it('refuses a Link from a Labour to itself with from, as invalid', () => {
-		const a = mk();
+	it('refuses a Link from a Labour to itself with from, as invalid', async () => {
+		const a = await mk();
 
-		expectDomainError(() => link(a, { type: 'blocks', from: a }), 'invalid');
-		expect(readLinks(db, a)).toEqual([]);
+		await expectDomainError(() => link(a, { type: 'blocks', from: a }), 'invalid');
+		expect(await readLinks(db, a)).toEqual([]);
 	});
 
-	it('refuses a self-removal as invalid', () => {
-		const a = mk();
+	it('refuses a self-removal as invalid', async () => {
+		const a = await mk();
 
-		expectDomainError(() => link(a, { type: 'evidence', to: a, remove: true }), 'invalid');
+		await expectDomainError(() => link(a, { type: 'evidence', to: a, remove: true }), 'invalid');
 	});
 
-	it('refuses an unknown other end named with to as not_found', () => {
-		const a = mk();
+	it('refuses an unknown other end named with to as not_found', async () => {
+		const a = await mk();
 
-		expectDomainError(() => link(a, { type: 'evidence', to: 9999 }), 'not_found');
+		await expectDomainError(() => link(a, { type: 'evidence', to: 9999 }), 'not_found');
 	});
 
-	it('refuses an unknown other end named with from as not_found', () => {
-		const a = mk();
+	it('refuses an unknown other end named with from as not_found', async () => {
+		const a = await mk();
 
-		expectDomainError(() => link(a, { type: 'duplicates', from: 9999 }), 'not_found');
+		await expectDomainError(() => link(a, { type: 'duplicates', from: 9999 }), 'not_found');
 	});
 
-	it('refuses an unknown other end on a removal as not_found', () => {
-		const a = mk();
+	it('refuses an unknown other end on a removal as not_found', async () => {
+		const a = await mk();
 
-		expectDomainError(() => link(a, { type: 'evidence', to: 9999, remove: true }), 'not_found');
+		await expectDomainError(
+			() => link(a, { type: 'evidence', to: 9999, remove: true }),
+			'not_found'
+		);
 	});
 });
 
 describe('blocks cycles', () => {
-	it('refuses a Link back to a Labour that it blocks, naming both by key', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'blocks', to: b });
+	it('refuses a Link back to a Labour that it blocks, naming both by key', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'blocks', to: b });
 
-		const error = expectDomainError(() => link(b, { type: 'blocks', to: a }), 'conflict');
+		const error = await expectDomainError(() => link(b, { type: 'blocks', to: a }), 'conflict');
 
 		expect(error.message).toContain('AM-1');
 		expect(error.message).toContain('AM-2');
-		expect(edges(readLinks(db, a))).toEqual([['blocks', a, b]]);
+		expect(edges(await readLinks(db, a))).toEqual([['blocks', a, b]]);
 	});
 
-	it('refuses the same cycle when the new Link is named from the other end', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'blocks', to: b });
+	it('refuses the same cycle when the new Link is named from the other end', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'blocks', to: b });
 
-		expectDomainError(() => link(a, { type: 'blocks', from: b }), 'conflict');
+		await expectDomainError(() => link(a, { type: 'blocks', from: b }), 'conflict');
 	});
 
-	it('refuses closing a longer chain, whichever end is appraised', () => {
-		const ids = Array.from({ length: 5 }, () => mk());
-		for (let i = 0; i < 4; i++) link(ids[i], { type: 'blocks', to: ids[i + 1] });
+	it('refuses closing a longer chain, whichever end is appraised', async () => {
+		const ids = await Promise.all(Array.from({ length: 5 }, () => mk()));
+		for (let i = 0; i < 4; i++) await link(ids[i], { type: 'blocks', to: ids[i + 1] });
 
-		expectDomainError(() => link(ids[4], { type: 'blocks', to: ids[0] }), 'conflict');
-		expectDomainError(() => link(ids[0], { type: 'blocks', from: ids[4] }), 'conflict');
-		expect(readLinks(db, ids[0])).toHaveLength(1);
+		await expectDomainError(() => link(ids[4], { type: 'blocks', to: ids[0] }), 'conflict');
+		await expectDomainError(() => link(ids[0], { type: 'blocks', from: ids[4] }), 'conflict');
+		expect(await readLinks(db, ids[0])).toHaveLength(1);
 	});
 
-	it('names the Labours by key', () => {
-		const [a, b, c] = [mk(), mk(), mk()];
-		link(a, { type: 'blocks', to: b });
-		link(b, { type: 'blocks', to: c });
+	it('names the Labours by key', async () => {
+		const [a, b, c] = [await mk(), await mk(), await mk()];
+		await link(a, { type: 'blocks', to: b });
+		await link(b, { type: 'blocks', to: c });
 
-		const error = expectDomainError(() => link(c, { type: 'blocks', to: a }), 'conflict');
+		const error = await expectDomainError(() => link(c, { type: 'blocks', to: a }), 'conflict');
 
 		expect(error.message).toContain('AM-3');
 		expect(error.message).toContain('AM-1');
 	});
 
-	it('refuses a cycle across Realms, naming the Labours by key', () => {
-		const a = mk(am);
-		const b = mk(bl);
-		const c = mk(am);
-		link(a, { type: 'blocks', to: b });
-		link(b, { type: 'blocks', to: c });
+	it('refuses a cycle across Realms, naming the Labours by key', async () => {
+		const a = await mk(am);
+		const b = await mk(bl);
+		const c = await mk(am);
+		await link(a, { type: 'blocks', to: b });
+		await link(b, { type: 'blocks', to: c });
 
-		const error = expectDomainError(() => link(c, { type: 'blocks', to: a }), 'conflict');
+		const error = await expectDomainError(() => link(c, { type: 'blocks', to: a }), 'conflict');
 
 		expect(error.message).toContain('AM-1');
 		expect(error.message).toContain('AM-2');
 	});
 
-	it('allows a diamond, which has two paths but no cycle', () => {
-		const [a, b, c, d] = [mk(), mk(), mk(), mk()];
+	it('allows a diamond, which has two paths but no cycle', async () => {
+		const [a, b, c, d] = [await mk(), await mk(), await mk(), await mk()];
 
-		link(a, { type: 'blocks', to: b });
-		link(a, { type: 'blocks', to: c });
-		link(b, { type: 'blocks', to: d });
-		link(c, { type: 'blocks', to: d });
+		await link(a, { type: 'blocks', to: b });
+		await link(a, { type: 'blocks', to: c });
+		await link(b, { type: 'blocks', to: d });
+		await link(c, { type: 'blocks', to: d });
 
-		expect(readLinks(db, d)).toHaveLength(2);
+		expect(await readLinks(db, d)).toHaveLength(2);
 	});
 
-	it('allows adding a blocks Link that already exists', () => {
-		const [a, b, c] = [mk(), mk(), mk()];
-		link(a, { type: 'blocks', to: b });
-		link(b, { type: 'blocks', to: c });
+	it('allows adding a blocks Link that already exists', async () => {
+		const [a, b, c] = [await mk(), await mk(), await mk()];
+		await link(a, { type: 'blocks', to: b });
+		await link(b, { type: 'blocks', to: c });
 
-		link(a, { type: 'blocks', to: b, note: 're-noted' });
+		await link(a, { type: 'blocks', to: b, note: 're-noted' });
 
-		expect(readLinks(db, a)[0]).toMatchObject({ type: 'blocks', note: 're-noted' });
+		expect((await readLinks(db, a))[0]).toMatchObject({ type: 'blocks', note: 're-noted' });
 	});
 
-	it('does not count evidence, relates or duplicates Links as part of a cycle', () => {
-		const [a, b, c] = [mk(), mk(), mk()];
-		link(a, { type: 'blocks', to: b });
-		link(b, { type: 'evidence', to: a });
-		link(b, { type: 'relates', to: a });
-		link(b, { type: 'duplicates', to: a });
+	it('does not count evidence, relates or duplicates Links as part of a cycle', async () => {
+		const [a, b, c] = [await mk(), await mk(), await mk()];
+		await link(a, { type: 'blocks', to: b });
+		await link(b, { type: 'evidence', to: a });
+		await link(b, { type: 'relates', to: a });
+		await link(b, { type: 'duplicates', to: a });
 
-		link(b, { type: 'blocks', to: c });
-		link(c, { type: 'evidence', to: a });
-		link(c, { type: 'duplicates', to: b });
+		await link(b, { type: 'blocks', to: c });
+		await link(c, { type: 'evidence', to: a });
+		await link(c, { type: 'duplicates', to: b });
 
-		expect(readLinks(db, c).map((l) => l.type)).toEqual(['evidence', 'blocks', 'duplicates']);
+		expect((await readLinks(db, c)).map((l) => l.type)).toEqual([
+			'evidence',
+			'blocks',
+			'duplicates'
+		]);
 	});
 
-	it('does not treat cycles in other Link types as conflicts', () => {
-		const [a, b] = [mk(), mk()];
+	it('does not treat cycles in other Link types as conflicts', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		link(a, { type: 'evidence', to: b });
-		link(b, { type: 'evidence', to: a });
-		link(a, { type: 'duplicates', to: b });
-		link(b, { type: 'duplicates', to: a });
+		await link(a, { type: 'evidence', to: b });
+		await link(b, { type: 'evidence', to: a });
+		await link(a, { type: 'duplicates', to: b });
+		await link(b, { type: 'duplicates', to: a });
 
-		expect(readLinks(db, a)).toHaveLength(4);
+		expect(await readLinks(db, a)).toHaveLength(4);
 	});
 
-	it('refuses a cycle closed across two items of one batch, writing neither', () => {
-		const [a, b] = [mk(), mk()];
+	it('refuses a cycle closed across two items of one batch, writing neither', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		expectDomainError(
+		await expectDomainError(
 			() =>
 				appraise(
 					db,
@@ -641,13 +657,13 @@ describe('blocks cycles', () => {
 			'conflict'
 		);
 
-		expect(readLinks(db, a)).toEqual([]);
+		expect(await readLinks(db, a)).toEqual([]);
 	});
 
-	it('refuses a cycle closed across three items of one batch', () => {
-		const [a, b, c] = [mk(), mk(), mk()];
+	it('refuses a cycle closed across three items of one batch', async () => {
+		const [a, b, c] = [await mk(), await mk(), await mk()];
 
-		const error = expectDomainError(
+		const error = await expectDomainError(
 			() =>
 				appraise(
 					db,
@@ -664,13 +680,13 @@ describe('blocks cycles', () => {
 
 		expect(error.message).toContain('AM-3');
 		expect(error.message).toContain('AM-1');
-		for (const id of [a, b, c]) expect(readLinks(db, id)).toEqual([]);
+		for (const id of [a, b, c]) expect(await readLinks(db, id)).toEqual([]);
 	});
 
-	it('refuses a cycle closed by two entries of one item', () => {
-		const [a, b] = [mk(), mk()];
+	it('refuses a cycle closed by two entries of one item', async () => {
+		const [a, b] = [await mk(), await mk()];
 
-		expectDomainError(
+		await expectDomainError(
 			() =>
 				appraise(
 					db,
@@ -689,14 +705,14 @@ describe('blocks cycles', () => {
 			'conflict'
 		);
 
-		expect(readLinks(db, a)).toEqual([]);
+		expect(await readLinks(db, a)).toEqual([]);
 	});
 
-	it('refuses a cycle against a stored Link and rolls back the rest of the batch', () => {
-		const [a, b, c] = [mk(), mk(), mk()];
-		link(a, { type: 'blocks', to: b });
+	it('refuses a cycle against a stored Link and rolls back the rest of the batch', async () => {
+		const [a, b, c] = [await mk(), await mk(), await mk()];
+		await link(a, { type: 'blocks', to: b });
 
-		expectDomainError(
+		await expectDomainError(
 			() =>
 				appraise(
 					db,
@@ -710,15 +726,15 @@ describe('blocks cycles', () => {
 			'conflict'
 		);
 
-		expect(edges(readLinks(db, a))).toEqual([['blocks', a, b]]);
-		expect(readAppraisal(db, c)).toMatchObject({ brief: '', links: [] });
+		expect(edges(await readLinks(db, a))).toEqual([['blocks', a, b]]);
+		expect(await readAppraisal(db, c)).toMatchObject({ brief: '', links: [] });
 	});
 
-	it('allows the reverse Link in a batch that first removes the Link in the way', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'blocks', to: b });
+	it('allows the reverse Link in a batch that first removes the Link in the way', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'blocks', to: b });
 
-		appraise(
+		await appraise(
 			db,
 			actor,
 			[
@@ -728,91 +744,91 @@ describe('blocks cycles', () => {
 			day(3)
 		);
 
-		expect(edges(readLinks(db, a))).toEqual([['blocks', b, a]]);
+		expect(edges(await readLinks(db, a))).toEqual([['blocks', b, a]]);
 	});
 });
 
 describe('Links across Realms', () => {
-	it('connects Labours of different Realms, readable from both ends', () => {
-		const a = mk(am);
-		const b = mk(bl);
+	it('connects Labours of different Realms, readable from both ends', async () => {
+		const a = await mk(am);
+		const b = await mk(bl);
 
-		link(a, { type: 'evidence', to: b, note: 'cross' });
+		await link(a, { type: 'evidence', to: b, note: 'cross' });
 
-		expect(edges(readLinks(db, a))).toEqual([['evidence', a, b]]);
-		expect(readLinks(db, b)).toEqual(readLinks(db, a));
+		expect(edges(await readLinks(db, a))).toEqual([['evidence', a, b]]);
+		expect(await readLinks(db, b)).toEqual(await readLinks(db, a));
 	});
 
-	it('survives a move of either Labour to another Realm', () => {
-		const a = mk(am);
-		const b = mk(bl);
-		link(a, { type: 'blocks', to: b });
+	it('survives a move of either Labour to another Realm', async () => {
+		const a = await mk(am);
+		const b = await mk(bl);
+		await link(a, { type: 'blocks', to: b });
 
-		moveLabour(db, actor, a, { realmId: bl.id });
+		await moveLabour(db, actor, a, { realmId: bl.id });
 
-		expect(edges(readLinks(db, a))).toEqual([['blocks', a, b]]);
+		expect(edges(await readLinks(db, a))).toEqual([['blocks', a, b]]);
 	});
 });
 
 describe('Link cascades', () => {
-	it('deletes a Link when its from Labour is deleted', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'evidence', to: b });
+	it('deletes a Link when its from Labour is deleted', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'evidence', to: b });
 
-		deleteLabour(db, actor, a);
+		await deleteLabour(db, actor, a);
 
-		expect(readLinks(db, b)).toEqual([]);
+		expect(await readLinks(db, b)).toEqual([]);
 	});
 
-	it('deletes a Link when its to Labour is deleted', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'evidence', to: b });
+	it('deletes a Link when its to Labour is deleted', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'evidence', to: b });
 
-		deleteLabour(db, actor, b);
+		await deleteLabour(db, actor, b);
 
-		expect(readLinks(db, a)).toEqual([]);
+		expect(await readLinks(db, a)).toEqual([]);
 	});
 
-	it('deletes a relates Link when either Labour is deleted', () => {
-		const [a, b, c] = [mk(), mk(), mk()];
-		link(a, { type: 'relates', to: b });
-		link(b, { type: 'relates', to: c });
+	it('deletes a relates Link when either Labour is deleted', async () => {
+		const [a, b, c] = [await mk(), await mk(), await mk()];
+		await link(a, { type: 'relates', to: b });
+		await link(b, { type: 'relates', to: c });
 
-		deleteLabour(db, actor, b);
+		await deleteLabour(db, actor, b);
 
-		expect(readLinks(db, a)).toEqual([]);
-		expect(readLinks(db, c)).toEqual([]);
+		expect(await readLinks(db, a)).toEqual([]);
+		expect(await readLinks(db, c)).toEqual([]);
 	});
 
-	it('leaves the other Links of the survivors in place', () => {
-		const [a, b, c] = [mk(), mk(), mk()];
-		link(a, { type: 'evidence', to: b });
-		link(a, { type: 'blocks', to: c });
+	it('leaves the other Links of the survivors in place', async () => {
+		const [a, b, c] = [await mk(), await mk(), await mk()];
+		await link(a, { type: 'evidence', to: b });
+		await link(a, { type: 'blocks', to: c });
 
-		deleteLabour(db, actor, b);
+		await deleteLabour(db, actor, b);
 
-		expect(edges(readLinks(db, a))).toEqual([['blocks', a, c]]);
+		expect(edges(await readLinks(db, a))).toEqual([['blocks', a, c]]);
 	});
 
-	it('deletes Links to Labours in other Realms when a Realm is deleted', () => {
-		const inAm = mk(am);
-		const inBl = mk(bl);
-		const survivor = mk(bl);
-		link(inAm, { type: 'evidence', to: inBl });
-		link(inAm, { type: 'relates', to: survivor });
-		link(inBl, { type: 'blocks', to: survivor });
+	it('deletes Links to Labours in other Realms when a Realm is deleted', async () => {
+		const inAm = await mk(am);
+		const inBl = await mk(bl);
+		const survivor = await mk(bl);
+		await link(inAm, { type: 'evidence', to: inBl });
+		await link(inAm, { type: 'relates', to: survivor });
+		await link(inBl, { type: 'blocks', to: survivor });
 
-		deleteRealm(db, actor, am.id);
+		await deleteRealm(db, actor, am.id);
 
-		expect(edges(readLinks(db, inBl))).toEqual([['blocks', inBl, survivor]]);
-		expect(edges(readLinks(db, survivor))).toEqual([['blocks', inBl, survivor]]);
+		expect(edges(await readLinks(db, inBl))).toEqual([['blocks', inBl, survivor]]);
+		expect(edges(await readLinks(db, survivor))).toEqual([['blocks', inBl, survivor]]);
 	});
 
-	it('refuses a Link to a deleted Labour as not_found', () => {
-		const [a, b] = [mk(), mk()];
-		link(a, { type: 'evidence', to: b });
-		deleteLabour(db, actor, b);
+	it('refuses a Link to a deleted Labour as not_found', async () => {
+		const [a, b] = [await mk(), await mk()];
+		await link(a, { type: 'evidence', to: b });
+		await deleteLabour(db, actor, b);
 
-		expectDomainError(() => link(a, { type: 'evidence', to: b }), 'not_found');
+		await expectDomainError(() => link(a, { type: 'evidence', to: b }), 'not_found');
 	});
 });

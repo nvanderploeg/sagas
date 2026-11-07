@@ -5,6 +5,7 @@ import { DomainError } from '#lib/server/domain/errors.ts';
 import { requireText } from '#lib/server/domain/validate.ts';
 import { announceRevoked } from './credentials.ts';
 import { checkPassword, hashPassword, spendPasswordTime, verifyPassword } from './password.ts';
+import { transact } from '#lib/server/db/tx.ts';
 
 export type AuthUser = {
 	id: number;
@@ -43,16 +44,18 @@ export function normalizeUsername(input: string): string {
 	return username;
 }
 
-export function hasUsers(db: Handle): boolean {
-	return (db.select({ n: count() }).from(users).get()?.n ?? 0) > 0;
+export async function hasUsers(db: Handle): Promise<boolean> {
+	return ((await db.select({ n: count() }).from(users).limit(1))[0]?.n ?? 0) > 0;
 }
 
 export function requireAdmin(actor: AuthUser): void {
 	if (!actor.isAdmin) throw new DomainError('forbidden', 'Only an Admin can do that');
 }
 
-export function assertUsernameFree(db: Handle, username: string): void {
-	if (db.select({ id: users.id }).from(users).where(eq(users.username, username)).get()) {
+export async function assertUsernameFree(db: Handle, username: string): Promise<void> {
+	if (
+		(await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1))[0]
+	) {
 		throw new DomainError('conflict', `Username ${username} is taken`);
 	}
 }
@@ -62,7 +65,7 @@ type SetupInput = { username: string; displayName: string; password: string };
 type NewUser = typeof users.$inferInsert;
 
 export async function firstAdminValues(db: Handle, input: SetupInput): Promise<NewUser> {
-	if (hasUsers(db)) throw new DomainError('conflict', 'Setup is already complete');
+	if (await hasUsers(db)) throw new DomainError('conflict', 'Setup is already complete');
 	const username = normalizeUsername(input.username);
 	const displayName = requireText(input.displayName, 'Display name', 100);
 	const passwordHash = await hashPassword(input.password);
@@ -70,28 +73,30 @@ export async function firstAdminValues(db: Handle, input: SetupInput): Promise<N
 }
 
 // Call inside the transaction that creates the Admin, so two concurrent setups cannot both win.
-export function insertFirstAdmin(tx: Handle, values: NewUser): AuthUser {
-	if (hasUsers(tx)) throw new DomainError('conflict', 'Setup is already complete');
-	return toAuthUser(tx.insert(users).values(values).returning().get());
+export async function insertFirstAdmin(tx: Handle, values: NewUser): Promise<AuthUser> {
+	if (await hasUsers(tx)) throw new DomainError('conflict', 'Setup is already complete');
+	return toAuthUser((await tx.insert(users).values(values).returning())[0]);
 }
 
 export async function createFirstAdmin(db: Db, input: SetupInput): Promise<AuthUser> {
 	const values = await firstAdminValues(db, input);
-	return db.transaction((tx) => insertFirstAdmin(tx, values));
+	return transact(db, (tx) => insertFirstAdmin(tx, values));
 }
 
-export function createAgentUser(
+export async function createAgentUser(
 	db: Db,
 	actor: AuthUser,
 	input: { username: string; displayName: string }
-): AuthUser {
+): Promise<AuthUser> {
 	requireAdmin(actor);
 	const username = normalizeUsername(input.username);
 	const displayName = requireText(input.displayName, 'Display name', 100);
 
-	return db.transaction((tx) => {
-		assertUsernameFree(tx, username);
-		const row = tx.insert(users).values({ kind: 'agent', username, displayName }).returning().get();
+	return transact(db, async (tx) => {
+		await assertUsernameFree(tx, username);
+		const row = (
+			await tx.insert(users).values({ kind: 'agent', username, displayName }).returning()
+		)[0];
 		return toAuthUser(row);
 	});
 }
@@ -108,7 +113,7 @@ export async function authenticate(
 		await spendPasswordTime(password);
 		return null;
 	}
-	const row = db.select().from(users).where(eq(users.username, normalized)).get();
+	const row = (await db.select().from(users).where(eq(users.username, normalized)).limit(1))[0];
 	if (!row || row.passwordHash === null) {
 		await spendPasswordTime(password);
 		return null;
@@ -116,21 +121,19 @@ export async function authenticate(
 	return (await verifyPassword(row.passwordHash, password)) ? toAuthUser(row) : null;
 }
 
-export function listUsers(db: Handle): AuthUser[] {
-	return db.select().from(users).orderBy(users.displayName, users.id).all().map(toAuthUser);
+export async function listUsers(db: Handle): Promise<AuthUser[]> {
+	return (await db.select().from(users).orderBy(users.displayName, users.id)).map(toAuthUser);
 }
 
-export function findUserByName(db: Handle, username: string): AuthUser | null {
-	const row = db
-		.select()
-		.from(users)
-		.where(eq(users.username, username.trim().toLowerCase()))
-		.get();
+export async function findUserByName(db: Handle, username: string): Promise<AuthUser | null> {
+	const row = (
+		await db.select().from(users).where(eq(users.username, username.trim().toLowerCase())).limit(1)
+	)[0];
 	return row ? toAuthUser(row) : null;
 }
 
-export function findUser(db: Handle, id: number): AuthUser | null {
-	const row = db.select().from(users).where(eq(users.id, id)).get();
+export async function findUser(db: Handle, id: number): Promise<AuthUser | null> {
+	const row = (await db.select().from(users).where(eq(users.id, id)).limit(1))[0];
 	return row ? toAuthUser(row) : null;
 }
 
@@ -140,23 +143,24 @@ export async function seedAdmin(
 	db: Db,
 	input: { username: string; password: string }
 ): Promise<AuthUser | null> {
-	if (hasUsers(db)) return null;
+	if (await hasUsers(db)) return null;
 	const username = normalizeUsername(input.username);
 	const passwordHash = await hashPassword(input.password);
-	return db.transaction((tx) => {
-		if (hasUsers(tx)) return null;
-		const row = tx
-			.insert(users)
-			.values({
-				kind: 'human',
-				isAdmin: true,
-				username,
-				displayName: username,
-				passwordHash,
-				mustChangePassword: true
-			})
-			.returning()
-			.get();
+	return transact(db, async (tx) => {
+		if (await hasUsers(tx)) return null;
+		const row = (
+			await tx
+				.insert(users)
+				.values({
+					kind: 'human',
+					isAdmin: true,
+					username,
+					displayName: username,
+					passwordHash,
+					mustChangePassword: true
+				})
+				.returning()
+		)[0];
 		return toAuthUser(row);
 	});
 }
@@ -167,7 +171,7 @@ export async function changePassword(
 	user: AuthUser,
 	input: { current: string; next: string; keepSessionId: string }
 ): Promise<void> {
-	const row = db.select().from(users).where(eq(users.id, user.id)).get();
+	const row = (await db.select().from(users).where(eq(users.id, user.id)).limit(1))[0];
 	if (!row?.passwordHash || !(await verifyPassword(row.passwordHash, input.current))) {
 		throw new DomainError('invalid', 'Current password is wrong');
 	}
@@ -175,16 +179,15 @@ export async function changePassword(
 		throw new DomainError('invalid', 'New password must differ from the current one');
 	}
 	const passwordHash = await hashPassword(checkPassword(input.next));
-	const ended = db.transaction((tx) => {
-		tx.update(users)
+	const ended = await transact(db, async (tx) => {
+		await tx
+			.update(users)
 			.set({ passwordHash, mustChangePassword: false })
-			.where(eq(users.id, user.id))
-			.run();
-		return tx
+			.where(eq(users.id, user.id));
+		return await tx
 			.delete(sessions)
 			.where(and(eq(sessions.userId, user.id), ne(sessions.id, input.keepSessionId)))
-			.returning({ id: sessions.id })
-			.all();
+			.returning({ id: sessions.id });
 	});
 	for (const { id } of ended) announceRevoked({ kind: 'session', hash: id });
 }

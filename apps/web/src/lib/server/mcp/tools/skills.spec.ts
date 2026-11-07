@@ -15,19 +15,18 @@ let bob: AuthUser;
 const clients: Client[] = [];
 
 beforeEach(async () => {
-	db = testDb();
+	db = await testDb();
 	admin = await createFirstAdmin(db, {
 		username: 'root',
 		displayName: 'Root',
 		password: 'a long enough password'
 	});
-	bob = seedHuman(db, 'bob');
+	bob = await seedHuman(db, 'bob');
 });
 
 afterEach(async () => {
 	vi.useRealTimers();
 	await Promise.all(clients.splice(0).map((client) => client.close()));
-	db.$client.close();
 });
 
 async function connect(actor: AuthUser = admin): Promise<Client> {
@@ -65,7 +64,7 @@ const at = (day: number) => {
 	return now.toISOString();
 };
 
-const lastSeq = () => eventWindow(db).last;
+const lastSeq = async () => (await eventWindow(db)).last;
 
 const defineSkill = (client: Client, key: string, label = key, rubric?: string) =>
 	ok(client, 'define_skill', rubric === undefined ? { key, label } : { key, label, rubric });
@@ -507,11 +506,11 @@ describe('needs on appraise and get_appraisal', () => {
 
 	it('records no Event', async () => {
 		const client = await connect();
-		const before = lastSeq();
+		const before = await lastSeq();
 
 		await appraise(client, { labour: 'AM-1', needs: { vfx: 3 } });
 
-		expect(lastSeq()).toBe(before);
+		expect(await lastSeq()).toBe(before);
 	});
 
 	it('refuses an unknown Skill, a null for an unknown Skill and a bad level as invalid', async () => {

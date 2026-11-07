@@ -19,8 +19,8 @@ import { realmRef, scrollPlacementShape, scrollRef, type Tools } from '../tool.t
 
 const SEARCH_MAX = 100;
 
-function scrollReply(present: Presenter, scrollId: number) {
-	const scroll = present.scroll(getScroll(present.db, scrollId));
+async function scrollReply(present: Presenter, scrollId: number) {
+	const scroll = await present.scroll(await getScroll(present.db, scrollId));
 	return reply({ scroll }, scrollLine(scroll));
 }
 
@@ -32,10 +32,10 @@ const childList = (choice: ChildChoice) =>
 		.describe(`Direct children to ${choice}${choice === 'move' ? ' up to the parent' : ''}`);
 
 export function registerScrollTools({ db, actor, define }: Tools): void {
-	const realmOf = (ref: refs.Ref | undefined) =>
-		ref === undefined ? undefined : refs.realmId(db, ref, actor);
-	const target = (realm: refs.Ref | undefined, scroll: refs.Ref) =>
-		getScroll(db, refs.scrollId(db, realmOf(realm), scroll, actor));
+	const realmOf = async (ref: refs.Ref | undefined) =>
+		ref === undefined ? undefined : await refs.realmId(db, ref, actor);
+	const target = async (realm: refs.Ref | undefined, scroll: refs.Ref) =>
+		getScroll(db, await refs.scrollId(db, await realmOf(realm), scroll, actor));
 
 	define(
 		'list_scrolls',
@@ -45,16 +45,18 @@ export function registerScrollTools({ db, actor, define }: Tools): void {
 				"List a Realm's Scrolls (its wiki pages) as a tree: depth first, siblings in their order, `depth` 0 at the top level. Bodies are left out; read one with get_scroll.",
 			input: { realm: realmRef }
 		},
-		(args, present) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			const scrolls = listScrollTree(db, realmId).map((node) => ({
-				id: node.id,
-				path: node.path,
-				url: present.scrollUrl(realmId, node.path),
-				title: node.title,
-				depth: node.depth
-			}));
-			const key = getRealm(db, realmId).key;
+		async (args, present) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			const scrolls = await Promise.all(
+				(await listScrollTree(db, realmId)).map(async (node) => ({
+					id: node.id,
+					path: node.path,
+					url: await present.scrollUrl(realmId, node.path),
+					title: node.title,
+					depth: node.depth
+				}))
+			);
+			const key = (await getRealm(db, realmId)).key;
 			return reply(
 				{ scrolls },
 				scrolls.length === 0
@@ -75,7 +77,7 @@ export function registerScrollTools({ db, actor, define }: Tools): void {
 				scroll: scrollRef
 			}
 		},
-		(args, present) => scrollReply(present, target(args.realm, args.scroll).id)
+		async (args, present) => scrollReply(present, (await target(args.realm, args.scroll)).id)
 	);
 
 	define(
@@ -96,18 +98,18 @@ export function registerScrollTools({ db, actor, define }: Tools): void {
 				...scrollPlacementShape
 			}
 		},
-		(args, present) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			const scroll = createScroll(db, actor, {
+		async (args, present) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			const scroll = await createScroll(db, actor, {
 				realmId,
 				title: args.title,
 				parentId:
 					args.parent === undefined || args.parent === null
 						? null
-						: refs.scrollId(db, realmId, args.parent, actor),
+						: await refs.scrollId(db, realmId, args.parent, actor),
 				slug: args.slug,
 				body: args.body,
-				placement: refs.scrollPlacement(db, realmId, args, actor)
+				placement: await refs.scrollPlacement(db, realmId, args, actor)
 			});
 			return scrollReply(present, scroll.id);
 		}
@@ -128,9 +130,9 @@ export function registerScrollTools({ db, actor, define }: Tools): void {
 				body: z.string().optional().describe('Markdown; replaces the whole body')
 			}
 		},
-		(args, present) => {
-			const scroll = target(args.realm, args.scroll);
-			updateScroll(db, actor, scroll.id, {
+		async (args, present) => {
+			const scroll = await target(args.realm, args.scroll);
+			await updateScroll(db, actor, scroll.id, {
 				version: args.version,
 				title: args.title,
 				slug: args.slug,
@@ -156,16 +158,16 @@ export function registerScrollTools({ db, actor, define }: Tools): void {
 				...scrollPlacementShape
 			}
 		},
-		(args, present) => {
-			const scroll = target(args.realm, args.scroll);
-			moveScroll(db, actor, scroll.id, {
+		async (args, present) => {
+			const scroll = await target(args.realm, args.scroll);
+			await moveScroll(db, actor, scroll.id, {
 				parentId:
 					args.parent === undefined
 						? undefined
 						: args.parent === null
 							? null
-							: refs.scrollId(db, scroll.realmId, args.parent, actor),
-				placement: refs.scrollPlacement(db, scroll.realmId, args, actor)
+							: await refs.scrollId(db, scroll.realmId, args.parent, actor),
+				placement: await refs.scrollPlacement(db, scroll.realmId, args, actor)
 			});
 			return scrollReply(present, scroll.id);
 		}
@@ -188,9 +190,9 @@ export function registerScrollTools({ db, actor, define }: Tools): void {
 				delete: childList('delete')
 			}
 		},
-		(args) => {
-			const scroll = target(args.realm, args.scroll);
-			const children = listScrollChildren(db, scroll.id);
+		async (args) => {
+			const scroll = await target(args.realm, args.scroll);
+			const children = await listScrollChildren(db, scroll.id);
 			const choices = new Map<number, ChildChoice>();
 			const lists: [ChildChoice, refs.Ref[] | undefined][] = [
 				['move', args.move],
@@ -198,12 +200,12 @@ export function registerScrollTools({ db, actor, define }: Tools): void {
 			];
 			for (const [choice, list] of lists) {
 				for (const ref of list ?? []) {
-					const childId = refs.scrollId(db, scroll.realmId, ref, actor);
+					const childId = await refs.scrollId(db, scroll.realmId, ref, actor);
 					const child = children.find((c) => c.id === childId);
 					if (child === undefined) {
 						throw new DomainError(
 							'invalid',
-							`${getScroll(db, childId).path} is not a direct child of ${scroll.path}`
+							`${(await getScroll(db, childId)).path} is not a direct child of ${scroll.path}`
 						);
 					}
 					if ((choices.get(childId) ?? choice) !== choice) {
@@ -217,7 +219,7 @@ export function registerScrollTools({ db, actor, define }: Tools): void {
 					if (!choices.has(child.id)) choices.set(child.id, args.children);
 				}
 			}
-			const result = deleteScroll(db, actor, scroll.id, choices);
+			const result = await deleteScroll(db, actor, scroll.id, choices);
 			const deleted = result.deleted.map((row) => row.path);
 			const moved = result.moved.map((change) => ({ from: change.previousPath, to: change.path }));
 			const also = deleted.length > 1 ? ` and ${count(deleted.length - 1, 'Scroll')} under it` : '';
@@ -244,15 +246,17 @@ export function registerScrollTools({ db, actor, define }: Tools): void {
 					.describe(`At most this many, 1 to ${SEARCH_MAX}`)
 			}
 		},
-		(args, present) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			const scrolls = searchScrolls(db, realmId, args.query, args.limit).map((hit) => ({
-				id: hit.id,
-				path: hit.path,
-				url: present.scrollUrl(realmId, hit.path),
-				title: hit.title,
-				snippet: hit.snippet
-			}));
+		async (args, present) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			const scrolls = await Promise.all(
+				(await searchScrolls(db, realmId, args.query, args.limit)).map(async (hit) => ({
+					id: hit.id,
+					path: hit.path,
+					url: await present.scrollUrl(realmId, hit.path),
+					title: hit.title,
+					snippet: hit.snippet
+				}))
+			);
 			return reply(
 				{ scrolls },
 				`${scrolls.length === 0 ? 'No Scrolls' : count(scrolls.length, 'Scroll')} match "${args.query}"`

@@ -6,6 +6,8 @@ import { DomainError } from '../../domain/errors.ts';
 import { LABELS_MAX, normalizeLabels } from '../../domain/labels.ts';
 import { STATE_KEY } from '../../domain/validate.ts';
 import type { Actor } from '../../domain/write.ts';
+import { intList } from '#lib/server/db/lists.ts';
+import { filterAsync } from '#lib/server/async.ts';
 
 export type IncludeClosed = true | { withinDays: number };
 
@@ -72,8 +74,6 @@ function stringList(value: unknown, what: string): string[] {
 	return value as string[];
 }
 
-const anyOf = (ids: number[]) => sql`(SELECT value FROM json_each(${JSON.stringify(ids)}))`;
-
 function requireAll(ids: number[], found: { id: number }[], what: string): void {
 	const have = new Set(found.map((row) => row.id));
 	const missing = ids.find((id) => !have.has(id));
@@ -81,7 +81,11 @@ function requireAll(ids: number[], found: { id: number }[], what: string): void 
 }
 
 // Shape and limits first (`invalid`), then that every referenced id exists (`not_found`).
-export function checkRequest(tx: Handle, actor: Actor, input: SurveyInput): SurveyRequest {
+export async function checkRequest(
+	tx: Handle,
+	actor: Actor,
+	input: SurveyInput
+): Promise<SurveyRequest> {
 	if (!isObject(input)) invalid('A Survey needs a request object');
 
 	const weights = checkWeights(input.weights);
@@ -100,9 +104,9 @@ export function checkRequest(tx: Handle, actor: Actor, input: SurveyInput): Surv
 	if (!isId(forUserId)) invalid('forUserId must be a User id');
 
 	// A Survey draws on Realms its caller and its subject both belong to.
-	const reachable = (id: number) =>
-		canSeeRealm(tx, actor, id) &&
-		(forUserId === actor.id || canSeeRealm(tx, { id: forUserId }, id));
+	const reachable = async (id: number) =>
+		(await canSeeRealm(tx, actor, id)) &&
+		(forUserId === actor.id || (await canSeeRealm(tx, { id: forUserId }, id)));
 
 	let realmIds = input.realmIds;
 	if (realmIds !== undefined) {
@@ -113,21 +117,20 @@ export function checkRequest(tx: Handle, actor: Actor, input: SurveyInput): Surv
 		if (realmIds.length > REALMS_MAX) invalid(`realmIds takes at most ${REALMS_MAX} Realms`);
 		requireAll(
 			realmIds,
-			tx
-				.select({ id: realms.id })
-				.from(realms)
-				.where(sql`${realms.id} IN ${anyOf(realmIds)}`)
-				.all()
-				.filter((row) => reachable(row.id)),
+			await filterAsync(
+				await tx
+					.select({ id: realms.id })
+					.from(realms)
+					.where(sql`${realms.id} IN ${intList(realmIds)}`),
+				(row) => reachable(row.id)
+			),
 			'Realm'
 		);
 	} else {
-		realmIds = tx
-			.select({ id: realms.id })
-			.from(realms)
-			.all()
+		realmIds = (
+			await filterAsync(await tx.select({ id: realms.id }).from(realms), (row) => reachable(row.id))
+		)
 			.map((row) => row.id)
-			.filter(reachable)
 			.sort((a, b) => a - b);
 	}
 
@@ -136,17 +139,16 @@ export function checkRequest(tx: Handle, actor: Actor, input: SurveyInput): Surv
 	];
 	requireAll(
 		userIds,
-		tx
+		await tx
 			.select({ id: users.id })
 			.from(users)
-			.where(sql`${users.id} IN ${anyOf(userIds)}`)
-			.all(),
+			.where(sql`${users.id} IN ${intList(userIds)}`),
 		'User'
 	);
 	if (filter.questId !== undefined) {
 		requireAll(
 			[filter.questId],
-			tx.select({ id: quests.id }).from(quests).where(eq(quests.id, filter.questId)).all(),
+			await tx.select({ id: quests.id }).from(quests).where(eq(quests.id, filter.questId)),
 			'Quest'
 		);
 	}

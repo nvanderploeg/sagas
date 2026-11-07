@@ -9,10 +9,10 @@ let db: Db;
 let author: number;
 let labourId: number;
 
-beforeEach(() => {
-	db = testDb();
-	author = seedUser(db, 'ada');
-	labourId = seedLabour(db, { realmId: seedRealm(db, 'AM').id }).id;
+beforeEach(async () => {
+	db = await testDb();
+	author = await seedUser(db, 'ada');
+	labourId = (await seedLabour(db, { realmId: (await seedRealm(db, 'AM')).id })).id;
 });
 
 describe('currentVia', () => {
@@ -22,12 +22,12 @@ describe('currentVia', () => {
 		expect(withVia(undefined, currentVia)).toBeNull();
 	});
 
-	it('is recorded on a Comment written through a token, and not on one written without', () => {
-		withVia({ name: 'norm-mint-main' }, () =>
+	it('is recorded on a Comment written through a token, and not on one written without', async () => {
+		await withVia({ name: 'norm-mint-main' }, () =>
 			addComment(db, { id: author }, labourId, 'from agent')
 		);
-		addComment(db, { id: author }, labourId, 'from browser');
+		await addComment(db, { id: author }, labourId, 'from browser');
 
-		expect(listComments(db, labourId).map((c) => c.via)).toEqual(['norm-mint-main', null]);
+		expect((await listComments(db, labourId)).map((c) => c.via)).toEqual(['norm-mint-main', null]);
 	});
 });

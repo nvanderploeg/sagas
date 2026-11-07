@@ -28,7 +28,7 @@ export async function handleRegistration(
 	}
 
 	try {
-		const { client, clientSecret } = registerClient(
+		const { client, clientSecret } = await registerClient(
 			db,
 			{
 				name: metadata.client_name,

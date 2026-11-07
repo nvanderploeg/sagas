@@ -1,5 +1,5 @@
 import { generateNKeysBetween } from 'fractional-indexing';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { appraise, type AppraiseItem } from '#lib/server/agent/appraisals.ts';
 import { defineAttribute } from '#lib/server/agent/attributes.ts';
 import { contentHash } from '#lib/server/agent/content.ts';
@@ -13,17 +13,14 @@ import type { Actor } from '#lib/server/domain/write.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { seedActor, seedRealm, seedUser, anyRealmId } from '#lib/server/test/fixtures.ts';
 import { budget } from '#lib/server/test/budget.ts';
+import { transact } from '#lib/server/db/tx.ts';
 
 let db: Db;
 let actor: Actor;
 
-beforeEach(() => {
-	db = testDb();
-	actor = seedActor(db);
-});
-
-afterEach(() => {
-	db.$client.close();
+beforeEach(async () => {
+	db = await testDb();
+	actor = await seedActor(db);
 });
 
 const DAY = 86_400_000;
@@ -41,22 +38,22 @@ function chunks<T>(items: T[], size: number): T[][] {
 
 // 5,000 open Labours across two Realms and two columns each, plus 100 Closed ones, with
 // Attribute values, Links, Quests, Comments and Mentions on them.
-function seed() {
-	const owner = seedUser(db, 'owner');
-	const realmRows = [seedRealm(db, 'AM'), seedRealm(db, 'BL')];
+async function seed() {
+	const owner = await seedUser(db, 'owner');
+	const realmRows = [await seedRealm(db, 'AM'), await seedRealm(db, 'BL')];
 	const plan: { realmId: number; number: number; stateId: number }[] = [];
 	const columns = new Map<number, number>();
 	for (const [realm, open, shut] of [
 		[realmRows[0], OPEN_AM, CLOSED_AM],
 		[realmRows[1], OPEN_BL, 0]
 	] as const) {
-		createState(db, actor, realm.id, {
+		await createState(db, actor, realm.id, {
 			key: 'doing',
 			label: 'Doing',
 			color: '#000000',
 			icon: 'dot'
 		});
-		const states = listStates(db, realm.id);
+		const states = await listStates(db, realm.id);
 		const todo = states.find((s) => s.key === 'todo')!;
 		const doing = states.find((s) => s.key === 'doing')!;
 		const closed = states.find((s) => s.isClosed)!;
@@ -89,21 +86,18 @@ function seed() {
 	});
 	const keyOfRealm = new Map(realmRows.map((r) => [r.id, r.key]));
 
-	db.transaction((tx) => {
-		for (const part of chunks(rows, 500)) tx.insert(labours).values(part).run();
+	await transact(db, async (tx) => {
+		for (const part of chunks(rows, 500)) await tx.insert(labours).values(part);
 	});
-	const ids = db
-		.select({ id: labours.id })
-		.from(labours)
-		.orderBy(labours.id)
-		.all()
-		.map((r) => r.id);
-	db.transaction((tx) => {
+	const ids = (await db.select({ id: labours.id }).from(labours).orderBy(labours.id)).map(
+		(r) => r.id
+	);
+	await transact(db, async (tx) => {
 		const keys = rows.map((row, i) => ({
 			key: `${keyOfRealm.get(row.realmId)}-${row.number}`,
 			labourId: ids[i]
 		}));
-		for (const part of chunks(keys, 500)) tx.insert(labourKeys).values(part).run();
+		for (const part of chunks(keys, 500)) await tx.insert(labourKeys).values(part);
 		const talk = ids
 			.filter((_, i) => i % 2 === 0)
 			.map((labourId, i) => ({
@@ -112,27 +106,28 @@ function seed() {
 				body: `Comment ${i} about the boss fight`,
 				createdAt: new Date(NOW.getTime() - (i % 50) * DAY)
 			}));
-		for (const part of chunks(talk, 500)) tx.insert(comments).values(part).run();
+		for (const part of chunks(talk, 500)) await tx.insert(comments).values(part);
 	});
 	for (const realm of realmRows) {
-		db.$client
-			.prepare('UPDATE realms SET labour_counter = ? WHERE id = ?')
-			.run(rows.filter((r) => r.realmId === realm.id).length, realm.id);
+		await db.$client.query('UPDATE realms SET labour_counter = $1 WHERE id = $2', [
+			rows.filter((r) => r.realmId === realm.id).length,
+			realm.id
+		]);
 	}
 
 	// The bulk rows bypass the writes that keep the search index, so build it whole.
-	db.delete(derivedBuilds).run();
-	rebuildDerived(db);
+	await db.delete(derivedBuilds);
+	await rebuildDerived(db);
 
 	for (const realm of realmRows) {
-		defineAttribute(db, actor, realm.id, {
+		await defineAttribute(db, actor, realm.id, {
 			key: 'impact',
 			kind: 'scale',
 			label: 'Impact',
 			rubric: 'How much players feel it',
 			spec: { min: 1, max: 5 }
 		});
-		defineAttribute(db, actor, realm.id, {
+		await defineAttribute(db, actor, realm.id, {
 			key: 'area',
 			kind: 'tags',
 			label: 'Area',
@@ -145,32 +140,34 @@ function seed() {
 			}
 		});
 	}
-	const items: AppraiseItem[] = ids.map((labourId, k) => {
-		const item: AppraiseItem = {
-			labourId,
-			values: { impact: 1 + (k % 5), area: k % 3 === 0 ? ['ui'] : ['api'] },
-			links: []
-		};
-		if (k % 7 === 0) item.brief = `Brief for the boss fight ${k}`;
-		if (k % 5 === 0) item.stamp = contentHash(db, labourId);
-		if (k % 3 === 0 && k + 1 < ids.length) {
-			item.links!.push({ type: 'evidence', to: ids[k + 1] });
-		}
-		if (k % 11 === 0 && k + 7 < ids.length) item.links!.push({ type: 'blocks', to: ids[k + 7] });
-		return item;
-	});
-	for (const part of chunks(items, 50)) appraise(db, actor, part, NOW);
+	const items: AppraiseItem[] = await Promise.all(
+		ids.map(async (labourId, k) => {
+			const item: AppraiseItem = {
+				labourId,
+				values: { impact: 1 + (k % 5), area: k % 3 === 0 ? ['ui'] : ['api'] },
+				links: []
+			};
+			if (k % 7 === 0) item.brief = `Brief for the boss fight ${k}`;
+			if (k % 5 === 0) item.stamp = await contentHash(db, labourId);
+			if (k % 3 === 0 && k + 1 < ids.length) {
+				item.links!.push({ type: 'evidence', to: ids[k + 1] });
+			}
+			if (k % 11 === 0 && k + 7 < ids.length) item.links!.push({ type: 'blocks', to: ids[k + 7] });
+			return item;
+		})
+	);
+	for (const part of chunks(items, 50)) await appraise(db, actor, part, NOW);
 
 	for (const [q, members] of chunks(ids, 100).entries()) {
-		const quest = createQuest(db, actor, {
-			realmId: anyRealmId(db),
+		const quest = await createQuest(db, actor, {
+			realmId: await anyRealmId(db),
 			name: `Quest ${q}`,
 			ownerId: owner
 		});
-		addQuestLabours(db, actor, quest.id, members);
+		await addQuestLabours(db, actor, quest.id, members);
 	}
 
-	db.transaction((tx) => {
+	await transact(db, async (tx) => {
 		const rowsOut = ids
 			.filter((_, i) => i % 4 === 0)
 			.flatMap((sourceLabourId, i) => {
@@ -201,13 +198,13 @@ function seed() {
 						: [];
 				return [...named, ...pulled];
 			});
-		for (const part of chunks(rowsOut, 500)) tx.insert(mentions).values(part).run();
+		for (const part of chunks(rowsOut, 500)) await tx.insert(mentions).values(part);
 	});
 }
 
 describe('survey performance', () => {
-	it('scores 5,000 candidates with every feature, an Attribute weight and a query in under 200 ms', () => {
-		seed();
+	it('scores 5,000 candidates with every feature, an Attribute weight and a query in under 200 ms', async () => {
+		await seed();
 		const weights = {
 			keywords: 1,
 			mentions: 1,
@@ -229,11 +226,11 @@ describe('survey performance', () => {
 				{ now: NOW }
 			);
 
-		const warm = run();
+		const warm = await run();
 		const times: number[] = [];
 		for (let i = 0; i < 3; i++) {
 			const start = performance.now();
-			run();
+			await run();
 			times.push(performance.now() - start);
 		}
 

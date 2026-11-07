@@ -28,19 +28,15 @@ let db: Db;
 let actor: Actor;
 let realmId: number;
 
-beforeEach(() => {
-	db = testDb();
-	actor = seedActor(db);
-	realmId = seedRealm(db, 'AM').id;
+beforeEach(async () => {
+	db = await testDb();
+	actor = await seedActor(db);
+	realmId = (await seedRealm(db, 'AM')).id;
 });
 
-afterEach(() => {
-	db.$client.close();
-});
-
-function errorOf(action: () => unknown): DomainError {
+async function errorOf(action: () => unknown): Promise<DomainError> {
 	try {
-		action();
+		await action();
 	} catch (error) {
 		if (error instanceof DomainError) return error;
 		throw error;
@@ -53,112 +49,125 @@ const make = (
 	parentId: number | null = null,
 	extra: { body?: string; slug?: string } = {}
 ) => createScroll(db, actor, { realmId, title, parentId, ...extra });
-const tree = () =>
-	listScrollTree(db, realmId).map((node) => `${'  '.repeat(node.depth)}${node.path}`);
+const tree = async () =>
+	(await listScrollTree(db, realmId)).map((node) => `${'  '.repeat(node.depth)}${node.path}`);
 const lastEvents = (since: number) => eventsSince(db, since);
-const seqNow = () => eventsSince(db, 0).at(-1)?.seq ?? 0;
+const seqNow = async () => (await eventsSince(db, 0)).at(-1)?.seq ?? 0;
 const choices = (entries: [number, ChildChoice][]) => new Map(entries);
-const textRows = () => db.all<{ rowid: number }>(sql`SELECT rowid FROM scroll_text ORDER BY rowid`);
+const textRows = async () =>
+	(
+		await db.execute<{ rowid: number }>(
+			sql`SELECT scroll_id AS rowid FROM scroll_text ORDER BY scroll_id`
+		)
+	).rows;
 
 describe('creating a Scroll', () => {
-	it('makes its slug from the title and its Path from its ancestors', () => {
-		const ops = make('Ops & Releases');
-		const release = make('Release process', ops.id);
+	it('makes its slug from the title and its Path from its ancestors', async () => {
+		const ops = await make('Ops & Releases');
+		const release = await make('Release process', ops.id);
 
 		expect(ops).toMatchObject({ slug: 'ops-releases', path: 'ops-releases', version: 1 });
 		expect(release.path).toBe('ops-releases/release-process');
-		expect(resolveScrollPath(db, realmId, 'Ops-Releases/Release Process')).toMatchObject({
+		expect(await resolveScrollPath(db, realmId, 'Ops-Releases/Release Process')).toMatchObject({
 			scroll: { id: release.id },
 			current: true
 		});
 	});
 
-	it('records scroll.created with the whole Scroll', () => {
-		const before = seqNow();
-		const scroll = make('Home', null, { body: 'Hello' });
-		expect(lastEvents(before)).toMatchObject([
+	it('records scroll.created with the whole Scroll', async () => {
+		const before = await seqNow();
+		const scroll = await make('Home', null, { body: 'Hello' });
+		expect(await lastEvents(before)).toMatchObject([
 			{ type: 'scroll.created', data: { scroll: { id: scroll.id, body: 'Hello', path: 'home' } } }
 		]);
 	});
 
-	it('refuses a Path a sibling already holds', () => {
-		make('Home');
-		expect(errorOf(() => make('home!')).code).toBe('conflict');
+	it('refuses a Path a sibling already holds', async () => {
+		await make('Home');
+		expect((await errorOf(() => make('home!'))).code).toBe('conflict');
 	});
 
-	it('refuses a bad slug, an empty title and an overlong body', () => {
-		expect(errorOf(() => make('Home', null, { slug: 'Bad Slug' })).code).toBe('invalid');
-		expect(errorOf(() => make('  ')).code).toBe('invalid');
-		expect(errorOf(() => make('Big', null, { body: 'x'.repeat(BODY_MAX + 1) })).code).toBe(
+	it('refuses a bad slug, an empty title and an overlong body', async () => {
+		expect((await errorOf(() => make('Home', null, { slug: 'Bad Slug' }))).code).toBe('invalid');
+		expect((await errorOf(() => make('  '))).code).toBe('invalid');
+		expect((await errorOf(() => make('Big', null, { body: 'x'.repeat(BODY_MAX + 1) }))).code).toBe(
 			'invalid'
 		);
 	});
 
-	it('nests at most ten deep', () => {
+	it('nests at most ten deep', async () => {
 		let parent: number | null = null;
-		for (let i = 0; i < 10; i++) parent = make(`L${i}`, parent).id;
-		expect(errorOf(() => make('Too deep', parent)).message).toMatch(/at most 10 deep/);
+		for (let i = 0; i < 10; i++) parent = (await make(`L${i}`, parent)).id;
+		expect((await errorOf(() => make('Too deep', parent))).message).toMatch(/at most 10 deep/);
 	});
 
-	it('refuses a parent in another Realm', () => {
-		const other = seedRealm(db, 'BO').id;
-		const elsewhere = createScroll(db, actor, { realmId: other, title: 'There' });
-		expect(errorOf(() => make('Here', elsewhere.id)).code).toBe('invalid');
+	it('refuses a parent in another Realm', async () => {
+		const other = (await seedRealm(db, 'BO')).id;
+		const elsewhere = await createScroll(db, actor, { realmId: other, title: 'There' });
+		expect((await errorOf(() => make('Here', elsewhere.id))).code).toBe('invalid');
 	});
 
-	it('orders siblings by placement, new ones last', () => {
-		const b = make('B');
-		make('C');
-		createScroll(db, actor, { realmId, title: 'A', placement: { before: b.id } });
-		expect(tree()).toEqual(['a', 'b', 'c']);
+	it('orders siblings by placement, new ones last', async () => {
+		const b = await make('B');
+		await make('C');
+		await createScroll(db, actor, { realmId, title: 'A', placement: { before: b.id } });
+		expect(await tree()).toEqual(['a', 'b', 'c']);
 	});
 });
 
 describe('editing a Scroll', () => {
-	it('bumps the version and records who saved it', () => {
-		const editor = { id: seedUser(db, 'bea') };
-		const scroll = make('Home');
-		const saved = updateScroll(db, editor, scroll.id, { body: 'New', version: 1 });
+	it('bumps the version and records who saved it', async () => {
+		const editor = { id: await seedUser(db, 'bea') };
+		const scroll = await make('Home');
+		const saved = await updateScroll(db, editor, scroll.id, { body: 'New', version: 1 });
 		expect(saved).toMatchObject({ body: 'New', version: 2, updatedById: editor.id });
 	});
 
-	it('refuses a save from an older version, naming who saved since, and changes nothing', () => {
-		const scroll = make('Home');
-		updateScroll(db, { id: seedUser(db, 'bea') }, scroll.id, { body: 'Theirs', version: 1 });
+	it('refuses a save from an older version, naming who saved since, and changes nothing', async () => {
+		const scroll = await make('Home');
+		await updateScroll(db, { id: await seedUser(db, 'bea') }, scroll.id, {
+			body: 'Theirs',
+			version: 1
+		});
 
-		const error = errorOf(() => updateScroll(db, actor, scroll.id, { body: 'Mine', version: 1 }));
+		const error = await errorOf(() =>
+			updateScroll(db, actor, scroll.id, { body: 'Mine', version: 1 })
+		);
 		expect(error.code).toBe('conflict');
 		expect(error.message).toMatch(/version 2, saved by bea/);
-		expect(readScroll(db, scroll.id).body).toBe('Theirs');
+		expect((await readScroll(db, scroll.id)).body).toBe('Theirs');
 	});
 
-	it('saves over whatever is there when no version is given', () => {
-		const scroll = make('Home');
-		updateScroll(db, actor, scroll.id, { body: 'One' });
-		expect(updateScroll(db, actor, scroll.id, { body: 'Two' }).version).toBe(3);
+	it('saves over whatever is there when no version is given', async () => {
+		const scroll = await make('Home');
+		await updateScroll(db, actor, scroll.id, { body: 'One' });
+		expect((await updateScroll(db, actor, scroll.id, { body: 'Two' })).version).toBe(3);
 	});
 
-	it('records nothing when nothing changes', () => {
-		const scroll = make('Home');
-		const before = seqNow();
-		updateScroll(db, actor, scroll.id, { title: 'Home', body: '' });
-		expect(lastEvents(before)).toEqual([]);
+	it('records nothing when nothing changes', async () => {
+		const scroll = await make('Home');
+		const before = await seqNow();
+		await updateScroll(db, actor, scroll.id, { title: 'Home', body: '' });
+		expect(await lastEvents(before)).toEqual([]);
 	});
 
-	it('renames the slug, repaths everything under it and keeps the old Paths resolving', () => {
-		const ops = make('Ops');
-		const release = make('Release', ops.id);
-		const before = seqNow();
+	it('renames the slug, repaths everything under it and keeps the old Paths resolving', async () => {
+		const ops = await make('Ops');
+		const release = await make('Release', ops.id);
+		const before = await seqNow();
 
-		updateScroll(db, actor, ops.id, { title: 'Operations', slug: 'operations' });
+		await updateScroll(db, actor, ops.id, { title: 'Operations', slug: 'operations' });
 
-		expect(tree()).toEqual(['operations', '  operations/release']);
-		expect(resolveScrollPath(db, realmId, 'ops/release')).toMatchObject({
+		expect(await tree()).toEqual(['operations', '  operations/release']);
+		expect(await resolveScrollPath(db, realmId, 'ops/release')).toMatchObject({
 			scroll: { id: release.id, path: 'operations/release' },
 			current: false
 		});
-		expect(lastEvents(before).map((e) => e.type)).toEqual(['scroll.updated', 'scroll.moved']);
-		expect(lastEvents(before)[1].data).toMatchObject({
+		expect((await lastEvents(before)).map((e) => e.type)).toEqual([
+			'scroll.updated',
+			'scroll.moved'
+		]);
+		expect((await lastEvents(before))[1].data).toMatchObject({
 			paths: [
 				{ id: ops.id, previousPath: 'ops', path: 'operations' },
 				{ id: release.id, previousPath: 'ops/release', path: 'operations/release' }
@@ -166,130 +175,138 @@ describe('editing a Scroll', () => {
 		});
 	});
 
-	it('lets a new Scroll take over a Path another Scroll only held before', () => {
-		const old = make('Guide');
-		updateScroll(db, actor, old.id, { slug: 'handbook' });
-		const fresh = make('Guide');
+	it('lets a new Scroll take over a Path another Scroll only held before', async () => {
+		const old = await make('Guide');
+		await updateScroll(db, actor, old.id, { slug: 'handbook' });
+		const fresh = await make('Guide');
 
-		expect(resolveScrollPath(db, realmId, 'guide')).toMatchObject({
+		expect(await resolveScrollPath(db, realmId, 'guide')).toMatchObject({
 			scroll: { id: fresh.id },
 			current: true
 		});
-		expect(resolveScrollPath(db, realmId, 'handbook')?.scroll.id).toBe(old.id);
+		expect((await resolveScrollPath(db, realmId, 'handbook'))?.scroll.id).toBe(old.id);
 	});
 });
 
 describe('moving a Scroll', () => {
-	it('moves it under another Scroll with everything beneath it', () => {
-		const a = make('A');
-		const b = make('B');
-		const child = make('Child', b.id);
-		const before = seqNow();
+	it('moves it under another Scroll with everything beneath it', async () => {
+		const a = await make('A');
+		const b = await make('B');
+		const child = await make('Child', b.id);
+		const before = await seqNow();
 
-		moveScroll(db, actor, b.id, { parentId: a.id });
+		await moveScroll(db, actor, b.id, { parentId: a.id });
 
-		expect(tree()).toEqual(['a', '  a/b', '    a/b/child']);
-		expect(resolveScrollPath(db, realmId, 'b/child')?.scroll.id).toBe(child.id);
-		expect(lastEvents(before)).toMatchObject([
+		expect(await tree()).toEqual(['a', '  a/b', '    a/b/child']);
+		expect((await resolveScrollPath(db, realmId, 'b/child'))?.scroll.id).toBe(child.id);
+		expect(await lastEvents(before)).toMatchObject([
 			{ type: 'scroll.moved', data: { scroll: { id: b.id } } }
 		]);
 	});
 
-	it('never moves a Scroll under itself or beneath itself', () => {
-		const a = make('A');
-		const b = make('B', a.id);
-		expect(errorOf(() => moveScroll(db, actor, a.id, { parentId: a.id })).code).toBe('invalid');
-		expect(errorOf(() => moveScroll(db, actor, a.id, { parentId: b.id })).code).toBe('invalid');
+	it('never moves a Scroll under itself or beneath itself', async () => {
+		const a = await make('A');
+		const b = await make('B', a.id);
+		expect((await errorOf(() => moveScroll(db, actor, a.id, { parentId: a.id }))).code).toBe(
+			'invalid'
+		);
+		expect((await errorOf(() => moveScroll(db, actor, a.id, { parentId: b.id }))).code).toBe(
+			'invalid'
+		);
 	});
 
-	it('refuses a move onto a sibling Path', () => {
-		const a = make('A');
-		make('Same', a.id);
-		const loose = make('Same');
-		expect(errorOf(() => moveScroll(db, actor, loose.id, { parentId: a.id })).code).toBe(
+	it('refuses a move onto a sibling Path', async () => {
+		const a = await make('A');
+		await make('Same', a.id);
+		const loose = await make('Same');
+		expect((await errorOf(() => moveScroll(db, actor, loose.id, { parentId: a.id }))).code).toBe(
 			'conflict'
 		);
 	});
 
-	it('refuses a move that would nest deeper than ten', () => {
+	it('refuses a move that would nest deeper than ten', async () => {
 		let parent: number | null = null;
-		for (let i = 0; i < 9; i++) parent = make(`L${i}`, parent).id;
-		const branch = make('Branch');
-		make('Leaf', branch.id);
-		expect(errorOf(() => moveScroll(db, actor, branch.id, { parentId: parent })).message).toMatch(
-			/at most 10 deep/
-		);
-	});
-
-	it('reorders siblings with an empty paths list', () => {
-		const a = make('A');
-		const b = make('B');
-		const before = seqNow();
-		moveScroll(db, actor, b.id, { placement: { before: a.id } });
-		expect(tree()).toEqual(['b', 'a']);
-		expect(lastEvents(before)).toMatchObject([{ type: 'scroll.moved', data: { paths: [] } }]);
-	});
-
-	it('refuses a placement next to a Scroll that is not a sibling', () => {
-		const a = make('A');
-		const inner = make('Inner', a.id);
-		const b = make('B');
+		for (let i = 0; i < 9; i++) parent = (await make(`L${i}`, parent)).id;
+		const branch = await make('Branch');
+		await make('Leaf', branch.id);
 		expect(
-			errorOf(() => moveScroll(db, actor, b.id, { placement: { after: inner.id } })).message
+			(await errorOf(() => moveScroll(db, actor, branch.id, { parentId: parent }))).message
+		).toMatch(/at most 10 deep/);
+	});
+
+	it('reorders siblings with an empty paths list', async () => {
+		const a = await make('A');
+		const b = await make('B');
+		const before = await seqNow();
+		await moveScroll(db, actor, b.id, { placement: { before: a.id } });
+		expect(await tree()).toEqual(['b', 'a']);
+		expect(await lastEvents(before)).toMatchObject([{ type: 'scroll.moved', data: { paths: [] } }]);
+	});
+
+	it('refuses a placement next to a Scroll that is not a sibling', async () => {
+		const a = await make('A');
+		const inner = await make('Inner', a.id);
+		const b = await make('B');
+		expect(
+			(await errorOf(() => moveScroll(db, actor, b.id, { placement: { after: inner.id } }))).message
 		).toMatch(/a\/inner is not a sibling/);
 	});
 });
 
 describe('deleting a Scroll', () => {
-	it('deletes a leaf Scroll and its Paths', () => {
-		const leaf = make('Leaf');
-		deleteScroll(db, actor, leaf.id);
-		expect(tree()).toEqual([]);
-		expect(resolveScrollPath(db, realmId, 'leaf')).toBeNull();
-		expect(textRows()).toEqual([]);
+	it('deletes a leaf Scroll and its Paths', async () => {
+		const leaf = await make('Leaf');
+		await deleteScroll(db, actor, leaf.id);
+		expect(await tree()).toEqual([]);
+		expect(await resolveScrollPath(db, realmId, 'leaf')).toBeNull();
+		expect(await textRows()).toEqual([]);
 	});
 
-	it('refuses until every child has a choice, and changes nothing', () => {
-		const parent = make('Parent');
-		const one = make('One', parent.id);
-		make('Two', parent.id);
+	it('refuses until every child has a choice, and changes nothing', async () => {
+		const parent = await make('Parent');
+		const one = await make('One', parent.id);
+		await make('Two', parent.id);
 
-		const error = errorOf(() => deleteScroll(db, actor, parent.id, choices([[one.id, 'move']])));
+		const error = await errorOf(() =>
+			deleteScroll(db, actor, parent.id, choices([[one.id, 'move']]))
+		);
 		expect(error.message).toMatch(/parent\/two/);
-		expect(tree()).toHaveLength(3);
+		expect(await tree()).toHaveLength(3);
 	});
 
-	it('refuses a choice for a Scroll that is not a direct child', () => {
-		const parent = make('Parent');
-		const child = make('Child', parent.id);
-		const grandchild = make('Grandchild', child.id);
+	it('refuses a choice for a Scroll that is not a direct child', async () => {
+		const parent = await make('Parent');
+		const child = await make('Child', parent.id);
+		const grandchild = await make('Grandchild', child.id);
 		expect(
-			errorOf(() =>
-				deleteScroll(
-					db,
-					actor,
-					parent.id,
-					choices([
-						[child.id, 'move'],
-						[grandchild.id, 'move']
-					])
+			(
+				await errorOf(() =>
+					deleteScroll(
+						db,
+						actor,
+						parent.id,
+						choices([
+							[child.id, 'move'],
+							[grandchild.id, 'move']
+						])
+					)
 				)
 			).code
 		).toBe('invalid');
 	});
 
-	it('moves some children up into its place and deletes the others with what is under them', () => {
-		make('Before');
-		const parent = make('Parent');
-		make('After');
-		const keep = make('Keep', parent.id);
-		const kept = make('Kept leaf', keep.id);
-		const drop = make('Drop', parent.id);
-		const dropped = make('Dropped leaf', drop.id);
-		const also = make('Also', parent.id);
-		const before = seqNow();
+	it('moves some children up into its place and deletes the others with what is under them', async () => {
+		await make('Before');
+		const parent = await make('Parent');
+		await make('After');
+		const keep = await make('Keep', parent.id);
+		const kept = await make('Kept leaf', keep.id);
+		const drop = await make('Drop', parent.id);
+		const dropped = await make('Dropped leaf', drop.id);
+		const also = await make('Also', parent.id);
+		const before = await seqNow();
 
-		const result = deleteScroll(
+		const result = await deleteScroll(
 			db,
 			actor,
 			parent.id,
@@ -300,11 +317,13 @@ describe('deleting a Scroll', () => {
 			])
 		);
 
-		expect(tree()).toEqual(['before', 'keep', '  keep/kept-leaf', 'also', 'after']);
+		expect(await tree()).toEqual(['before', 'keep', '  keep/kept-leaf', 'also', 'after']);
 		expect(result.deleted.map((d) => d.id).sort()).toEqual([parent.id, drop.id, dropped.id].sort());
-		expect(resolveScrollPath(db, realmId, 'parent/keep/kept-leaf')?.scroll.id).toBe(kept.id);
-		expect(textRows().map((r) => r.rowid)).not.toContain(dropped.id);
-		expect(lastEvents(before)).toMatchObject([
+		expect((await resolveScrollPath(db, realmId, 'parent/keep/kept-leaf'))?.scroll.id).toBe(
+			kept.id
+		);
+		expect((await textRows()).map((r) => r.rowid)).not.toContain(dropped.id);
+		expect(await lastEvents(before)).toMatchObject([
 			{
 				type: 'scroll.deleted',
 				data: {
@@ -319,71 +338,80 @@ describe('deleting a Scroll', () => {
 		]);
 	});
 
-	it('refuses to move a child up onto a Path already taken there', () => {
-		make('Notes');
-		const parent = make('Parent');
-		const notes = make('Notes', parent.id);
-		const error = errorOf(() => deleteScroll(db, actor, parent.id, choices([[notes.id, 'move']])));
+	it('refuses to move a child up onto a Path already taken there', async () => {
+		await make('Notes');
+		const parent = await make('Parent');
+		const notes = await make('Notes', parent.id);
+		const error = await errorOf(() =>
+			deleteScroll(db, actor, parent.id, choices([[notes.id, 'move']]))
+		);
 		expect(error.code).toBe('conflict');
 		expect(error.message).toMatch(/parent\/notes cannot move up/);
-		expect(tree()).toHaveLength(3);
+		expect(await tree()).toHaveLength(3);
 	});
 
-	it('goes with its Realm, search index included', () => {
-		make('Home');
-		deleteRealm(db, actor, realmId);
-		expect(textRows()).toEqual([]);
+	it('goes with its Realm, search index included', async () => {
+		await make('Home');
+		await deleteRealm(db, actor, realmId);
+		expect(await textRows()).toEqual([]);
 	});
 });
 
 describe('links and Backlinks', () => {
-	it('counts a link written before its target existed', () => {
-		const index = make('Index', null, { body: 'See [[Guides/Setup]] and `[[not/this]]`.' });
-		const guides = make('Guides');
-		const setup = make('Setup', guides.id);
-		expect(listBacklinks(db, setup.id)).toEqual([{ id: index.id, path: 'index', title: 'Index' }]);
+	it('counts a link written before its target existed', async () => {
+		const index = await make('Index', null, { body: 'See [[Guides/Setup]] and `[[not/this]]`.' });
+		const guides = await make('Guides');
+		const setup = await make('Setup', guides.id);
+		expect(await listBacklinks(db, setup.id)).toEqual([
+			{ id: index.id, path: 'index', title: 'Index' }
+		]);
 	});
 
-	it('follows a Scroll through renames, by any Path it held', () => {
-		const target = make('Target');
-		const source = make('Source', null, { body: '[[target]]' });
-		updateScroll(db, actor, target.id, { slug: 'renamed' });
-		expect(listBacklinks(db, target.id).map((s) => s.id)).toEqual([source.id]);
+	it('follows a Scroll through renames, by any Path it held', async () => {
+		const target = await make('Target');
+		const source = await make('Source', null, { body: '[[target]]' });
+		await updateScroll(db, actor, target.id, { slug: 'renamed' });
+		expect((await listBacklinks(db, target.id)).map((s) => s.id)).toEqual([source.id]);
 	});
 
-	it('drops a Backlink when the link leaves the body', () => {
-		const target = make('Target');
-		const source = make('Source', null, { body: '[[target]]' });
-		updateScroll(db, actor, source.id, { body: 'nothing' });
-		expect(listBacklinks(db, target.id)).toEqual([]);
+	it('drops a Backlink when the link leaves the body', async () => {
+		const target = await make('Target');
+		const source = await make('Source', null, { body: '[[target]]' });
+		await updateScroll(db, actor, source.id, { body: 'nothing' });
+		expect(await listBacklinks(db, target.id)).toEqual([]);
 	});
 
-	it('records Labours the body names, by key', () => {
-		const labour = seedLabour(db, { realmId });
-		const scroll = make('Notes', null, { body: `Tracking ${labour.key.toLowerCase()} here.` });
-		expect(listLabourScrolls(db, labour.id, null)).toEqual([
+	it('records Labours the body names, by key', async () => {
+		const labour = await seedLabour(db, { realmId });
+		const scroll = await make('Notes', null, {
+			body: `Tracking ${labour.key.toLowerCase()} here.`
+		});
+		expect(await listLabourScrolls(db, labour.id, null)).toEqual([
 			{ id: scroll.id, realmId, path: 'notes', title: 'Notes' }
 		]);
-		expect(listLabourScrolls(db, labour.id, [])).toEqual([]);
+		expect(await listLabourScrolls(db, labour.id, [])).toEqual([]);
 	});
 });
 
 describe('search', () => {
-	it('finds Scrolls in one Realm by title and body, title first', () => {
-		const inBody = make('Notes', null, { body: 'How we deploy the server' });
-		const inTitle = make('Deploying');
-		createScroll(db, actor, { realmId: seedRealm(db, 'BO').id, title: 'Deploy elsewhere' });
+	it('finds Scrolls in one Realm by title and body, title first', async () => {
+		const inBody = await make('Notes', null, { body: 'How we deploy the server' });
+		const inTitle = await make('Deploying');
+		await createScroll(db, actor, {
+			realmId: (await seedRealm(db, 'BO')).id,
+			title: 'Deploy elsewhere'
+		});
 
-		const hits = searchScrolls(db, realmId, 'deploy');
+		const hits = await searchScrolls(db, realmId, 'deploy');
 		expect(hits.map((h) => h.id)).toEqual([inTitle.id, inBody.id]);
 		expect(hits[1].snippet).toContain('deploy');
 	});
 
-	it('follows edits', () => {
-		const scroll = make('Notes', null, { body: 'alpha' });
-		updateScroll(db, actor, scroll.id, { body: 'beta' });
-		expect(searchScrolls(db, realmId, 'alpha')).toEqual([]);
-		expect(searchScrolls(db, realmId, 'beta').map((h) => h.id)).toEqual([scroll.id]);
+	it('follows edits', async () => {
+		const scroll = await make('Notes', null, { body: 'alpha' });
+		await updateScroll(db, actor, scroll.id, { body: 'beta' });
+		expect(await searchScrolls(db, realmId, 'alpha')).toEqual([]);
+		expect((await searchScrolls(db, realmId, 'beta')).map((h) => h.id)).toEqual([scroll.id]);
 	});
 });
 
@@ -392,25 +420,25 @@ describe('access', () => {
 	let stranger: Actor;
 	let owned: number;
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		setAccessEnforced(true);
-		viewer = { id: seedUser(db, 'viewer') };
-		stranger = { id: seedUser(db, 'stranger') };
-		owned = createRealm(db, actor, { name: 'Private', key: 'PV', initialState: TODO }).id;
-		offerMembership(db, actor, owned, viewer.id, 'viewer');
-		acceptOffer(db, viewer, owned);
+		viewer = { id: await seedUser(db, 'viewer') };
+		stranger = { id: await seedUser(db, 'stranger') };
+		owned = (await createRealm(db, actor, { name: 'Private', key: 'PV', initialState: TODO })).id;
+		await offerMembership(db, actor, owned, viewer.id, 'viewer');
+		await acceptOffer(db, viewer, owned);
 	});
 
 	afterEach(() => setAccessEnforced(false));
 
-	it('lets editors write, refuses viewers, and hides the Realm from strangers', () => {
-		const scroll = createScroll(db, actor, { realmId: owned, title: 'Home' });
-		expect(errorOf(() => createScroll(db, viewer, { realmId: owned, title: 'Nope' })).code).toBe(
+	it('lets editors write, refuses viewers, and hides the Realm from strangers', async () => {
+		const scroll = await createScroll(db, actor, { realmId: owned, title: 'Home' });
+		expect(
+			(await errorOf(() => createScroll(db, viewer, { realmId: owned, title: 'Nope' }))).code
+		).toBe('forbidden');
+		expect((await errorOf(() => updateScroll(db, viewer, scroll.id, { body: 'x' }))).code).toBe(
 			'forbidden'
 		);
-		expect(errorOf(() => updateScroll(db, viewer, scroll.id, { body: 'x' })).code).toBe(
-			'forbidden'
-		);
-		expect(errorOf(() => deleteScroll(db, stranger, scroll.id)).code).toBe('not_found');
+		expect((await errorOf(() => deleteScroll(db, stranger, scroll.id))).code).toBe('not_found');
 	});
 });

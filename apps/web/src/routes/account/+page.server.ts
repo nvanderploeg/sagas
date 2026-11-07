@@ -5,16 +5,20 @@ import { getDb } from '#lib/server/db/index.ts';
 import { int, perform, signedIn, text } from '#lib/server/ui/form.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ locals }) => {
+export const load: PageServerLoad = async ({ locals }) => {
 	const user = signedIn(locals);
 	return {
-		tokens: listApiTokens(getDb(), user, user.id),
-		offers: listOffers(getDb(), user.id).map((offer) => ({
-			...offer,
-			createdAt: offer.createdAt.toISOString(),
-			invitedByName:
-				offer.invitedBy === null ? null : (findUser(getDb(), offer.invitedBy)?.displayName ?? null)
-		}))
+		tokens: await listApiTokens(getDb(), user, user.id),
+		offers: await Promise.all(
+			(await listOffers(getDb(), user.id)).map(async (offer) => ({
+				...offer,
+				createdAt: offer.createdAt.toISOString(),
+				invitedByName:
+					offer.invitedBy === null
+						? null
+						: ((await findUser(getDb(), offer.invitedBy))?.displayName ?? null)
+			}))
+		)
 	};
 };
 
@@ -22,24 +26,24 @@ export const actions: Actions = {
 	acceptOffer: async ({ request, locals }) => {
 		const user = signedIn(locals);
 		const form = await request.formData();
-		return perform('offers', () => {
-			acceptOffer(getDb(), user, int(form, 'realmId'));
+		return perform('offers', async () => {
+			await acceptOffer(getDb(), user, int(form, 'realmId'));
 		});
 	},
 
 	declineOffer: async ({ request, locals }) => {
 		const user = signedIn(locals);
 		const form = await request.formData();
-		return perform('offers', () => {
-			declineOffer(getDb(), user, int(form, 'realmId'));
+		return perform('offers', async () => {
+			await declineOffer(getDb(), user, int(form, 'realmId'));
 		});
 	},
 
 	token: async ({ request, locals }) => {
 		const user = signedIn(locals);
 		const form = await request.formData();
-		return perform('token', () => {
-			const { token } = createApiToken(getDb(), user, user.id, text(form, 'name'));
+		return perform('token', async () => {
+			const { token } = await createApiToken(getDb(), user, user.id, text(form, 'name'));
 			return { token };
 		});
 	},
@@ -47,8 +51,8 @@ export const actions: Actions = {
 	revoke: async ({ request, locals }) => {
 		const user = signedIn(locals);
 		const form = await request.formData();
-		return perform('revoke', () => {
-			revokeApiToken(getDb(), user, int(form, 'tokenId'));
+		return perform('revoke', async () => {
+			await revokeApiToken(getDb(), user, int(form, 'tokenId'));
 		});
 	}
 };

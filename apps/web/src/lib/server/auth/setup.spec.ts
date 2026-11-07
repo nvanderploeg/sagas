@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { apiTokens } from '#lib/server/db/schema.ts';
 import { testDb } from '#lib/server/test/db.ts';
@@ -9,12 +9,8 @@ import { authenticate, hasUsers } from './users.ts';
 
 let db: Db;
 
-beforeEach(() => {
-	db = testDb();
-});
-
-afterEach(() => {
-	db.$client.close();
+beforeEach(async () => {
+	db = await testDb();
 });
 
 const input = { username: 'Root', displayName: 'Root', password: 'a long enough password' };
@@ -30,10 +26,10 @@ describe('completeSetup', () => {
 	it('issues the first Admin one API token and keeps only its hash', async () => {
 		const { admin, token } = await completeSetup(db, input);
 
-		const rows = db.select().from(apiTokens).all();
+		const rows = await db.select().from(apiTokens);
 
 		expect(token).toMatch(/^wlt_/);
-		expect(verifyApiToken(db, token)?.id).toBe(admin.id);
+		expect((await verifyApiToken(db, token))?.id).toBe(admin.id);
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({ userId: admin.id, tokenHash: hashSecret(token) });
 		expect(JSON.stringify(rows)).not.toContain(token);
@@ -45,7 +41,7 @@ describe('completeSetup', () => {
 		await expect(completeSetup(db, { ...input, username: 'second' })).rejects.toMatchObject({
 			code: 'conflict'
 		});
-		expect(db.select().from(apiTokens).all()).toHaveLength(1);
+		expect(await db.select().from(apiTokens)).toHaveLength(1);
 	});
 
 	it('creates neither an Admin nor a token when the input is invalid', async () => {
@@ -53,7 +49,7 @@ describe('completeSetup', () => {
 			code: 'invalid'
 		});
 
-		expect(hasUsers(db)).toBe(false);
-		expect(db.select().from(apiTokens).all()).toEqual([]);
+		expect(await hasUsers(db)).toBe(false);
+		expect(await db.select().from(apiTokens)).toEqual([]);
 	});
 });

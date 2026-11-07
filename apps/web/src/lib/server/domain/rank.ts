@@ -5,20 +5,20 @@ export type Placement = 'top' | 'bottom' | { before: number } | { after: number 
 
 type Entry = { id: number; rank: string };
 
-export type NameLabour = (id: number) => string;
+export type NameLabour = (id: number) => Promise<string>;
 
-const byId: NameLabour = (id) => `Labour ${id}`;
+const byId: NameLabour = async (id) => `Labour ${id}`;
 
-// Ranks compare by code unit, as SQLite's default BINARY collation does.
-export function rankAt(
+// Ranks compare by code unit, as COLLATE "C" does on the rank columns.
+export async function rankAt(
 	column: Entry[],
 	subject: { id: number | null; rank?: string },
 	placement: Placement,
 	scope: 'State' | 'Quest' | 'Scroll',
 	name: NameLabour = byId
-): string {
+): Promise<string> {
 	const others = column.filter((entry) => entry.id !== subject.id);
-	const index = insertionIndex(others, subject.id, placement, scope, name);
+	const index = await insertionIndex(others, subject.id, placement, scope, name);
 	const lo = others[index - 1]?.rank ?? null;
 	const hi = others[index]?.rank ?? null;
 	const current = subject.rank;
@@ -29,24 +29,24 @@ export function rankAt(
 }
 
 // Ranks for `count` new entries placed together, in order.
-export function ranksAt(
+export async function ranksAt(
 	column: Entry[],
 	placement: Placement,
 	scope: 'State' | 'Quest' | 'Scroll',
 	count: number,
 	name: NameLabour = byId
-): string[] {
-	const index = insertionIndex(column, null, placement, scope, name);
+): Promise<string[]> {
+	const index = await insertionIndex(column, null, placement, scope, name);
 	return generateNKeysBetween(column[index - 1]?.rank ?? null, column[index]?.rank ?? null, count);
 }
 
-function insertionIndex(
+async function insertionIndex(
 	others: Entry[],
 	subjectId: number | null,
 	placement: Placement,
 	scope: string,
 	name: NameLabour
-): number {
+): Promise<number> {
 	if (placement === 'top') return 0;
 	if (placement === 'bottom') return others.length;
 	if (typeof placement === 'object' && placement !== null) {
@@ -57,7 +57,8 @@ function insertionIndex(
 				throw new DomainError('invalid', 'A Labour cannot be placed relative to itself');
 			}
 			const at = others.findIndex((entry) => entry.id === anchor);
-			if (at < 0) throw new DomainError('invalid', `${name(anchor)} is not in the same ${scope}`);
+			if (at < 0)
+				throw new DomainError('invalid', `${await name(anchor)} is not in the same ${scope}`);
 			return before ? at : at + 1;
 		}
 	}

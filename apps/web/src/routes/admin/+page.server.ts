@@ -2,9 +2,7 @@ import { error } from '@sveltejs/kit';
 import { createInvite, listInvites } from '#lib/server/auth/invites.ts';
 import { createApiToken, listApiTokens, revokeApiToken } from '#lib/server/auth/tokens.ts';
 import { createAgentUser, listUsers } from '#lib/server/auth/users.ts';
-import { dataLayout } from '#lib/server/admin/layout.ts';
-import { discardPendingImport, readPendingImport } from '#lib/server/admin/import.ts';
-import { IMPORT_CONFIRMATION, requireAdminSession } from '#lib/server/admin/guard.ts';
+import { IMPORT_CONFIRMATION } from '#lib/server/admin/guard.ts';
 import { importMaxBytes } from '#lib/server/config.ts';
 import { getDb } from '#lib/server/db/index.ts';
 import { int, perform, signedIn, text } from '#lib/server/ui/form.ts';
@@ -14,29 +12,27 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const actor = signedIn(locals);
 	if (!actor.isAdmin) error(403, 'Only an Admin can manage Users and Invites');
 	const db = getDb();
-	const users = listUsers(db);
+	const users = await listUsers(db);
 	return {
-		pendingImport: await readPendingImport(dataLayout),
 		importConfirmation: IMPORT_CONFIRMATION,
 		importMaxBytes,
 		users,
-		invites: listInvites(db, actor),
+		invites: await listInvites(db, actor),
 		tokens: Object.fromEntries(
-			users.filter((u) => u.kind === 'agent').map((u) => [u.id, listApiTokens(db, actor, u.id)])
+			await Promise.all(
+				users
+					.filter((u) => u.kind === 'agent')
+					.map(async (u) => [u.id, await listApiTokens(db, actor, u.id)])
+			)
 		)
 	};
 };
 
 export const actions: Actions = {
-	discardImport: async ({ locals }) => {
-		requireAdminSession(locals);
-		await discardPendingImport(dataLayout);
-	},
-
 	invite: ({ locals, url }) => {
 		const actor = signedIn(locals);
-		return perform('invite', () => {
-			const { token } = createInvite(getDb(), actor);
+		return perform('invite', async () => {
+			const { token } = await createInvite(getDb(), actor);
 			return { link: `${url.origin}/invite/${token}` };
 		});
 	},
@@ -44,8 +40,8 @@ export const actions: Actions = {
 	agent: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('agent', () => {
-			createAgentUser(getDb(), actor, {
+		return perform('agent', async () => {
+			await createAgentUser(getDb(), actor, {
 				username: text(form, 'username'),
 				displayName: text(form, 'displayName')
 			});
@@ -55,9 +51,9 @@ export const actions: Actions = {
 	token: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform(`token:${text(form, 'userId')}`, () => {
+		return perform(`token:${text(form, 'userId')}`, async () => {
 			const userId = int(form, 'userId');
-			const { token } = createApiToken(getDb(), actor, userId, text(form, 'name'));
+			const { token } = await createApiToken(getDb(), actor, userId, text(form, 'name'));
 			return { token, userId };
 		});
 	},
@@ -65,8 +61,8 @@ export const actions: Actions = {
 	revoke: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('revoke', () => {
-			revokeApiToken(getDb(), actor, int(form, 'tokenId'));
+		return perform('revoke', async () => {
+			await revokeApiToken(getDb(), actor, int(form, 'tokenId'));
 		});
 	}
 };

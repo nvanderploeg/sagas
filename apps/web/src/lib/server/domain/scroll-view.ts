@@ -10,10 +10,10 @@ export type ScrollView = Scroll;
 
 export type PathChange = { id: number; previousPath: string; path: string };
 
-export function getScroll(db: Handle, scrollId: number): Scroll {
-	const row = db.select().from(scrolls).where(eq(scrolls.id, scrollId)).get();
+export async function getScroll(db: Handle, scrollId: number): Promise<Scroll> {
+	const row = (await db.select().from(scrolls).where(eq(scrolls.id, scrollId)).limit(1))[0];
 	if (row === undefined) throw new DomainError('not_found', 'Scroll not found');
 	return row;
 }
 
-export const readScroll: (db: Handle, scrollId: number) => ScrollView = getScroll;
+export const readScroll = getScroll;

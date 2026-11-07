@@ -3,6 +3,7 @@ import type { Handle } from '../../../db/client.ts';
 import { DEFAULT_LOUDNESS, type ScaleSpec } from '../../attributes.ts';
 import { inAttributes, inRealms, keyOf, totalsOf } from '../../sentiment.ts';
 import type { Feature, FeatureContext } from './types.ts';
+import { intList, intRows } from '#lib/server/db/lists.ts';
 
 export type HeldKey = {
 	realmId: number;
@@ -12,24 +13,29 @@ export type HeldKey = {
 	x: number;
 };
 
-export function loadHeldKeys(db: Handle, labourIds: string): Map<number, HeldKey[]> {
-	const rows = db.all<{
-		labourId: number;
-		realmId: number;
-		attributeId: number;
-		attribute: string;
-		kind: string;
-		spec: string | null;
-		value: string;
-	}>(sql`
-		SELECT la.labour_id AS labourId, la.realm_id AS realmId, la.attribute_id AS attributeId,
+export async function loadHeldKeys(
+	db: Handle,
+	labourIds: number[]
+): Promise<Map<number, HeldKey[]>> {
+	const rows = (
+		await db.execute<{
+			labourId: number;
+			realmId: number;
+			attributeId: number;
+			attribute: string;
+			kind: string;
+			spec: ScaleSpec | null;
+			value: unknown;
+		}>(sql`
+		SELECT la.labour_id AS "labourId", la.realm_id AS "realmId", la.attribute_id AS "attributeId",
 			a.key AS attribute, a.kind AS kind,
 			CASE WHEN a.kind = 'scale' THEN a.spec END AS spec, la.value AS value
-		FROM json_each(${labourIds}) c
-		CROSS JOIN labour_attributes la ON la.labour_id = c.value
+		FROM ${intRows(labourIds)} AS c(value)
+		JOIN labour_attributes la ON la.labour_id = c.value
 		JOIN attributes a ON a.id = la.attribute_id
 		WHERE a.kind IN ('scale', 'tags')
-	`);
+	`)
+	).rows;
 	const scales = new Map<number, ScaleSpec>();
 	const held = new Map<number, HeldKey[]>();
 	const add = (labourId: number, entry: HeldKey) => {
@@ -38,7 +44,7 @@ export function loadHeldKeys(db: Handle, labourIds: string): Map<number, HeldKey
 		else list.push(entry);
 	};
 	for (const row of rows) {
-		const value = JSON.parse(row.value);
+		const value = row.value;
 		if (row.kind === 'tags') {
 			for (const member of value as string[]) {
 				add(row.labourId, {
@@ -53,7 +59,7 @@ export function loadHeldKeys(db: Handle, labourIds: string): Map<number, HeldKey
 		}
 		let spec = scales.get(row.attributeId);
 		if (spec === undefined) {
-			spec = JSON.parse(row.spec!) as ScaleSpec;
+			spec = row.spec!;
 			scales.set(row.attributeId, spec);
 		}
 		add(row.labourId, {
@@ -69,11 +75,11 @@ export function loadHeldKeys(db: Handle, labourIds: string): Map<number, HeldKey
 
 export type KeyStrength = { volume: number; mood: number; v: number };
 
-export function loadStrengths(
+export async function loadStrengths(
 	db: Handle,
 	held: Map<number, HeldKey[]>,
 	now: Date
-): Map<string, KeyStrength> {
+): Promise<Map<string, KeyStrength>> {
 	const strengths = new Map<string, KeyStrength>();
 	const realmIds = new Set<number>();
 	const attributeIds = new Set<number>();
@@ -86,14 +92,15 @@ export function loadStrengths(
 	if (attributeIds.size === 0) return strengths;
 
 	const loudness = new Map(
-		db
-			.all<{ realmId: number; loudness: number }>(
-				sql`SELECT realm_id AS realmId, loudness FROM realm_agent
-					WHERE realm_id IN (SELECT value FROM json_each(${JSON.stringify([...realmIds])}))`
-			)
-			.map((row) => [row.realmId, row.loudness])
+		(
+			await db.execute<{
+				realmId: number;
+				loudness: number;
+			}>(sql`SELECT realm_id AS "realmId", loudness FROM realm_agent
+					WHERE realm_id IN ${intList([...realmIds])}`)
+		).rows.map((row) => [row.realmId, row.loudness])
 	);
-	const totals = totalsOf(
+	const totals = await totalsOf(
 		db,
 		sql`${inRealms([...realmIds])} AND ${inAttributes([...attributeIds])}`,
 		now
@@ -124,21 +131,21 @@ type Loaded = {
 const loaded = new WeakMap<FeatureContext, Loaded>();
 const heldCache = new WeakMap<FeatureContext, Map<number, HeldKey[]>>();
 
-export function heldOf(ctx: FeatureContext): Map<number, HeldKey[]> {
+export async function heldOf(ctx: FeatureContext): Promise<Map<number, HeldKey[]>> {
 	let held = heldCache.get(ctx);
 	if (held === undefined) {
-		held = loadHeldKeys(ctx.db, ctx.candidateIds);
+		held = await loadHeldKeys(ctx.db, ctx.candidateIds);
 		heldCache.set(ctx, held);
 	}
 	return held;
 }
 
 // Load the three Sentiment features once per Survey.
-export function loadOf(ctx: FeatureContext): Loaded {
+export async function loadOf(ctx: FeatureContext): Promise<Loaded> {
 	const cached = loaded.get(ctx);
 	if (cached !== undefined) return cached;
-	const held = heldOf(ctx);
-	const strengths = loadStrengths(ctx.db, held, ctx.now);
+	const held = await heldOf(ctx);
+	const strengths = await loadStrengths(ctx.db, held, ctx.now);
 
 	const scores: Scores = { sentiment: new Map(), pain: new Map(), delight: new Map() };
 	for (const { id } of ctx.candidates) {
@@ -164,15 +171,15 @@ export function loadOf(ctx: FeatureContext): Loaded {
 
 export const sentiment: Feature = {
 	name: 'sentiment',
-	load: (ctx) => loadOf(ctx).scores.sentiment
+	load: async (ctx) => (await loadOf(ctx)).scores.sentiment
 };
 
 export const pain: Feature = {
 	name: 'pain',
-	load: (ctx) => loadOf(ctx).scores.pain
+	load: async (ctx) => (await loadOf(ctx)).scores.pain
 };
 
 export const delight: Feature = {
 	name: 'delight',
-	load: (ctx) => loadOf(ctx).scores.delight
+	load: async (ctx) => (await loadOf(ctx)).scores.delight
 };

@@ -33,19 +33,18 @@ const fetchFake: WebhookRuntime['fetch'] = (input, allowPrivate) => {
 	return respond();
 };
 
-beforeEach(() => {
-	db = testDb();
+beforeEach(async () => {
+	db = await testDb();
 	env = { key: KEY, maxPerUser: 10, max: 50, allowPrivate: false, now: NOW };
-	ada = seedHuman(db, 'ada');
-	bob = seedHuman(db, 'bob');
-	admin = { ...seedHuman(db, 'root'), isAdmin: true };
+	ada = await seedHuman(db, 'ada');
+	bob = await seedHuman(db, 'bob');
+	admin = { ...(await seedHuman(db, 'root')), isAdmin: true };
 	calls = [];
 	respond = async () => ({ ok: true, status: 200, durationMs: 7, body: '' });
 });
 
 afterEach(() => {
 	vi.useRealTimers();
-	db.$client.close();
 });
 
 function make(extra = {}) {
@@ -58,9 +57,10 @@ const pingEnv = (extra: Partial<WebhookEnv> = {}): WebhookEnv => ({
 	...extra
 });
 
-const row = (id: number) => db.select().from(webhooks).where(eq(webhooks.id, id)).get()!;
+const row = async (id: number) =>
+	(await db.select().from(webhooks).where(eq(webhooks.id, id)).limit(1))[0]!;
 
-const deliveries = (id: number) => listDeliveries(db, id).deliveries;
+const deliveries = async (id: number) => (await listDeliveries(db, id)).deliveries;
 
 function sign(secret: string, content: string): string {
 	const key = Buffer.from(secret.slice('whsec_'.length), 'base64');
@@ -88,7 +88,7 @@ async function expectCode(action: () => Promise<unknown>, code: string, message?
 
 describe('the ping request', () => {
 	it('POSTs the ping body to the Webhook url', async () => {
-		const { webhook } = make({ name: 'my hook' });
+		const { webhook } = await make({ name: 'my hook' });
 
 		await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
 
@@ -100,7 +100,7 @@ describe('the ping request', () => {
 	});
 
 	it('passes env.allowPrivate to fetch', async () => {
-		const { webhook } = make();
+		const { webhook } = await make();
 
 		await testWebhook(db, ada, webhook.id, pingEnv({ allowPrivate: true }), fetchFake);
 		await testWebhook(db, ada, webhook.id, pingEnv({ allowPrivate: false }), fetchFake);
@@ -109,7 +109,7 @@ describe('the ping request', () => {
 	});
 
 	it('carries the Standard Webhooks headers with a ping id and the env time', async () => {
-		const { webhook } = make();
+		const { webhook } = await make();
 		const timestamp = String(Math.floor(PING_AT / 1000));
 
 		await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
@@ -121,7 +121,7 @@ describe('the ping request', () => {
 	});
 
 	it('signs the id, timestamp and body with the secret', async () => {
-		const { webhook, secret } = make();
+		const { webhook, secret } = await make();
 
 		await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
 
@@ -129,8 +129,8 @@ describe('the ping request', () => {
 	});
 
 	it('signs with a secret that does not verify under another one', async () => {
-		const { webhook } = make();
-		const other = make().secret;
+		const { webhook } = await make();
+		const other = (await make()).secret;
 
 		await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
 
@@ -140,8 +140,8 @@ describe('the ping request', () => {
 	});
 
 	it('signs with both secrets during a rotation overlap', async () => {
-		const { webhook, secret: first } = make();
-		const { secret: second } = rotateWebhookSecret(db, ada, webhook.id, env);
+		const { webhook, secret: first } = await make();
+		const { secret: second } = await rotateWebhookSecret(db, ada, webhook.id, env);
 
 		await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
 
@@ -149,8 +149,8 @@ describe('the ping request', () => {
 	});
 
 	it('signs with the new secret alone once the overlap has passed', async () => {
-		const { webhook, secret: first } = make();
-		const { secret: second } = rotateWebhookSecret(db, ada, webhook.id, env);
+		const { webhook, secret: first } = await make();
+		const { secret: second } = await rotateWebhookSecret(db, ada, webhook.id, env);
 
 		await testWebhook(db, ada, webhook.id, pingEnv({ now: NOW + 25 * HOUR }), fetchFake);
 
@@ -166,7 +166,7 @@ describe('the ping request', () => {
 
 describe('the attempt', () => {
 	it('reports a 2xx answer as ok', async () => {
-		const { webhook } = make();
+		const { webhook } = await make();
 		respond = async () => ({ ok: true, status: 204, durationMs: 31, body: '' });
 
 		expect(await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake)).toEqual({
@@ -178,7 +178,7 @@ describe('the attempt', () => {
 	});
 
 	it('reports ok:false from fetch as an attempt with its error', async () => {
-		const { webhook } = make();
+		const { webhook } = await make();
 		respond = async () => ({
 			ok: false,
 			status: 500,
@@ -196,7 +196,7 @@ describe('the attempt', () => {
 	});
 
 	it('reports a status-less failure as an attempt', async () => {
-		const { webhook } = make();
+		const { webhook } = await make();
 		respond = async () => ({ ok: false, status: null, durationMs: 3, body: '', error: 'timeout' });
 
 		expect(await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake)).toMatchObject({
@@ -207,7 +207,7 @@ describe('the attempt', () => {
 	});
 
 	it('turns a throwing fetch into an attempt, never a thrown error', async () => {
-		const { webhook } = make();
+		const { webhook } = await make();
 		respond = async () => {
 			throw new Error('socket exploded');
 		};
@@ -218,46 +218,46 @@ describe('the attempt', () => {
 		expect(attempt.status).toBeNull();
 		expect(attempt.error).toEqual(expect.any(String));
 		expect(attempt.error).not.toBe('');
-		expect(deliveries(webhook.id)).toHaveLength(1);
+		expect(await deliveries(webhook.id)).toHaveLength(1);
 	});
 
 	it('turns secrets sealed under another key into a failed attempt, still recorded', async () => {
-		const { webhook } = make();
+		const { webhook } = await make();
 
 		const attempt = await testWebhook(db, ada, webhook.id, pingEnv({ key: OTHER_KEY }), fetchFake);
 
 		expect(attempt.ok).toBe(false);
 		expect(attempt.error).toEqual(expect.any(String));
 		expect(attempt.error).not.toBe('');
-		const [delivery] = deliveries(webhook.id);
+		const [delivery] = await deliveries(webhook.id);
 		expect(delivery).toMatchObject({ kind: 'ping', error: attempt.error });
-		expect(deliveries(webhook.id)).toHaveLength(1);
+		expect(await deliveries(webhook.id)).toHaveLength(1);
 	});
 });
 
 describe('a Webhook deleted while its ping is in flight', () => {
 	it('answers with the attempt and records no row', async () => {
-		const { webhook } = make();
+		const { webhook } = await make();
 		respond = async () => {
-			db.delete(webhooks).where(eq(webhooks.id, webhook.id)).run();
+			await db.delete(webhooks).where(eq(webhooks.id, webhook.id));
 			return { ok: true, status: 200, durationMs: 7, body: '' };
 		};
 
 		const attempt = await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
 
 		expect(attempt.ok).toBe(true);
-		expect(deliveries(webhook.id)).toHaveLength(0);
+		expect(await deliveries(webhook.id)).toHaveLength(0);
 	});
 });
 
 describe('the delivery record', () => {
 	it('records exactly one ping row with the attempt', async () => {
-		const { webhook } = make();
+		const { webhook } = await make();
 		respond = async () => ({ ok: true, status: 200, durationMs: 18, body: 'pong' });
 
 		await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
 
-		const all = deliveries(webhook.id);
+		const all = await deliveries(webhook.id);
 		expect(all).toHaveLength(1);
 		expect(all[0]).toMatchObject({
 			webhookId: webhook.id,
@@ -273,24 +273,26 @@ describe('the delivery record', () => {
 	});
 
 	it('uses the sent webhook-id as the message id', async () => {
-		const { webhook } = make();
+		const { webhook } = await make();
 
 		await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
 
-		expect(deliveries(webhook.id)[0]!.messageId).toBe(calls[0]!.input.headers['webhook-id']);
+		expect((await deliveries(webhook.id))[0]!.messageId).toBe(
+			calls[0]!.input.headers['webhook-id']
+		);
 	});
 
 	it('stores an empty response body as null', async () => {
-		const { webhook } = make();
+		const { webhook } = await make();
 		respond = async () => ({ ok: true, status: 200, durationMs: 1, body: '' });
 
 		await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
 
-		expect(deliveries(webhook.id)[0]!.responseBody).toBeNull();
+		expect((await deliveries(webhook.id))[0]!.responseBody).toBeNull();
 	});
 
 	it('records the status and error of a failed attempt', async () => {
-		const { webhook } = make();
+		const { webhook } = await make();
 		respond = async () => ({
 			ok: false,
 			status: 502,
@@ -301,7 +303,7 @@ describe('the delivery record', () => {
 
 		await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
 
-		expect(deliveries(webhook.id)[0]).toMatchObject({
+		expect((await deliveries(webhook.id))[0]).toMatchObject({
 			status: 502,
 			error: 'HTTP 502',
 			responseBody: 'bad gateway'
@@ -309,75 +311,75 @@ describe('the delivery record', () => {
 	});
 
 	it('adds one row per ping', async () => {
-		const { webhook } = make();
+		const { webhook } = await make();
 
 		await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
 		await testWebhook(db, ada, webhook.id, pingEnv({ now: PING_AT + 5000 }), fetchFake);
 
-		expect(deliveries(webhook.id)).toHaveLength(2);
+		expect(await deliveries(webhook.id)).toHaveLength(2);
 	});
 });
 
 describe('what a ping leaves alone', () => {
 	it('moves nothing on an active Webhook after success', async () => {
-		const { webhook } = make();
-		const before = row(webhook.id);
+		const { webhook } = await make();
+		const before = await row(webhook.id);
 
 		await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
 
-		expect(row(webhook.id)).toEqual(before);
+		expect(await row(webhook.id)).toEqual(before);
 	});
 
 	it('moves nothing after a failed ping', async () => {
-		const { webhook } = make();
-		const before = row(webhook.id);
+		const { webhook } = await make();
+		const before = await row(webhook.id);
 		respond = async () => ({ ok: false, status: 500, durationMs: 1, body: '', error: 'HTTP 500' });
 
 		await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
 
-		expect(row(webhook.id)).toEqual(before);
+		expect(await row(webhook.id)).toEqual(before);
 	});
 
 	it('moves nothing when fetch throws', async () => {
-		const { webhook } = make();
-		const before = row(webhook.id);
+		const { webhook } = await make();
+		const before = await row(webhook.id);
 		respond = async () => {
 			throw new Error('nope');
 		};
 
 		await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
 
-		expect(row(webhook.id)).toEqual(before);
+		expect(await row(webhook.id)).toEqual(before);
 	});
 
 	it('moves nothing on a failing Webhook with a cursor, attempts and a retry time', async () => {
-		const { webhook } = make();
-		db.update(webhooks)
+		const { webhook } = await make();
+		await db
+			.update(webhooks)
 			.set({
 				cursor: 42,
 				attempts: 4,
 				failingSince: new Date(NOW + 1000),
 				nextAttemptAt: new Date(NOW + 2000)
 			})
-			.where(eq(webhooks.id, webhook.id))
-			.run();
-		const before = row(webhook.id);
+			.where(eq(webhooks.id, webhook.id));
+		const before = await row(webhook.id);
 
 		await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
 
-		const after = row(webhook.id);
+		const after = await row(webhook.id);
 		expect(after).toEqual(before);
 		expect(after.cursor).toBe(42);
 		expect(after.attempts).toBe(4);
 	});
 
 	it('moves nothing when the secrets cannot be opened', async () => {
-		const { webhook } = make();
-		const before = row(webhook.id);
+		const { webhook } = await make();
+		const before = await row(webhook.id);
 
 		await testWebhook(db, ada, webhook.id, pingEnv({ key: OTHER_KEY }), fetchFake);
 
-		expect(row(webhook.id)).toEqual(before);
+		expect(await row(webhook.id)).toEqual(before);
 	});
 });
 
@@ -387,35 +389,35 @@ describe('Webhook status', () => {
 		['paused', 'key_changed'],
 		['disabled', 'failing']
 	] as const)('pings a %s Webhook (reason %s) without changing it', async (status, reason) => {
-		const { webhook } = make();
-		db.update(webhooks)
+		const { webhook } = await make();
+		await db
+			.update(webhooks)
 			.set({ status, statusReason: reason })
-			.where(eq(webhooks.id, webhook.id))
-			.run();
-		const before = row(webhook.id);
+			.where(eq(webhooks.id, webhook.id));
+		const before = await row(webhook.id);
 
 		const attempt = await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
 
 		expect(attempt.ok).toBe(true);
 		expect(calls).toHaveLength(1);
-		expect(deliveries(webhook.id)).toHaveLength(1);
-		expect(row(webhook.id)).toEqual(before);
+		expect(await deliveries(webhook.id)).toHaveLength(1);
+		expect(await row(webhook.id)).toEqual(before);
 	});
 });
 
 describe('permissions and the key', () => {
 	it('lets the owner and an Admin ping', async () => {
-		const { webhook } = make();
+		const { webhook } = await make();
 
 		await testWebhook(db, ada, webhook.id, pingEnv(), fetchFake);
 		await testWebhook(db, admin, webhook.id, pingEnv(), fetchFake);
 
 		expect(calls).toHaveLength(2);
-		expect(deliveries(webhook.id)).toHaveLength(2);
+		expect(await deliveries(webhook.id)).toHaveLength(2);
 	});
 
 	it('answers not_found to another User, sending and recording nothing', async () => {
-		const { webhook } = make();
+		const { webhook } = await make();
 
 		await expectCode(
 			() => testWebhook(db, bob, webhook.id, pingEnv(), fetchFake),
@@ -424,7 +426,7 @@ describe('permissions and the key', () => {
 		);
 
 		expect(calls).toHaveLength(0);
-		expect(deliveries(webhook.id)).toHaveLength(0);
+		expect(await deliveries(webhook.id)).toHaveLength(0);
 	});
 
 	it('answers not_found for a Webhook that does not exist', async () => {
@@ -437,7 +439,7 @@ describe('permissions and the key', () => {
 	});
 
 	it('refuses without a key, sending and recording nothing', async () => {
-		const { webhook } = make();
+		const { webhook } = await make();
 
 		await expectCode(
 			() => testWebhook(db, ada, webhook.id, pingEnv({ key: undefined }), fetchFake),
@@ -446,6 +448,6 @@ describe('permissions and the key', () => {
 		);
 
 		expect(calls).toHaveLength(0);
-		expect(db.select().from(webhookDeliveries).all()).toHaveLength(0);
+		expect(await db.select().from(webhookDeliveries)).toHaveLength(0);
 	});
 });

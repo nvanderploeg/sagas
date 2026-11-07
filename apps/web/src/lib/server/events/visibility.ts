@@ -5,25 +5,29 @@ import { visibleRealmIds } from '../domain/access.ts';
 import { restrictQuest } from '../domain/quest-view.ts';
 import type { SagasEvent } from './types.ts';
 
-function realmExists(db: Handle, id: number): boolean {
-	return db.select({ id: realms.id }).from(realms).where(eq(realms.id, id)).get() !== undefined;
+async function realmExists(db: Handle, id: number): Promise<boolean> {
+	return (
+		(await db.select({ id: realms.id }).from(realms).where(eq(realms.id, id)).limit(1))[0] !==
+		undefined
+	);
 }
 
-function realmOfLabour(db: Handle, id: number): number | null {
+async function realmOfLabour(db: Handle, id: number): Promise<number | null> {
 	return (
-		db.select({ realmId: labours.realmId }).from(labours).where(eq(labours.id, id)).get()
-			?.realmId ?? null
+		(
+			await db.select({ realmId: labours.realmId }).from(labours).where(eq(labours.id, id)).limit(1)
+		)[0]?.realmId ?? null
 	);
 }
 
 // The Event as one viewer may see it, or null when it concerns nothing they can see. Per
 // the product/realm-access Scroll, membership is read now, not when the Event happened.
-export function eventForViewer(
+export async function eventForViewer(
 	db: Handle,
 	event: SagasEvent,
 	viewer: { id: number }
-): SagasEvent | null {
-	const ids = visibleRealmIds(db, viewer);
+): Promise<SagasEvent | null> {
+	const ids = await visibleRealmIds(db, viewer);
 	if (ids === null) return event;
 	const visible = new Set(ids);
 	const sees = (realmId: number | null) => realmId !== null && visible.has(realmId);
@@ -55,11 +59,13 @@ export function eventForViewer(
 			} as SagasEvent;
 		}
 		case 'labour.ranked': {
-			const state = db
-				.select({ realmId: states.realmId })
-				.from(states)
-				.where(eq(states.id, event.data.stateId))
-				.get();
+			const state = (
+				await db
+					.select({ realmId: states.realmId })
+					.from(states)
+					.where(eq(states.id, event.data.stateId))
+					.limit(1)
+			)[0];
 			return sees(state?.realmId ?? null) ? event : null;
 		}
 		case 'labour.rekeyed':
@@ -67,9 +73,9 @@ export function eventForViewer(
 			return sees(event.data.realmId) ? event : null;
 		case 'labour.commented':
 		case 'labour.comment_edited':
-			return sees(realmOfLabour(db, event.data.comment.labourId)) ? event : null;
+			return sees(await realmOfLabour(db, event.data.comment.labourId)) ? event : null;
 		case 'labour.comment_deleted':
-			return sees(realmOfLabour(db, event.data.labourId)) ? event : null;
+			return sees(await realmOfLabour(db, event.data.labourId)) ? event : null;
 		case 'quest.created':
 		case 'quest.updated':
 		case 'quest.labour_ranked':
@@ -80,7 +86,9 @@ export function eventForViewer(
 			} as SagasEvent;
 		case 'quest.deleted':
 			// A Realm's deletion takes its Memberships with it, so its Quests go to every Stream.
-			return sees(event.data.realmId) || !realmExists(db, event.data.realmId) ? event : null;
+			return sees(event.data.realmId) || !(await realmExists(db, event.data.realmId))
+				? event
+				: null;
 		case 'scroll.created':
 		case 'scroll.updated':
 		case 'scroll.moved':
@@ -91,11 +99,10 @@ export function eventForViewer(
 		case 'quest.labours_removed': {
 			if (!sees(event.data.quest.realmId)) return null;
 			const rows = event.data.labourIds.length
-				? db
+				? await db
 						.select({ id: labours.id, realmId: labours.realmId })
 						.from(labours)
 						.where(inArray(labours.id, event.data.labourIds))
-						.all()
 				: [];
 			const shown = new Set(rows.filter((row) => visible.has(row.realmId)).map((row) => row.id));
 			return {

@@ -29,24 +29,22 @@ function truncateUtf8(text: string, maxBytes: number): string {
 	return bytes.subarray(0, end).toString('utf8');
 }
 
-export function recordDelivery(db: Handle, input: DeliveryInput): void {
-	db.insert(webhookDeliveries)
-		.values({
-			...input,
-			attemptedAt: new Date(input.attemptedAt),
-			responseBody:
-				input.responseBody === null ? null : truncateUtf8(input.responseBody, BODY_MAX_BYTES)
-		})
-		.run();
+export async function recordDelivery(db: Handle, input: DeliveryInput): Promise<void> {
+	await db.insert(webhookDeliveries).values({
+		...input,
+		attemptedAt: new Date(input.attemptedAt),
+		responseBody:
+			input.responseBody === null ? null : truncateUtf8(input.responseBody, BODY_MAX_BYTES)
+	});
 }
 
-export function listDeliveries(
+export async function listDeliveries(
 	db: Handle,
 	webhookId: number,
 	page: { before?: number; limit?: number } = {}
-): { deliveries: DeliveryInfo[]; nextBefore: number | null } {
+): Promise<{ deliveries: DeliveryInfo[]; nextBefore: number | null }> {
 	const limit = Math.min(Math.max(Math.floor(page.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT);
-	const rows = db
+	const rows = await db
 		.select()
 		.from(webhookDeliveries)
 		.where(
@@ -56,16 +54,22 @@ export function listDeliveries(
 			)
 		)
 		.orderBy(desc(webhookDeliveries.id))
-		.limit(limit + 1)
-		.all();
+		.limit(limit + 1);
 	const more = rows.length > limit;
 	const deliveries = more ? rows.slice(0, limit) : rows;
 	return { deliveries, nextBefore: more ? deliveries[deliveries.length - 1]!.id : null };
 }
 
-export function pruneDeliveries(db: Handle, retentionMs: number, now = Date.now()): number {
-	return db
-		.delete(webhookDeliveries)
-		.where(lt(webhookDeliveries.attemptedAt, new Date(now - retentionMs)))
-		.run().changes;
+export async function pruneDeliveries(
+	db: Handle,
+	retentionMs: number,
+	now = Date.now()
+): Promise<number> {
+	return (
+		(
+			await db
+				.delete(webhookDeliveries)
+				.where(lt(webhookDeliveries.attemptedAt, new Date(now - retentionMs)))
+		).rowCount ?? 0
+	);
 }

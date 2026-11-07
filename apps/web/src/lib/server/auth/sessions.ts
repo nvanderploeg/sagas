@@ -7,40 +7,44 @@ import { toAuthUser, type AuthUser } from './users.ts';
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-export function createSession(
+export async function createSession(
 	db: Db,
 	userId: number,
 	now: Date = new Date()
-): { token: string; expiresAt: Date } {
+): Promise<{ token: string; expiresAt: Date }> {
 	const token = generateSecret(SESSION_PREFIX);
 	const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
-	db.insert(sessions)
-		.values({ id: hashSecret(token), userId, expiresAt })
-		.run();
+	await db.insert(sessions).values({ id: hashSecret(token), userId, expiresAt });
 	return { token, expiresAt };
 }
 
-export function resolveSession(db: Db, token: string, now: Date = new Date()): AuthUser | null {
+export async function resolveSession(
+	db: Db,
+	token: string,
+	now: Date = new Date()
+): Promise<AuthUser | null> {
 	const id = hashSecret(token);
-	const row = db
-		.select({ session: sessions, user: users })
-		.from(sessions)
-		.innerJoin(users, eq(users.id, sessions.userId))
-		.where(eq(sessions.id, id))
-		.get();
+	const row = (
+		await db
+			.select({ session: sessions, user: users })
+			.from(sessions)
+			.innerJoin(users, eq(users.id, sessions.userId))
+			.where(eq(sessions.id, id))
+			.limit(1)
+	)[0];
 	if (!row) return null;
 	if (row.session.expiresAt.getTime() <= now.getTime()) {
-		endSession(db, id);
+		await endSession(db, id);
 		return null;
 	}
 	return toAuthUser(row.user);
 }
 
-export function deleteSession(db: Db, token: string): void {
-	endSession(db, hashSecret(token));
+export async function deleteSession(db: Db, token: string): Promise<void> {
+	await endSession(db, hashSecret(token));
 }
 
-function endSession(db: Db, id: string): void {
-	db.delete(sessions).where(eq(sessions.id, id)).run();
+async function endSession(db: Db, id: string): Promise<void> {
+	await db.delete(sessions).where(eq(sessions.id, id));
 	announceRevoked({ kind: 'session', hash: id });
 }

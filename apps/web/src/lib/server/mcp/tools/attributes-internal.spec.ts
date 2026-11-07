@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { seedHuman } from '#lib/server/auth/fixtures.ts';
 import type { AuthUser } from '#lib/server/auth/users.ts';
 import type { Db } from '#lib/server/db/client.ts';
@@ -12,15 +12,11 @@ let db: Db;
 let registry: Registry;
 let user: AuthUser;
 
-beforeEach(() => {
-	db = testDb();
-	user = seedHuman(db, 'ada');
+beforeEach(async () => {
+	db = await testDb();
+	user = await seedHuman(db, 'ada');
 	registry = toolRegistry(db, user, 'http://sagas.test');
 	registerAttributeTools(registry.tools);
-});
-
-afterEach(() => {
-	db.$client.close();
 });
 
 async function call(name: string, args: Record<string, unknown>) {
@@ -30,7 +26,7 @@ async function call(name: string, args: Record<string, unknown>) {
 
 describe('attribute tools', () => {
 	it('defines, reads with since, tunes and deletes by Realm key', async () => {
-		const realm = seedRealm(db, 'AM');
+		const realm = await seedRealm(db, 'AM');
 		const spec = { min: 1, max: 5 };
 		const made = await call('define_attribute', {
 			realm: 'am',
@@ -44,8 +40,8 @@ describe('attribute tools', () => {
 		expect(made.data.attribute).toMatchObject({ key: 'size', spec, held: 0, counts: {} });
 		expect(typeof made.data.attribute.revisedAt).toBe('string');
 
-		const labour = seedLabour(db, { realmId: realm.id });
-		setValues(db, user, labour.id, { size: 4 });
+		const labour = await seedLabour(db, { realmId: realm.id });
+		await setValues(db, user, labour.id, { size: 4 });
 
 		expect((await call('get_attributes', { realm: 'AM', since: 2 })).data).toEqual({
 			realm: 'AM',
@@ -73,7 +69,7 @@ describe('attribute tools', () => {
 	});
 
 	it('answers a domain error with its code and refuses unknown arguments', async () => {
-		seedRealm(db, 'AM');
+		await seedRealm(db, 'AM');
 		const reserved = await call('define_attribute', {
 			realm: 'AM',
 			key: 'rank',

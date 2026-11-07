@@ -9,6 +9,6 @@ export function setDispatcher(dispatcher: Dispatcher | null): void {
 	current = dispatcher;
 }
 
-export function nudgeWebhook(id: number): void {
-	current?.nudge(id);
+export async function nudgeWebhook(id: number): Promise<void> {
+	await current?.nudge(id);
 }
