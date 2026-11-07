@@ -143,3 +143,14 @@ export async function setUserEmail(
 		return toAuthUser(row);
 	});
 }
+
+// Clears the Firebase sign-in a User is linked to; their email stays, so the next verified
+// sign-in with it links again.
+export async function unlinkSignIn(db: Db, actor: AuthUser, userId: number): Promise<AuthUser> {
+	requireAdmin(actor);
+	const row = (
+		await db.update(users).set({ firebaseUid: null }).where(eq(users.id, userId)).returning()
+	)[0];
+	if (!row) throw new DomainError('not_found', 'No such User');
+	return toAuthUser(row);
+}

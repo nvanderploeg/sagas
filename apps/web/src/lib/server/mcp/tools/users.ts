@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { createApiToken, listApiTokens, revokeApiToken } from '../../auth/tokens.ts';
-import { createAgentUser, listUsers, setRealmLimit } from '../../auth/users.ts';
+import { createAgentUser, listUsers, setRealmLimit, unlinkSignIn } from '../../auth/users.ts';
 import { count, userSummary } from '../present.ts';
 import * as refs from '../refs.ts';
 import { reply } from '../result.ts';
@@ -60,6 +60,21 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 				{ user, realmLimit: args.limit },
 				`${user.username} may create ${args.limit} Realms`
 			);
+		}
+	);
+
+	define(
+		'unlink_sign_in',
+		{
+			kind: 'write',
+			description:
+				'Admin only. Clear the Firebase sign-in a User is linked to, keeping their email, so the next verified sign-in with that email links again. Use after a Firebase account was recreated.',
+			input: { user: userRef.describe('Username, "me" or id') }
+		},
+		async (args) => {
+			const userId = await refs.userId(db, args.user, actor);
+			const user = userSummary(await unlinkSignIn(db, actor, userId));
+			return reply({ user }, `${user.username} is no longer linked to a sign-in`);
 		}
 	);
 

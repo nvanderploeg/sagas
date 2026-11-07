@@ -41,8 +41,21 @@ container's user (`chmod 440`, group 1000).
 
 Anyone with a Firebase account whose email is verified can sign in and becomes a human User. A first
 sign-in links to the User that already holds that email (an Admin sets it on `/admin`), otherwise it
-creates a new User. Each User may create `realm_limit` Realms (default 1); an Admin changes it on
+creates a new User. The exception is an `ADMIN_EMAILS` address signing in to an instance where no
+User has an email or sign-in yet: it links to the one existing human Admin, keeping its Realm
+memberships. With several such Admins nothing is guessed and a new Admin is created; set the email
+on the one you want first. Each User may create `realm_limit` Realms (default 1); an Admin changes it on
 `/admin`.
+
+### Recovering a sign-in
+
+A User's email links their sign-in; once linked, the Firebase uid is what identifies them. If the
+Firebase account was deleted and recreated with the same email, the new uid is refused with a
+conflict. An Admin presses "Unlink sign-in" on `/admin` (or calls the `unlink_sign_in` MCP tool),
+which clears the uid and keeps the email; the next verified sign-in with that email links again.
+
+If an `ADMIN_EMAILS` sign-in already created a new Admin beside the old one: as the new Admin, clear
+your own email and unlink your sign-in, set the old Admin's email to yours, then sign in again.
 
 ## An external database
 

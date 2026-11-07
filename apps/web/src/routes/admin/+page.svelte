@@ -149,13 +149,19 @@
 								</label>
 								<button type="submit" class="btn">Set</button>
 							</form>
+							<form method="POST" action="?/unlink" use:enhance>
+								<input type="hidden" name="userId" value={user.id} />
+								<button type="submit" class="btn">Unlink sign-in</button>
+							</form>
 						{/if}
 					</div>
 				</li>
 			{/each}
 		</ul>
-		{#if failure('realmLimit') ?? failure('email')}
-			<p role="alert" class="error px-5 pb-3">{failure('realmLimit') ?? failure('email')}</p>
+		{#if failure('realmLimit') ?? failure('email') ?? failure('unlink')}
+			<p role="alert" class="error px-5 pb-3">
+				{failure('realmLimit') ?? failure('email') ?? failure('unlink')}
+			</p>
 		{/if}
 	</section>
 

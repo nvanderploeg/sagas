@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, or } from 'drizzle-orm';
 import type { Db, Handle } from '#lib/server/db/client.ts';
 import { transact } from '#lib/server/db/tx.ts';
 import { users } from '#lib/server/db/schema.ts';
@@ -28,8 +28,24 @@ async function freeUsername(tx: Handle, email: string): Promise<string> {
 	}
 }
 
-// Resolves the human User for a Firebase identity: by uid, else by a verified email already set
-// on a User, else a new User. A listed admin email makes the User an Admin.
+// The one human Admin of an instance nobody has signed in to yet; with several, none is guessed.
+async function soleUnlinkedAdmin(tx: Handle) {
+	const linked = await tx
+		.select({ id: users.id })
+		.from(users)
+		.where(and(eq(users.kind, 'human'), or(isNotNull(users.firebaseUid), isNotNull(users.email))))
+		.limit(1);
+	if (linked.length > 0) return undefined;
+	const admins = await tx
+		.select()
+		.from(users)
+		.where(and(eq(users.kind, 'human'), eq(users.isAdmin, true), isNull(users.firebaseUid)))
+		.limit(2);
+	return admins.length === 1 ? admins[0] : undefined;
+}
+
+// Resolves the human User for a Firebase identity: by uid, else by the verified email a User holds,
+// else (listed admin email, no User linked yet) the sole human Admin, else a new User.
 export async function signInIdentity(
 	db: Db,
 	identity: FirebaseIdentity,
@@ -43,14 +59,19 @@ export async function signInIdentity(
 		const byUid = (
 			await tx.select().from(users).where(eq(users.firebaseUid, identity.uid)).limit(1)
 		)[0];
-		const byEmail = byUid
-			? undefined
-			: (await tx.select().from(users).where(eq(users.email, email)).limit(1))[0];
-		if (byEmail && (byEmail.kind !== 'human' || byEmail.firebaseUid !== null)) {
+		const holder = (await tx.select().from(users).where(eq(users.email, email)).limit(1))[0];
+		if (byUid && holder && holder.id !== byUid.id) {
 			throw new DomainError('conflict', 'That email belongs to another account');
 		}
+		const byEmail = byUid ? undefined : holder;
+		if (byEmail && (byEmail.kind !== 'human' || byEmail.firebaseUid !== null)) {
+			throw new DomainError(
+				'conflict',
+				'That email belongs to an account linked to a different sign-in; an Admin can unlink it on /admin'
+			);
+		}
 		const admin = adminEmails.has(email);
-		const existing = byUid ?? byEmail;
+		const existing = byUid ?? byEmail ?? (admin ? await soleUnlinkedAdmin(tx) : undefined);
 		if (existing) {
 			const row = (
 				await tx

@@ -145,3 +145,17 @@ describe('the Realm limit over MCP', () => {
 		expect(await errorCode(owner, 'set_realm_limit', { user: 'ada', limit: 5 })).toBe('forbidden');
 	});
 });
+
+describe('unlink_sign_in over MCP', () => {
+	it('lets an Admin clear a linked sign-in and nobody else', async () => {
+		await db.update(users).set({ firebaseUid: 'u-ada' }).where(eq(users.id, ada.id));
+		const owner = await connect(ada);
+		expect(await errorCode(owner, 'unlink_sign_in', { user: 'ada' })).toBe('forbidden');
+
+		const boss = await connect(await seedAdmin(db, 'root', 'Root'));
+		await ok(boss, 'unlink_sign_in', { user: 'ada' });
+
+		const row = (await db.select().from(users).where(eq(users.id, ada.id)))[0];
+		expect(row.firebaseUid).toBeNull();
+	});
+});

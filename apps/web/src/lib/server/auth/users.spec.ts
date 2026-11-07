@@ -1,10 +1,11 @@
+import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { users } from '#lib/server/db/schema.ts';
 import type { Db } from '#lib/server/db/client.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import { seedAdmin, seedHuman } from './fixtures.ts';
-import { createAgentUser, listUsers, setRealmLimit, setUserEmail } from './users.ts';
+import { createAgentUser, listUsers, setRealmLimit, setUserEmail, unlinkSignIn } from './users.ts';
 
 let db: Db;
 
@@ -82,6 +83,23 @@ describe('user email', () => {
 		expect((await setUserEmail(db, admin, grace.id, '')).email).toBeNull();
 		await expectCode(() => setUserEmail(db, admin, grace.id, 'nope'), 'invalid');
 		await expectCode(() => setUserEmail(db, grace, grace.id, 'g@x.test'), 'forbidden');
+	});
+});
+
+describe('unlinkSignIn', () => {
+	it('clears the uid but keeps the email, for an Admin only', async () => {
+		const admin = await seedAdmin(db);
+		const grace = await seedHuman(db, 'grace');
+		await db
+			.update(users)
+			.set({ firebaseUid: 'g', email: 'grace@x.test' })
+			.where(eq(users.id, grace.id));
+
+		await expectCode(() => unlinkSignIn(db, grace, grace.id), 'forbidden');
+		await expectCode(() => unlinkSignIn(db, admin, 9999), 'not_found');
+		expect((await unlinkSignIn(db, admin, grace.id)).email).toBe('grace@x.test');
+		const row = (await db.select().from(users).where(eq(users.id, grace.id)))[0];
+		expect(row.firebaseUid).toBeNull();
 	});
 });
 

@@ -1,6 +1,12 @@
 import { error } from '@sveltejs/kit';
 import { createApiToken, listApiTokens, revokeApiToken } from '#lib/server/auth/tokens.ts';
-import { createAgentUser, listUsers, setRealmLimit, setUserEmail } from '#lib/server/auth/users.ts';
+import {
+	createAgentUser,
+	listUsers,
+	setRealmLimit,
+	setUserEmail,
+	unlinkSignIn
+} from '#lib/server/auth/users.ts';
 import { IMPORT_CONFIRMATION } from '#lib/server/admin/guard.ts';
 import { importMaxBytes } from '#lib/server/config.ts';
 import { getDb } from '#lib/server/db/index.ts';
@@ -40,6 +46,14 @@ export const actions: Actions = {
 		const form = await request.formData();
 		return perform('email', async () => {
 			await setUserEmail(getDb(), actor, int(form, 'userId'), text(form, 'email'));
+		});
+	},
+
+	unlink: async ({ request, locals }) => {
+		const actor = signedIn(locals);
+		const form = await request.formData();
+		return perform('unlink', async () => {
+			await unlinkSignIn(getDb(), actor, int(form, 'userId'));
 		});
 	},
 
