@@ -1,11 +1,13 @@
 import { redirect, type RequestHandler } from '@sveltejs/kit';
-import { getDb } from '#lib/server/db/index.ts';
+import { announceRevoked, sessionCredential } from '#lib/server/auth/credentials.ts';
 import { clearSessionCookie, SESSION_COOKIE } from '#lib/server/auth/request.ts';
-import { deleteSession } from '#lib/server/auth/sessions.ts';
 
-export const POST: RequestHandler = async ({ cookies, url }) => {
+export const POST: RequestHandler = ({ cookies, url }) => {
 	const token = cookies.get(SESSION_COOKIE);
-	if (token) await deleteSession(getDb(), token);
+	if (token) {
+		const { kind, hash } = sessionCredential(token);
+		announceRevoked({ kind, hash });
+	}
 	clearSessionCookie(cookies, url);
 	redirect(303, '/login');
 };

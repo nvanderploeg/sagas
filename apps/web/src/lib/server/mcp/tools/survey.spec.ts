@@ -1,3 +1,4 @@
+import { seedAdmin } from '#lib/server/auth/fixtures.ts';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -5,7 +6,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { appraise } from '#lib/server/agent/appraisals.ts';
 import { defineAttribute, setValues } from '#lib/server/agent/attributes.ts';
-import { createFirstAdmin, type AuthUser } from '#lib/server/auth/users.ts';
+import { type AuthUser } from '#lib/server/auth/users.ts';
 import type { Db } from '#lib/server/db/client.ts';
 import { events, labours, mentions, surveys } from '#lib/server/db/schema.ts';
 import { renameRealmKey } from '#lib/server/domain/realms.ts';
@@ -30,11 +31,7 @@ const clients: Client[] = [];
 
 beforeEach(async () => {
 	db = await testDb();
-	admin = await createFirstAdmin(db, {
-		username: 'root',
-		displayName: 'Root',
-		password: 'a long enough password'
-	});
+	admin = await seedAdmin(db, 'root', 'Root');
 	actor = await seedActor(db);
 });
 

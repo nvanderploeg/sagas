@@ -1,10 +1,12 @@
 import { and, eq, gt, isNull, or } from 'drizzle-orm';
+import { sessionVerifier } from './firebase.ts';
 import type { Handle } from '#lib/server/db/client.ts';
-import { apiTokens, sessions } from '#lib/server/db/schema.ts';
+import { apiTokens } from '#lib/server/db/schema.ts';
 import { hashSecret } from './secrets.ts';
 
 // What a request signed in with, named by the secret's stored hash.
-export type Credential = { kind: 'api_token' | 'session'; hash: string };
+// A session also carries the cookie itself, which only the Firebase verifier can check.
+export type Credential = { kind: 'api_token' | 'session'; hash: string; token?: string };
 
 export const apiTokenCredential = (token: string): Credential => ({
 	kind: 'api_token',
@@ -13,7 +15,8 @@ export const apiTokenCredential = (token: string): Credential => ({
 
 export const sessionCredential = (token: string): Credential => ({
 	kind: 'session',
-	hash: hashSecret(token)
+	hash: hashSecret(token),
+	token
 });
 
 export async function credentialValid(
@@ -39,13 +42,7 @@ export async function credentialValid(
 		);
 	}
 	return (
-		(
-			await db
-				.select({ id: sessions.id })
-				.from(sessions)
-				.where(and(eq(sessions.id, credential.hash), gt(sessions.expiresAt, now)))
-				.limit(1)
-		)[0] !== undefined
+		credential.token !== undefined && (await sessionVerifier.verify(credential.token)) !== null
 	);
 }
 

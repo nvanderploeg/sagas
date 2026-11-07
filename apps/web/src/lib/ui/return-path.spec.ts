@@ -35,28 +35,16 @@ describe('returnPath', () => {
 describe('gateRedirect', () => {
 	const at = (path: string) => new URL(path, 'https://sagas.example');
 
-	it('sends home to a bare /login or /password', () => {
-		expect(gateRedirect('login', at('/'))).toBe('/login');
-		expect(gateRedirect('login', at('/?x=1'))).toBe('/login');
-		expect(gateRedirect('password', at('/'))).toBe('/password');
+	it('sends home to a bare /login', () => {
+		expect(gateRedirect(at('/'))).toBe('/login');
+		expect(gateRedirect(at('/?x=1'))).toBe('/login');
 	});
 
 	it('carries any other page and its query through sign-in', () => {
 		const path =
 			'/oauth/authorize?client_id=wlc_x&redirect_uri=https%3A%2F%2Fclaude.ai%2Fcb&state=a%26b';
-		const login = gateRedirect('login', at(path));
+		const login = gateRedirect(at(path));
 		expect(login.startsWith('/login?next=')).toBe(true);
 		expect(returnPath(new URL(login, 'https://x').searchParams.get('next'))).toBe(path);
-	});
-
-	it('carries any other page and its query through a forced password change', () => {
-		const path = '/oauth/authorize?state=a%26b';
-		const target = gateRedirect('password', at(path));
-		expect(target).toBe(`/password?next=${encodeURIComponent(path)}`);
-		expect(returnPath(new URL(target, 'https://x').searchParams.get('next'))).toBe(path);
-	});
-
-	it('leaves setup alone', () => {
-		expect(gateRedirect('setup', at('/l/AM-1'))).toBe('/setup');
 	});
 });

@@ -1,8 +1,10 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { eq } from 'drizzle-orm';
+import { users } from '#lib/server/db/schema.ts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { seedHuman } from '#lib/server/auth/fixtures.ts';
+import { seedAdmin, seedHuman } from '#lib/server/auth/fixtures.ts';
 import type { AuthUser } from '#lib/server/auth/users.ts';
 import type { Db } from '#lib/server/db/client.ts';
 import { setAccessEnforced } from '#lib/server/domain/access.ts';
@@ -121,5 +123,25 @@ describe('Offers over MCP', () => {
 
 		expect(await errorCode(invitee, 'get_realm', { realm: 'AM' })).toBe('not_found');
 		expect((await ok(invitee, 'list_offers')).offers).toEqual([]);
+	});
+});
+
+describe('the Realm limit over MCP', () => {
+	it('refuses create_realm past the limit, until an Admin raises it', async () => {
+		await db.update(users).set({ realmLimit: 1 }).where(eq(users.id, ada.id));
+		const owner = await connect(ada);
+		expect(await errorCode(owner, 'create_realm', { name: 'Two', key: 'bm' })).toBe('forbidden');
+
+		const admin = await seedAdmin(db, 'root', 'Root');
+		const boss = await connect(admin);
+		await ok(boss, 'set_realm_limit', { user: 'ada', limit: 2 });
+
+		await ok(owner, 'create_realm', { name: 'Two', key: 'bm' });
+	});
+
+	it('lets only an Admin call set_realm_limit', async () => {
+		const owner = await connect(ada);
+
+		expect(await errorCode(owner, 'set_realm_limit', { user: 'ada', limit: 5 })).toBe('forbidden');
 	});
 });

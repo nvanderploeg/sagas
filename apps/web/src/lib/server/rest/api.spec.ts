@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { authFromRequest } from '#lib/server/auth/request.ts';
 import { seedHuman } from '#lib/server/auth/fixtures.ts';
-import { createSession } from '#lib/server/auth/sessions.ts';
+import { fakeSessions } from '#lib/server/auth/fixtures.ts';
 import { insertApiToken, revokeApiToken } from '#lib/server/auth/tokens.ts';
 import type { AuthUser } from '#lib/server/auth/users.ts';
 import type { Db } from '#lib/server/db/client.ts';
@@ -93,7 +93,8 @@ describe('authentication', () => {
 	});
 
 	it('lets a session read but refuses its writes', async () => {
-		const session = await createSession(db, ada.id);
+		const sessions = fakeSessions();
+		const session = { token: await sessions.open(db, ada) };
 		const read = await call('/labours/AM-1', { session: session.token });
 		const write = await call('/labours/AM-1', {
 			method: 'PATCH',
@@ -112,6 +113,7 @@ describe('authentication', () => {
 		expect((await call('/labours/AM-1', { token: adaToken.token })).json.labour.title).toBe(
 			'First'
 		);
+		sessions.restore();
 	});
 });
 

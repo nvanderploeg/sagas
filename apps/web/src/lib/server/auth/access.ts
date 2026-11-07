@@ -1,9 +1,9 @@
-export type Gate = 'pass' | 'setup' | 'login' | 'password' | 'unauthorized';
+export type Gate = 'pass' | 'login' | 'unauthorized';
 
-const PUBLIC_PAGES = new Set(['/setup', '/login', '/logout']);
+const PUBLIC_PAGES = new Set(['/login', '/login/session', '/logout']);
 
 export function isPublicPath(pathname: string): boolean {
-	return PUBLIC_PAGES.has(pathname) || pathname.startsWith('/invite/');
+	return PUBLIC_PAGES.has(pathname);
 }
 
 export function isMcpPath(pathname: string): boolean {
@@ -24,20 +24,10 @@ const OAUTH_OPEN_PATHS = new Set([
 	'/oauth/token'
 ]);
 
-const PASSWORD_CHANGE_PAGES = new Set(['/password', '/logout']);
-
-export function gate(
-	pathname: string,
-	state: { setupDone: boolean; signedIn: boolean; mustChangePassword?: boolean }
-): Gate {
+export function gate(pathname: string, state: { signedIn: boolean }): Gate {
 	if (OAUTH_OPEN_PATHS.has(pathname)) return 'pass';
-	if (state.signedIn && state.mustChangePassword) {
-		if (PASSWORD_CHANGE_PAGES.has(pathname)) return 'pass';
-		return isMachinePath(pathname) ? 'unauthorized' : 'password';
-	}
 	if (state.signedIn) return 'pass';
 	if (isMachinePath(pathname)) return 'unauthorized';
-	if (!state.setupDone) return pathname === '/setup' ? 'pass' : 'setup';
 	return isPublicPath(pathname) ? 'pass' : 'login';
 }
 

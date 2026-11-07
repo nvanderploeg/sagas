@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { resolve } from '$app/paths';
 	import AdvancedToggle from '#lib/components/AdvancedToggle.svelte';
 	import UserLayer from '#lib/components/agent/UserLayer.svelte';
 	import Avatar from '#lib/components/Avatar.svelte';
@@ -26,9 +25,6 @@
 			<h1 class="text-3xl font-extrabold tracking-tight">{user.displayName}</h1>
 			<p class="key">@{user.username}{user.isAdmin ? ' · Admin' : ''}</p>
 		</div>
-		<form method="POST" action="/logout">
-			<button type="submit" class="btn">Sign out</button>
-		</form>
 	</div>
 
 	{#if data.offers.length > 0}
@@ -73,11 +69,6 @@
 			created={form && 'token' in form ? String(form.token) : null}
 			error={failure('token') ?? failure('revoke')}
 		/>
-	</section>
-
-	<section class="panel flex flex-wrap items-center justify-between gap-3 p-5">
-		<h2 class="text-lg font-bold tracking-tight">Password</h2>
-		<a class="btn" href={resolve('/password')}>Change password</a>
 	</section>
 
 	<UserLayer />

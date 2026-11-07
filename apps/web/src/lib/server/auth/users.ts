@@ -1,10 +1,8 @@
-import { and, count, eq, ne } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { Db, Handle } from '#lib/server/db/client.ts';
-import { sessions, users } from '#lib/server/db/schema.ts';
+import { users } from '#lib/server/db/schema.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import { requireText } from '#lib/server/domain/validate.ts';
-import { announceRevoked } from './credentials.ts';
-import { checkPassword, hashPassword, spendPasswordTime, verifyPassword } from './password.ts';
 import { transact } from '#lib/server/db/tx.ts';
 
 export type AuthUser = {
@@ -13,13 +11,15 @@ export type AuthUser = {
 	isAdmin: boolean;
 	username: string;
 	displayName: string;
-	mustChangePassword: boolean;
+	email: string | null;
+	realmLimit: number;
 	// The API token this User acts through; absent for a session.
 	via?: { tokenId: number; name: string };
 };
 
 type UserRow = typeof users.$inferSelect;
 
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME = /^[a-z][a-z0-9_-]{1,31}$/;
 
 export function toAuthUser(row: UserRow): AuthUser {
@@ -29,7 +29,8 @@ export function toAuthUser(row: UserRow): AuthUser {
 		isAdmin: row.isAdmin,
 		username: row.username,
 		displayName: row.displayName,
-		mustChangePassword: row.mustChangePassword
+		email: row.email,
+		realmLimit: row.realmLimit
 	};
 }
 
@@ -44,10 +45,6 @@ export function normalizeUsername(input: string): string {
 	return username;
 }
 
-export async function hasUsers(db: Handle): Promise<boolean> {
-	return ((await db.select({ n: count() }).from(users).limit(1))[0]?.n ?? 0) > 0;
-}
-
 export function requireAdmin(actor: AuthUser): void {
 	if (!actor.isAdmin) throw new DomainError('forbidden', 'Only an Admin can do that');
 }
@@ -58,29 +55,6 @@ export async function assertUsernameFree(db: Handle, username: string): Promise<
 	) {
 		throw new DomainError('conflict', `Username ${username} is taken`);
 	}
-}
-
-type SetupInput = { username: string; displayName: string; password: string };
-
-type NewUser = typeof users.$inferInsert;
-
-export async function firstAdminValues(db: Handle, input: SetupInput): Promise<NewUser> {
-	if (await hasUsers(db)) throw new DomainError('conflict', 'Setup is already complete');
-	const username = normalizeUsername(input.username);
-	const displayName = requireText(input.displayName, 'Display name', 100);
-	const passwordHash = await hashPassword(input.password);
-	return { kind: 'human', isAdmin: true, username, displayName, passwordHash };
-}
-
-// Call inside the transaction that creates the Admin, so two concurrent setups cannot both win.
-export async function insertFirstAdmin(tx: Handle, values: NewUser): Promise<AuthUser> {
-	if (await hasUsers(tx)) throw new DomainError('conflict', 'Setup is already complete');
-	return toAuthUser((await tx.insert(users).values(values).returning())[0]);
-}
-
-export async function createFirstAdmin(db: Db, input: SetupInput): Promise<AuthUser> {
-	const values = await firstAdminValues(db, input);
-	return transact(db, (tx) => insertFirstAdmin(tx, values));
 }
 
 export async function createAgentUser(
@@ -101,26 +75,6 @@ export async function createAgentUser(
 	});
 }
 
-export async function authenticate(
-	db: Db,
-	username: string,
-	password: string
-): Promise<AuthUser | null> {
-	let normalized: string;
-	try {
-		normalized = normalizeUsername(username);
-	} catch {
-		await spendPasswordTime(password);
-		return null;
-	}
-	const row = (await db.select().from(users).where(eq(users.username, normalized)).limit(1))[0];
-	if (!row || row.passwordHash === null) {
-		await spendPasswordTime(password);
-		return null;
-	}
-	return (await verifyPassword(row.passwordHash, password)) ? toAuthUser(row) : null;
-}
-
 export async function listUsers(db: Handle): Promise<AuthUser[]> {
 	return (await db.select().from(users).orderBy(users.displayName, users.id)).map(toAuthUser);
 }
@@ -137,57 +91,55 @@ export async function findUser(db: Handle, id: number): Promise<AuthUser | null>
 	return row ? toAuthUser(row) : null;
 }
 
-// Creates the Admin an operator configured, once, on an empty database. The password is a
-// placeholder: the Admin must change it before doing anything else.
-export async function seedAdmin(
-	db: Db,
-	input: { username: string; password: string }
-): Promise<AuthUser | null> {
-	if (await hasUsers(db)) return null;
-	const username = normalizeUsername(input.username);
-	const passwordHash = await hashPassword(input.password);
-	return transact(db, async (tx) => {
-		if (await hasUsers(tx)) return null;
-		const row = (
-			await tx
-				.insert(users)
-				.values({
-					kind: 'human',
-					isAdmin: true,
-					username,
-					displayName: username,
-					passwordHash,
-					mustChangePassword: true
-				})
-				.returning()
-		)[0];
-		return toAuthUser(row);
-	});
+export async function findUserByFirebaseUid(db: Handle, uid: string): Promise<AuthUser | null> {
+	const row = (await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1))[0];
+	return row ? toAuthUser(row) : null;
 }
 
-// Ends every session but `keepSessionId`'s, so a stolen session does not outlive the change.
-export async function changePassword(
+export async function setRealmLimit(
 	db: Db,
-	user: AuthUser,
-	input: { current: string; next: string; keepSessionId: string }
-): Promise<void> {
-	const row = (await db.select().from(users).where(eq(users.id, user.id)).limit(1))[0];
-	if (!row?.passwordHash || !(await verifyPassword(row.passwordHash, input.current))) {
-		throw new DomainError('invalid', 'Current password is wrong');
+	actor: AuthUser,
+	userId: number,
+	limit: number
+): Promise<AuthUser> {
+	requireAdmin(actor);
+	if (!Number.isInteger(limit) || limit < 0) {
+		throw new DomainError('invalid', 'Realm limit must be a whole number, 0 or more');
 	}
-	if (input.next === input.current) {
-		throw new DomainError('invalid', 'New password must differ from the current one');
-	}
-	const passwordHash = await hashPassword(checkPassword(input.next));
-	const ended = await transact(db, async (tx) => {
-		await tx
-			.update(users)
-			.set({ passwordHash, mustChangePassword: false })
-			.where(eq(users.id, user.id));
-		return await tx
-			.delete(sessions)
-			.where(and(eq(sessions.userId, user.id), ne(sessions.id, input.keepSessionId)))
-			.returning({ id: sessions.id });
+	const row = (
+		await db.update(users).set({ realmLimit: limit }).where(eq(users.id, userId)).returning()
+	)[0];
+	if (!row) throw new DomainError('not_found', 'No such User');
+	return toAuthUser(row);
+}
+
+// Sets the verified email a first Firebase sign-in links to; empty clears it.
+export async function setUserEmail(
+	db: Db,
+	actor: AuthUser,
+	userId: number,
+	input: string
+): Promise<AuthUser> {
+	requireAdmin(actor);
+	const email = input.trim().toLowerCase();
+	if (email !== '' && !EMAIL.test(email)) throw new DomainError('invalid', 'Not an email address');
+	return transact(db, async (tx) => {
+		if (email !== '') {
+			const taken = (
+				await tx.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1)
+			)[0];
+			if (taken && taken.id !== userId) {
+				throw new DomainError('conflict', `Email ${email} belongs to another User`);
+			}
+		}
+		const row = (
+			await tx
+				.update(users)
+				.set({ email: email === '' ? null : email })
+				.where(eq(users.id, userId))
+				.returning()
+		)[0];
+		if (!row) throw new DomainError('not_found', 'No such User');
+		return toAuthUser(row);
 	});
-	for (const { id } of ended) announceRevoked({ kind: 'session', hash: id });
 }

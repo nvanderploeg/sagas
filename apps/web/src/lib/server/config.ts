@@ -30,10 +30,29 @@ export const streamHeartbeatMs = positiveNumber(
 	25_000
 );
 
-// Seeds the first Admin on an empty database. Both must be set; the Admin changes the password at
-// first sign-in.
-export const seedAdminUsername = process.env.ADMIN_USERNAME?.trim() || undefined;
-export const seedAdminPassword = process.env.ADMIN_PASSWORD || undefined;
+// Domain of the shared session cookie, such as `.nanzero.com`; unset gives a host-only cookie.
+export const authCookieDomain = process.env.AUTH_COOKIE_DOMAIN?.trim() || undefined;
+
+export const firebaseProjectId = process.env.FIREBASE_PROJECT_ID?.trim() || 'runestone-d3a35';
+
+// Public web config the sign-in page hands to the Firebase client SDK.
+export const firebaseWebConfig = {
+	apiKey: process.env.FIREBASE_WEB_API_KEY?.trim() ?? '',
+	authDomain: process.env.FIREBASE_AUTH_DOMAIN?.trim() || `${firebaseProjectId}.firebaseapp.com`,
+	projectId: firebaseProjectId
+};
+
+export function parseAdminEmails(raw: string | undefined): Set<string> {
+	return new Set(
+		(raw ?? '')
+			.split(',')
+			.map((email) => email.trim().toLowerCase())
+			.filter((email) => email !== '')
+	);
+}
+
+// A signed-in User with one of these verified emails is an Admin.
+export const adminEmails = parseAdminEmails(process.env.ADMIN_EMAILS);
 
 export const embeddingModelDir = resolve(process.env.EMBEDDING_MODEL_DIR ?? 'models');
 

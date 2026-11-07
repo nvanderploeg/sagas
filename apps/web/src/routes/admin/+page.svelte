@@ -3,7 +3,6 @@
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import Avatar from '#lib/components/Avatar.svelte';
-	import Secret from '#lib/components/Secret.svelte';
 	import Tokens from '#lib/components/Tokens.svelte';
 	import type { ActionData, PageData } from './$types';
 
@@ -11,12 +10,9 @@
 
 	const failure = (scope: string) =>
 		form && 'error' in form && form.scope === scope ? String(form.error) : null;
-	const link = $derived(form && 'link' in form ? String(form.link) : null);
 	const created = $derived(
 		form && 'token' in form ? { userId: Number(form.userId), token: String(form.token) } : null
 	);
-	const name = (id: number | null) => data.users.find((u) => u.id === id)?.displayName ?? 'someone';
-	const day = (date: Date) => new Date(date).toISOString().slice(0, 10);
 	const bytes = (n: number) => {
 		const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
 		let value = n;
@@ -121,38 +117,45 @@
 						{#if user.isAdmin}<span class="tag">Admin</span>{/if}
 						<span class="tag">{user.kind === 'agent' ? 'Agent' : 'Human'}</span>
 					</span>
+					<div class="flex basis-full flex-wrap items-end gap-3 text-sm">
+						<form method="POST" action="?/realmLimit" use:enhance class="flex items-end gap-2">
+							<input type="hidden" name="userId" value={user.id} />
+							<label class="grid gap-1 text-xs font-medium text-muted">
+								Realm limit
+								<input
+									type="number"
+									name="limit"
+									min="0"
+									step="1"
+									required
+									value={user.realmLimit}
+									class="field w-24"
+								/>
+							</label>
+							<button type="submit" class="btn">Set</button>
+						</form>
+						{#if user.kind === 'human'}
+							<form method="POST" action="?/email" use:enhance class="flex items-end gap-2">
+								<input type="hidden" name="userId" value={user.id} />
+								<label class="grid gap-1 text-xs font-medium text-muted">
+									Email
+									<input
+										type="email"
+										name="email"
+										value={user.email ?? ''}
+										autocomplete="off"
+										class="field w-64"
+									/>
+								</label>
+								<button type="submit" class="btn">Set</button>
+							</form>
+						{/if}
+					</div>
 				</li>
 			{/each}
 		</ul>
-	</section>
-
-	<section class="panel grid gap-3 p-5" aria-labelledby="invites-heading">
-		<h2 id="invites-heading" class="text-lg font-bold tracking-tight">Invites</h2>
-		<p class="text-sm text-muted">
-			An Invite is a single-use link. Whoever opens it picks a username and password and joins.
-		</p>
-		<form method="POST" action="?/invite" use:enhance>
-			<button type="submit" class="btn btn-primary">Create Invite</button>
-		</form>
-		{#if link}
-			<Secret
-				value={link}
-				label="Invite link"
-				note="Copy it now: it is shown only once. Send it to one person."
-			/>
-		{/if}
-		{#if failure('invite')}<p role="alert" class="error">{failure('invite')}</p>{/if}
-		{#if data.invites.length > 0}
-			<ul class="divide-y divide-line rounded-xl border border-line text-sm">
-				{#each [...data.invites].reverse() as invite (invite.id)}
-					<li class="flex flex-wrap gap-x-4 px-3 py-2" data-testid="invite">
-						<span>Created {day(invite.createdAt)} by {name(invite.createdByUserId)}</span>
-						<span class="ml-auto text-muted">
-							{invite.usedAt ? `Used by ${name(invite.usedByUserId)}` : 'Open'}
-						</span>
-					</li>
-				{/each}
-			</ul>
+		{#if failure('realmLimit') ?? failure('email')}
+			<p role="alert" class="error px-5 pb-3">{failure('realmLimit') ?? failure('email')}</p>
 		{/if}
 	</section>
 

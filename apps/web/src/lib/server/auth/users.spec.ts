@@ -1,20 +1,15 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { users } from '#lib/server/db/schema.ts';
 import type { Db } from '#lib/server/db/client.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
-import { createAgentUser, createFirstAdmin, hasUsers, authenticate, listUsers } from './users.ts';
-import { seedHuman } from './fixtures.ts';
+import { seedAdmin, seedHuman } from './fixtures.ts';
+import { createAgentUser, listUsers, setRealmLimit, setUserEmail } from './users.ts';
 
 let db: Db;
 
 beforeEach(async () => {
 	db = await testDb();
-});
-
-const setup = (username = 'root') => ({
-	username,
-	displayName: 'Root',
-	password: 'a long enough password'
 });
 
 async function expectCode(action: () => unknown, code: DomainError['code']) {
@@ -28,49 +23,9 @@ async function expectCode(action: () => unknown, code: DomainError['code']) {
 	expect((thrown as DomainError).code).toBe(code);
 }
 
-describe('first-run setup', () => {
-	it('creates the first User as an Admin', async () => {
-		expect(await hasUsers(db)).toBe(false);
-
-		const admin = await createFirstAdmin(db, setup());
-
-		expect(admin).toMatchObject({ kind: 'human', isAdmin: true, username: 'root' });
-		expect(await hasUsers(db)).toBe(true);
-	});
-
-	it('locks after the first User exists', async () => {
-		await createFirstAdmin(db, setup());
-
-		await expect(createFirstAdmin(db, setup('second'))).rejects.toMatchObject({ code: 'conflict' });
-		expect(await authenticate(db, 'second', 'x')).toBeNull();
-	});
-
-	it('lets only one of two concurrent setups win', async () => {
-		const results = await Promise.allSettled([
-			createFirstAdmin(db, setup('first')),
-			createFirstAdmin(db, setup('second'))
-		]);
-
-		expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
-		expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
-	});
-
-	it('stores the username in lowercase and rejects a malformed one', async () => {
-		const admin = await createFirstAdmin(db, setup('  Root  '));
-		expect(admin.username).toBe('root');
-	});
-
-	it('rejects a weak password without creating the Admin', async () => {
-		await expect(
-			createFirstAdmin(db, { username: 'root', displayName: 'Root', password: 'short' })
-		).rejects.toMatchObject({ code: 'invalid' });
-		expect(await hasUsers(db)).toBe(false);
-	});
-});
-
 describe('Agent users', () => {
-	it('creates an Agent user without a password, and an Admin only', async () => {
-		const admin = await createFirstAdmin(db, setup());
+	it('creates an Agent user, and an Admin only', async () => {
+		const admin = await seedAdmin(db);
 		const grace = await seedHuman(db, 'grace');
 
 		const bot = await createAgentUser(db, admin, { username: 'bot', displayName: 'Bot' });
@@ -82,15 +37,8 @@ describe('Agent users', () => {
 		);
 	});
 
-	it('cannot sign in with a password', async () => {
-		const admin = await createFirstAdmin(db, setup());
-		await createAgentUser(db, admin, { username: 'bot', displayName: 'Bot' });
-
-		expect(await authenticate(db, 'bot', 'a long enough password')).toBeNull();
-	});
-
 	it('rejects a username already taken', async () => {
-		const admin = await createFirstAdmin(db, setup());
+		const admin = await seedAdmin(db);
 
 		await expectCode(
 			() => createAgentUser(db, admin, { username: 'ROOT', displayName: 'Dup' }),
@@ -99,25 +47,47 @@ describe('Agent users', () => {
 	});
 });
 
-describe('password sign-in', () => {
-	it('accepts the right password for a human, in any username case', async () => {
-		await createFirstAdmin(db, setup());
+describe('realm limit', () => {
+	it('starts every User at 1 and lets only an Admin change it', async () => {
+		const admin = await seedAdmin(db);
+		const grace = await seedHuman(db, 'grace');
+		const fresh = (
+			await db
+				.insert(users)
+				.values({ kind: 'human', username: 'new', displayName: 'New' })
+				.returning()
+		)[0];
+		expect(fresh.realmLimit).toBe(1);
 
-		expect((await authenticate(db, 'ROOT', 'a long enough password'))?.username).toBe('root');
+		expect((await setRealmLimit(db, admin, grace.id, 3)).realmLimit).toBe(3);
+		await expectCode(() => setRealmLimit(db, grace, grace.id, 9), 'forbidden');
 	});
 
-	it('rejects a wrong password and an unknown user', async () => {
-		await createFirstAdmin(db, setup());
+	it('rejects a negative or fractional limit and an unknown User', async () => {
+		const admin = await seedAdmin(db);
 
-		expect(await authenticate(db, 'root', 'wrong password here')).toBeNull();
-		expect(await authenticate(db, 'nobody', 'a long enough password')).toBeNull();
-		expect(await authenticate(db, '!!', 'a long enough password')).toBeNull();
+		await expectCode(() => setRealmLimit(db, admin, admin.id, -1), 'invalid');
+		await expectCode(() => setRealmLimit(db, admin, admin.id, 1.5), 'invalid');
+		await expectCode(() => setRealmLimit(db, admin, 9999, 1), 'not_found');
+	});
+});
+
+describe('user email', () => {
+	it('stores it lowercase, clears it when empty, and refuses a duplicate', async () => {
+		const admin = await seedAdmin(db);
+		const grace = await seedHuman(db, 'grace');
+
+		expect((await setUserEmail(db, admin, grace.id, ' Grace@X.test ')).email).toBe('grace@x.test');
+		await expectCode(() => setUserEmail(db, admin, admin.id, 'grace@x.test'), 'conflict');
+		expect((await setUserEmail(db, admin, grace.id, '')).email).toBeNull();
+		await expectCode(() => setUserEmail(db, admin, grace.id, 'nope'), 'invalid');
+		await expectCode(() => setUserEmail(db, grace, grace.id, 'g@x.test'), 'forbidden');
 	});
 });
 
 describe('listing users', () => {
 	it('lists humans and agents by display name', async () => {
-		const root = await createFirstAdmin(db, setup());
+		const root = await seedAdmin(db);
 		await createAgentUser(db, root, { username: 'bot', displayName: 'Atlas' });
 		await seedHuman(db, 'zed');
 

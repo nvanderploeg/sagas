@@ -1,7 +1,68 @@
 <script lang="ts">
-	import type { ActionData } from './$types';
+	import { page } from '$app/state';
+	import { onMount } from 'svelte';
+	import { returnPath } from '#lib/ui/return-path.ts';
+	import type { PageData } from './$types';
 
-	let { form }: { form: ActionData } = $props();
+	let { data }: { data: PageData } = $props();
+
+	let email = $state('');
+	let sent = $state(false);
+	let busy = $state(false);
+	let error = $state('');
+	let confirmingLink = $state(false);
+
+	const next = $derived(returnPath(page.url.searchParams.get('next')));
+
+	async function run(work: () => Promise<void>) {
+		busy = true;
+		error = '';
+		try {
+			await work();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Sign-in failed';
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function finish() {
+		location.assign(next);
+	}
+
+	async function google() {
+		const firebase = await import('#lib/ui/firebase.ts');
+		await run(async () => {
+			await firebase.signInWithGoogle(data.firebase);
+			await finish();
+		});
+	}
+
+	async function sendLink(event: SubmitEvent) {
+		event.preventDefault();
+		const firebase = await import('#lib/ui/firebase.ts');
+		await run(async () => {
+			await firebase.emailSignInLink(data.firebase, email.trim());
+			sent = true;
+		});
+	}
+
+	async function completeLink(event?: SubmitEvent) {
+		event?.preventDefault();
+		const firebase = await import('#lib/ui/firebase.ts');
+		await run(async () => {
+			await firebase.completeEmailLink(data.firebase, email.trim());
+			await finish();
+		});
+	}
+
+	onMount(async () => {
+		const firebase = await import('#lib/ui/firebase.ts');
+		if (!firebase.arrivedByEmailLink(data.firebase)) return;
+		email = firebase.rememberedEmail();
+		if (email) await completeLink();
+		else confirmingLink = true;
+	});
 </script>
 
 <svelte:head>
@@ -14,30 +75,48 @@
 	</p>
 	<h1 class="text-3xl font-extrabold tracking-tight">Sign in</h1>
 
-	<form method="POST" class="panel mt-6 grid gap-4 p-5">
-		<label class="grid gap-1 text-sm font-medium text-muted">
-			Username
-			<input
-				name="username"
-				required
-				autocomplete="username"
-				value={form?.username ?? ''}
-				class="field"
-			/>
-		</label>
-		<label class="grid gap-1 text-sm font-medium text-muted">
-			Password
-			<input
-				type="password"
-				name="password"
-				required
-				autocomplete="current-password"
-				class="field"
-			/>
-		</label>
-		{#if form?.error}
-			<p role="alert" class="error">{form.error}</p>
+	<div class="panel mt-6 grid gap-4 p-5">
+		{#if confirmingLink}
+			<form class="grid gap-4" onsubmit={completeLink}>
+				<label class="grid gap-1 text-sm font-medium text-muted">
+					Confirm your email to finish signing in
+					<input
+						type="email"
+						name="email"
+						required
+						autocomplete="email"
+						bind:value={email}
+						class="field"
+					/>
+				</label>
+				<button type="submit" class="btn btn-primary" disabled={busy}>Finish signing in</button>
+			</form>
+		{:else}
+			<button type="button" class="btn btn-primary" disabled={busy} onclick={google}>
+				Continue with Google
+			</button>
+			<form class="grid gap-3" onsubmit={sendLink}>
+				<label class="grid gap-1 text-sm font-medium text-muted">
+					Or get a sign-in link by email
+					<input
+						type="email"
+						name="email"
+						required
+						autocomplete="email"
+						bind:value={email}
+						class="field"
+					/>
+				</label>
+				<button type="submit" class="btn" disabled={busy}>Email me a link</button>
+			</form>
+			{#if sent}
+				<p role="status" class="text-sm text-muted">
+					Check your inbox for the link, then open it in this browser.
+				</p>
+			{/if}
 		{/if}
-		<button type="submit" class="btn btn-primary">Sign in</button>
-	</form>
+		{#if error}
+			<p role="alert" class="error">{error}</p>
+		{/if}
+	</div>
 </main>

@@ -1,10 +1,11 @@
+import { seedAdmin } from './fixtures.ts';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { apiTokens } from '#lib/server/db/schema.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import { testDb } from '#lib/server/test/db.ts';
-import { createAgentUser, createFirstAdmin, findUser, type AuthUser } from './users.ts';
+import { createAgentUser, findUser, type AuthUser } from './users.ts';
 import { createApiToken, listApiTokens, revokeApiToken, verifyApiToken } from './tokens.ts';
 import { apiTokenCredential, credentialValid } from './credentials.ts';
 import { hashSecret } from './secrets.ts';
@@ -15,11 +16,7 @@ let admin: AuthUser;
 
 beforeEach(async () => {
 	db = await testDb();
-	admin = await createFirstAdmin(db, {
-		username: 'root',
-		displayName: 'Root',
-		password: 'a long enough password'
-	});
+	admin = await seedAdmin(db, 'root', 'Root');
 });
 
 async function expectCode(action: () => unknown, code: DomainError['code']) {

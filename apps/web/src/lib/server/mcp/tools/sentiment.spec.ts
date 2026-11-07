@@ -1,10 +1,11 @@
+import { seedAdmin } from '#lib/server/auth/fixtures.ts';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineAttribute, setValues } from '#lib/server/agent/attributes.ts';
 import { seedHuman } from '#lib/server/auth/fixtures.ts';
-import { createFirstAdmin, type AuthUser } from '#lib/server/auth/users.ts';
+import { type AuthUser } from '#lib/server/auth/users.ts';
 import type { Db } from '#lib/server/db/client.ts';
 import { events, pulses } from '#lib/server/db/schema.ts';
 import { deleteLabour, moveLabour } from '#lib/server/domain/labours.ts';
@@ -26,11 +27,7 @@ const clients: Client[] = [];
 
 beforeEach(async () => {
 	db = await testDb();
-	admin = await createFirstAdmin(db, {
-		username: 'root',
-		displayName: 'Root',
-		password: 'a long enough password'
-	});
+	admin = await seedAdmin(db, 'root', 'Root');
 	bob = await seedHuman(db, 'bob');
 	root = await connect(admin);
 	bobClient = await connect(bob);

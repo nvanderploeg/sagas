@@ -1,7 +1,7 @@
+import { seedAdmin } from '#lib/server/auth/fixtures.ts';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createFirstAdmin } from '#lib/server/auth/users.ts';
 import type { Db } from '#lib/server/db/client.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { createMcpServer } from '../server.ts';
@@ -12,11 +12,7 @@ let client: Client;
 
 beforeEach(async () => {
 	db = await testDb();
-	const admin = await createFirstAdmin(db, {
-		username: 'root',
-		displayName: 'Root',
-		password: 'a long enough password'
-	});
+	const admin = await seedAdmin(db, 'root', 'Root');
 	const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
 	await createMcpServer(db, admin, 'http://sagas.test').connect(serverSide);
 	client = new Client({ name: 'spec', version: '0' });

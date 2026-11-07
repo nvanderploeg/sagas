@@ -1,7 +1,6 @@
 import { z } from 'zod';
-import { createInvite, listInvites } from '../../auth/invites.ts';
 import { createApiToken, listApiTokens, revokeApiToken } from '../../auth/tokens.ts';
-import { createAgentUser, findUser, listUsers } from '../../auth/users.ts';
+import { createAgentUser, listUsers, setRealmLimit } from '../../auth/users.ts';
 import { count, userSummary } from '../present.ts';
 import * as refs from '../refs.ts';
 import { reply } from '../result.ts';
@@ -44,44 +43,23 @@ export function registerUserTools({ db, actor, define }: Tools): void {
 	);
 
 	define(
-		'create_invite',
+		'set_realm_limit',
 		{
 			kind: 'write',
 			description:
-				'Admin only. Create a single-use Invite. Returns `path`, its accept page, where a person sets a username and password. Join `path` to the origin you connect to (the scheme, host and port of this MCP URL) to get the link to share. The link is shown only now.',
-			input: {}
+				'Admin only. Set how many Realms a User may create. Every User starts at 1; 0 stops them creating any.',
+			input: {
+				user: userRef.describe('Username, "me" or id'),
+				limit: z.number().int().min(0).describe('Realms the User may create')
+			}
 		},
-		async () => {
-			const invite = await createInvite(db, actor);
-			const path = `/invite/${invite.token}`;
+		async (args) => {
+			const userId = await refs.userId(db, args.user, actor);
+			const user = userSummary(await setRealmLimit(db, actor, userId, args.limit));
 			return reply(
-				{ id: invite.id, path },
-				`Invite ${invite.id} created; its path is shown only now`
+				{ user, realmLimit: args.limit },
+				`${user.username} may create ${args.limit} Realms`
 			);
-		}
-	);
-
-	define(
-		'list_invites',
-		{
-			kind: 'read',
-			description: 'Admin only. List every Invite, and who used it.',
-			input: {}
-		},
-		async () => {
-			const name = async (id: number | null) =>
-				id === null ? null : ((await findUser(db, id))?.username ?? null);
-			const invites = await Promise.all(
-				(await listInvites(db, actor)).map(async (invite) => ({
-					id: invite.id,
-					createdBy: await name(invite.createdByUserId),
-					createdAt: invite.createdAt.toISOString(),
-					usedBy: await name(invite.usedByUserId),
-					usedAt: iso(invite.usedAt)
-				}))
-			);
-			const open = invites.filter((i) => i.usedBy === null).length;
-			return reply({ invites }, `${count(invites.length, 'Invite')}, ${open} unused`);
 		}
 	);
 

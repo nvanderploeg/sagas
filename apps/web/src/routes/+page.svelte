@@ -38,9 +38,6 @@
 				Signed in as {user.displayName} (@{user.username})
 			</p>
 		</div>
-		<form method="POST" action="/logout">
-			<button type="submit" class="btn btn-quiet">Sign out</button>
-		</form>
 	</div>
 
 	<section aria-labelledby="realms-heading" class="grid gap-3">

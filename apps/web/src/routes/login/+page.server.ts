@@ -1,38 +1,9 @@
-import { fail, redirect, type Actions } from '@sveltejs/kit';
-import { getDb } from '#lib/server/db/index.ts';
-import { field } from '#lib/server/auth/form.ts';
-import { setSessionCookie } from '#lib/server/auth/request.ts';
-import { clearFailures, isThrottled, recordFailure } from '#lib/server/auth/throttle.ts';
-import { createSession } from '#lib/server/auth/sessions.ts';
-import { authenticate, hasUsers } from '#lib/server/auth/users.ts';
+import { redirect } from '@sveltejs/kit';
+import { firebaseWebConfig } from '#lib/server/config.ts';
 import { returnPath } from '#lib/ui/return-path.ts';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ locals, url }) => {
-	const db = getDb();
-	if (!(await hasUsers(db))) redirect(303, '/setup');
+export const load: PageServerLoad = ({ locals, url }) => {
 	if (locals.user) redirect(303, returnPath(url.searchParams.get('next')));
-	return {};
-};
-
-export const actions: Actions = {
-	default: async ({ request, cookies, url, getClientAddress }) => {
-		const form = await request.formData();
-		const username = field(form, 'username');
-		const attempts = [`ip:${getClientAddress()}`, `user:${username.trim().toLowerCase()}`];
-		if (isThrottled(attempts)) {
-			return fail(429, { error: 'Too many attempts. Try again in a few minutes.', username });
-		}
-		const db = getDb();
-		const user = await authenticate(db, username, field(form, 'password'));
-		if (!user) {
-			recordFailure(attempts);
-			return fail(400, { error: 'Wrong username or password', username });
-		}
-		clearFailures(attempts.slice(1));
-
-		const session = await createSession(db, user.id);
-		setSessionCookie(cookies, url, session.token, session.expiresAt);
-		redirect(303, returnPath(url.searchParams.get('next')));
-	}
+	return { firebase: firebaseWebConfig };
 };

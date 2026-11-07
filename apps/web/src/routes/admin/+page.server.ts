@@ -1,7 +1,6 @@
 import { error } from '@sveltejs/kit';
-import { createInvite, listInvites } from '#lib/server/auth/invites.ts';
 import { createApiToken, listApiTokens, revokeApiToken } from '#lib/server/auth/tokens.ts';
-import { createAgentUser, listUsers } from '#lib/server/auth/users.ts';
+import { createAgentUser, listUsers, setRealmLimit, setUserEmail } from '#lib/server/auth/users.ts';
 import { IMPORT_CONFIRMATION } from '#lib/server/admin/guard.ts';
 import { importMaxBytes } from '#lib/server/config.ts';
 import { getDb } from '#lib/server/db/index.ts';
@@ -10,14 +9,13 @@ import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const actor = signedIn(locals);
-	if (!actor.isAdmin) error(403, 'Only an Admin can manage Users and Invites');
+	if (!actor.isAdmin) error(403, 'Only an Admin can manage Users');
 	const db = getDb();
 	const users = await listUsers(db);
 	return {
 		importConfirmation: IMPORT_CONFIRMATION,
 		importMaxBytes,
 		users,
-		invites: await listInvites(db, actor),
 		tokens: Object.fromEntries(
 			await Promise.all(
 				users
@@ -29,11 +27,19 @@ export const load: PageServerLoad = async ({ locals }) => {
 };
 
 export const actions: Actions = {
-	invite: ({ locals, url }) => {
+	realmLimit: async ({ request, locals }) => {
 		const actor = signedIn(locals);
-		return perform('invite', async () => {
-			const { token } = await createInvite(getDb(), actor);
-			return { link: `${url.origin}/invite/${token}` };
+		const form = await request.formData();
+		return perform('realmLimit', async () => {
+			await setRealmLimit(getDb(), actor, int(form, 'userId'), int(form, 'limit'));
+		});
+	},
+
+	email: async ({ request, locals }) => {
+		const actor = signedIn(locals);
+		const form = await request.formData();
+		return perform('email', async () => {
+			await setUserEmail(getDb(), actor, int(form, 'userId'), text(form, 'email'));
 		});
 	},
 

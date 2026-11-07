@@ -7,13 +7,10 @@ import { resourceMetadataUrl } from '#lib/server/auth/oauth-metadata.ts';
 import { scheduleOAuthPruning } from '#lib/server/auth/oauth.ts';
 import { authFromRequest, SESSION_COOKIE } from '#lib/server/auth/request.ts';
 import { gateRedirect } from '#lib/ui/return-path.ts';
-import { hasUsers, seedAdmin } from '#lib/server/auth/users.ts';
 import {
 	embeddingModelDir,
 	embeddingThreads,
 	eventRetentionMs,
-	seedAdminPassword,
-	seedAdminUsername,
 	surveyRetentionMs,
 	webhookAllowPrivate,
 	webhookConcurrency,
@@ -44,9 +41,6 @@ export const init: ServerInit = async () => {
 	await migrateDatabase();
 	const db = getDb();
 	await rebuildDerived(db);
-	if (seedAdminUsername && seedAdminPassword) {
-		await seedAdmin(db, { username: seedAdminUsername, password: seedAdminPassword });
-	}
 	await schedulePruning(db, eventRetentionMs);
 	await scheduleAgentPruning(db, surveyRetentionMs);
 	await scheduleOAuthPruning(db);
@@ -103,13 +97,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.user = auth?.user ?? null;
 	event.locals.credential = auth?.credential ?? null;
 
-	const decision = gate(event.url.pathname, {
-		setupDone: await hasUsers(db),
-		signedIn: auth !== null,
-		mustChangePassword: auth?.user.mustChangePassword ?? false
-	});
-	if (decision === 'setup' || decision === 'login' || decision === 'password') {
-		redirect(303, gateRedirect(decision, event.url));
+	const decision = gate(event.url.pathname, { signedIn: auth !== null });
+	if (decision === 'login') {
+		redirect(303, gateRedirect(event.url));
 	}
 	if (decision === 'unauthorized') {
 		return unauthorizedResponse(

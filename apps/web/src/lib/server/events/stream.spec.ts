@@ -1,15 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import {
+	announceRevoked,
 	apiTokenCredential,
 	credentialGuard,
 	sessionCredential,
 	type Credential
 } from '#lib/server/auth/credentials.ts';
-import { createSession, deleteSession } from '#lib/server/auth/sessions.ts';
+import { fakeSessions } from '#lib/server/auth/fixtures.ts';
 import { createApiToken, revokeApiToken } from '#lib/server/auth/tokens.ts';
 import { findUser } from '#lib/server/auth/users.ts';
-import { apiTokens, sessions } from '#lib/server/db/schema.ts';
+import { apiTokens } from '#lib/server/db/schema.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { seedRealm, seedLabour, seedUser } from '#lib/server/test/fixtures.ts';
 import { subscribe, subscriberCount } from './bus.ts';
@@ -336,28 +337,32 @@ describe('a stream bound to a credential', () => {
 		expect(open.isDone()).toBe(true);
 	});
 
-	it('ends as soon as its session is deleted', async () => {
+	it('ends as soon as its session is announced revoked', async () => {
+		const sessions = fakeSessions();
 		const { user, stream } = await signedIn();
-		const { token } = await createSession(db, user.id);
+		const token = await sessions.open(db, user);
 		const open = await stream(sessionCredential(token));
 
-		await deleteSession(db, token);
+		announceRevoked(sessionCredential(token));
 		await open.until(() => false, 100);
 
 		expect(open.isDone()).toBe(true);
+		sessions.restore();
 	});
 
-	it('ends on the next heartbeat once its session has expired', async () => {
+	it('ends on the next heartbeat once Firebase no longer vouches for its session', async () => {
+		const sessions = fakeSessions();
 		const { user, stream } = await signedIn();
-		const { token } = await createSession(db, user.id);
+		const token = await sessions.open(db, user);
 		const open = await stream(sessionCredential(token), 10);
 		await open.until((f) => f.some((x) => x.comment === 'ping'));
 		expect(open.isDone()).toBe(false);
 
-		await db.update(sessions).set({ expiresAt: new Date(Date.now() - 1) });
+		sessions.end(token);
 		await open.until(() => false, 100);
 
 		expect(open.isDone()).toBe(true);
+		sessions.restore();
 	});
 
 	it('ends on the next heartbeat once its API token is no longer valid', async () => {

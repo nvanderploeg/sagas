@@ -5,6 +5,7 @@
 	import type { Person } from '../ui/people.ts';
 	import AdvancedToggle from './AdvancedToggle.svelte';
 	import Avatar from './Avatar.svelte';
+	import SignOutButton from './SignOutButton.svelte';
 	import ThemeToggle from './ThemeToggle.svelte';
 
 	let { user, offers = 0 }: { user: Person & { isAdmin: boolean }; offers?: number } = $props();
@@ -40,6 +41,7 @@
 		{/if}
 		<AdvancedToggle />
 		<ThemeToggle />
+		<SignOutButton />
 		<a
 			class="me"
 			href={resolve('/account')}

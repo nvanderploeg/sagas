@@ -1,13 +1,17 @@
 import type { Cookies } from '@sveltejs/kit';
 import type { Db } from '#lib/server/db/client.ts';
 import { apiTokenCredential, sessionCredential, type Credential } from './credentials.ts';
-import { resolveSession } from './sessions.ts';
+import { sessionVerifier } from './firebase.ts';
 import { verifyApiToken } from './tokens.ts';
-import type { AuthUser } from './users.ts';
+import { adminEmails, authCookieDomain } from '#lib/server/config.ts';
+import { DomainError } from '#lib/server/domain/errors.ts';
+import { signInIdentity } from './signin.ts';
+import { findUserByFirebaseUid, type AuthUser } from './users.ts';
 
 export type Auth = { user: AuthUser; credential: Credential };
 
-export const SESSION_COOKIE = 'sagas_session';
+// Shared by every runestone app: signing in to one signs in to all.
+export const SESSION_COOKIE = 'runestone_session';
 
 // A Bearer header decides alone: a malformed or revoked token never falls back to the cookie.
 // Any other scheme, such as a reverse proxy's Basic, leaves the decision to the cookie.
@@ -24,7 +28,17 @@ export async function authFromRequest(
 		return user && { user, credential: apiTokenCredential(match[1]) };
 	}
 	if (!sessionToken) return null;
-	const user = await resolveSession(db, sessionToken);
+	const identity = await sessionVerifier.verify(sessionToken);
+	if (!identity) return null;
+	let user = await findUserByFirebaseUid(db, identity.uid);
+	if (!user) {
+		try {
+			user = await signInIdentity(db, identity, adminEmails);
+		} catch (error) {
+			if (error instanceof DomainError) return null;
+			throw error;
+		}
+	}
 	return user && { user, credential: sessionCredential(sessionToken) };
 }
 
@@ -34,10 +48,15 @@ export function setSessionCookie(cookies: Cookies, url: URL, token: string, expi
 		httpOnly: true,
 		sameSite: 'lax',
 		secure: url.protocol === 'https:',
+		...(authCookieDomain ? { domain: authCookieDomain } : {}),
 		expires
 	});
 }
 
 export function clearSessionCookie(cookies: Cookies, url: URL): void {
-	cookies.delete(SESSION_COOKIE, { path: '/', secure: url.protocol === 'https:' });
+	cookies.delete(SESSION_COOKIE, {
+		path: '/',
+		secure: url.protocol === 'https:',
+		...(authCookieDomain ? { domain: authCookieDomain } : {})
+	});
 }
