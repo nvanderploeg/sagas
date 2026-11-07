@@ -15,7 +15,7 @@ describe('gate', () => {
 	it('sends signed-out pages to /login, but lets public pages through', () => {
 		expect(gate('/', out)).toBe('login');
 		expect(gate('/login', out)).toBe('pass');
-		expect(gate('/login/session', out)).toBe('pass');
+		expect(gate('/login/session', out)).toBe('login');
 		expect(gate('/logout', out)).toBe('pass');
 		expect(gate('/setup', out)).toBe('login');
 		expect(gate('/invite/wli_abc', out)).toBe('login');
@@ -47,6 +47,12 @@ describe('gate', () => {
 		}
 	});
 
+	it('passes the auth config and session endpoints signed out, and no other auth path', () => {
+		expect(gate('/api/auth/config', out)).toBe('pass');
+		expect(gate('/api/auth/session', out)).toBe('pass');
+		expect(gate('/api/auth/other', out)).toBe('unauthorized');
+	});
+
 	it('keeps /oauth/authorize a normal page', () => {
 		expect(gate('/oauth/authorize', out)).toBe('login');
 		expect(gate('/oauth/authorize', inside)).toBe('pass');
@@ -61,7 +67,7 @@ describe('gate', () => {
 
 	it('recognises the public paths', () => {
 		expect(isPublicPath('/login')).toBe(true);
-		expect(isPublicPath('/login/session')).toBe(true);
+		expect(isPublicPath('/logout')).toBe(true);
 		expect(isPublicPath('/invite/x')).toBe(false);
 		expect(isPublicPath('/realms')).toBe(false);
 	});

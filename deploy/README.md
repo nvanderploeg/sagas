@@ -9,7 +9,7 @@ unpacked files while an import runs.
 docker compose --env-file .env -f deploy/compose.yaml up -d
 ```
 
-Set `POSTGRES_PASSWORD`, `ADMIN_EMAILS`, `FIREBASE_WEB_API_KEY` and `FIREBASE_SERVICE_ACCOUNT_PATH`
+Set `POSTGRES_PASSWORD`, `ADMIN_EMAILS`, `FIREBASE_WEB_API_KEY` and `FIREBASE_SERVICE_ACCOUNT_HOST_PATH`
 in `.env`.
 
 ## Sign-in with Firebase
@@ -19,16 +19,17 @@ email. The browser signs in, the server verifies the ID token with the Firebase 
 a Firebase session cookie. Enable the Google and Email link sign-in methods in the Firebase console,
 and add the instance's domain under Authentication, Settings, Authorized domains.
 
-| Variable                        | Meaning                                                                                                              |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `FIREBASE_SERVICE_ACCOUNT_FILE` | Path, inside the container, to the service account JSON. Compose mounts it read-only.                                |
-| `FIREBASE_SERVICE_ACCOUNT`      | The service account JSON itself, instead of the file.                                                                |
-| `FIREBASE_SERVICE_ACCOUNT_PATH` | Compose only: the host path of the JSON, mounted at `FIREBASE_SERVICE_ACCOUNT_FILE`.                                 |
-| `FIREBASE_WEB_API_KEY`          | The web app's public API key, from the Firebase console's project settings.                                          |
-| `FIREBASE_AUTH_DOMAIN`          | Defaults to `<project id>.firebaseapp.com`.                                                                          |
-| `FIREBASE_PROJECT_ID`           | Defaults to `runestone-d3a35`.                                                                                       |
-| `AUTH_COOKIE_DOMAIN`            | Domain of the shared `runestone_session` cookie, such as `.nanzero.com`. Unset gives a host-only cookie (local dev). |
-| `ADMIN_EMAILS`                  | Comma-separated emails. A User who signs in with one of them is an Admin.                                            |
+| Variable                             | Meaning                                                                                                              |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `FIREBASE_SERVICE_ACCOUNT_FILE`      | Path, inside the container, to the service account JSON. Compose mounts it read-only.                                |
+| `FIREBASE_SERVICE_ACCOUNT`           | The service account JSON itself, instead of the file.                                                                |
+| `FIREBASE_SERVICE_ACCOUNT_HOST_PATH` | Compose only: the host path of the JSON, mounted read-only at `FIREBASE_SERVICE_ACCOUNT_FILE`.                       |
+| `FIREBASE_WEB_API_KEY`               | The web app's public API key, from the Firebase console's project settings.                                          |
+| `FIREBASE_AUTH_DOMAIN`               | Defaults to `<project id>.firebaseapp.com`.                                                                          |
+| `FIREBASE_PROJECT_ID`                | Defaults to `runestone-d3a35`.                                                                                       |
+| `FIREBASE_APP_ID`                    | The web app id from the Firebase console. Optional.                                                                  |
+| `AUTH_COOKIE_DOMAIN`                 | Domain of the shared `runestone_session` cookie, such as `.nanzero.com`. Unset gives a host-only cookie (local dev). |
+| `ADMIN_EMAILS`                       | Comma-separated emails. A User who signs in with one of them is an Admin.                                            |
 
 sagas, chronicle and beryl share one session cookie, `runestone_session`, so signing in to one signs
 in to all. Set the same `AUTH_COOKIE_DOMAIN` in each, and add every parent domain it covers

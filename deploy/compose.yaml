@@ -38,7 +38,7 @@ services:
       AUTH_COOKIE_DOMAIN: ${AUTH_COOKIE_DOMAIN:-}
       FIREBASE_SERVICE_ACCOUNT_FILE: /run/secrets/firebase-service-account.json
     volumes:
-      - ${FIREBASE_SERVICE_ACCOUNT_PATH:?set FIREBASE_SERVICE_ACCOUNT_PATH in .env}:/run/secrets/firebase-service-account.json:ro
+      - ${FIREBASE_SERVICE_ACCOUNT_HOST_PATH:?set FIREBASE_SERVICE_ACCOUNT_HOST_PATH in .env}:/run/secrets/firebase-service-account.json:ro
     read_only: true
     tmpfs:
       - /tmp:size=1g

@@ -1,6 +1,6 @@
 export type Gate = 'pass' | 'login' | 'unauthorized';
 
-const PUBLIC_PAGES = new Set(['/login', '/login/session', '/logout']);
+const PUBLIC_PAGES = new Set(['/login', '/logout']);
 
 export function isPublicPath(pathname: string): boolean {
 	return PUBLIC_PAGES.has(pathname);
@@ -24,8 +24,11 @@ const OAUTH_OPEN_PATHS = new Set([
 	'/oauth/token'
 ]);
 
+// Sign-in exchanges an ID token for the cookie, so it cannot require one.
+const AUTH_OPEN_PATHS = new Set(['/api/auth/config', '/api/auth/session']);
+
 export function gate(pathname: string, state: { signedIn: boolean }): Gate {
-	if (OAUTH_OPEN_PATHS.has(pathname)) return 'pass';
+	if (OAUTH_OPEN_PATHS.has(pathname) || AUTH_OPEN_PATHS.has(pathname)) return 'pass';
 	if (state.signedIn) return 'pass';
 	if (isMachinePath(pathname)) return 'unauthorized';
 	return isPublicPath(pathname) ? 'pass' : 'login';

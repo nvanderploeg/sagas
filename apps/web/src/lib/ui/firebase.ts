@@ -18,7 +18,7 @@ function auth(config: FirebaseOptions) {
 
 // Hands the signed-in user's ID token to the server for a session cookie.
 async function startSession(credential: UserCredential): Promise<void> {
-	const response = await fetch('/login/session', {
+	const response = await fetch('/api/auth/session', {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
 		body: JSON.stringify({ idToken: await credential.user.getIdToken() })

@@ -39,7 +39,8 @@ export const firebaseProjectId = process.env.FIREBASE_PROJECT_ID?.trim() || 'run
 export const firebaseWebConfig = {
 	apiKey: process.env.FIREBASE_WEB_API_KEY?.trim() ?? '',
 	authDomain: process.env.FIREBASE_AUTH_DOMAIN?.trim() || `${firebaseProjectId}.firebaseapp.com`,
-	projectId: firebaseProjectId
+	projectId: firebaseProjectId,
+	appId: process.env.FIREBASE_APP_ID?.trim() || undefined
 };
 
 export function parseAdminEmails(raw: string | undefined): Set<string> {

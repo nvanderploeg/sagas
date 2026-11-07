@@ -1,6 +1,6 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { sessionVerifier } from '#lib/server/auth/firebase.ts';
-import { setSessionCookie } from '#lib/server/auth/request.ts';
+import { endSession, setSessionCookie } from '#lib/server/auth/request.ts';
 import { signInIdentity } from '#lib/server/auth/signin.ts';
 import { adminEmails } from '#lib/server/config.ts';
 import { getDb } from '#lib/server/db/index.ts';
@@ -31,5 +31,10 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 		throw error;
 	}
 	setSessionCookie(cookies, url, exchanged.cookie, new Date(Date.now() + SESSION_TTL_MS));
+	return json({ ok: true });
+};
+
+export const DELETE: RequestHandler = ({ cookies, url }) => {
+	endSession(cookies, url);
 	return json({ ok: true });
 };

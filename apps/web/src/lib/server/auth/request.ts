@@ -1,6 +1,11 @@
 import type { Cookies } from '@sveltejs/kit';
 import type { Db } from '#lib/server/db/client.ts';
-import { apiTokenCredential, sessionCredential, type Credential } from './credentials.ts';
+import {
+	announceRevoked,
+	apiTokenCredential,
+	sessionCredential,
+	type Credential
+} from './credentials.ts';
 import { sessionVerifier } from './firebase.ts';
 import { verifyApiToken } from './tokens.ts';
 import { adminEmails, authCookieDomain } from '#lib/server/config.ts';
@@ -59,4 +64,13 @@ export function clearSessionCookie(cookies: Cookies, url: URL): void {
 		secure: url.protocol === 'https:',
 		...(authCookieDomain ? { domain: authCookieDomain } : {})
 	});
+}
+
+export function endSession(cookies: Cookies, url: URL): void {
+	const token = cookies.get(SESSION_COOKIE);
+	if (token) {
+		const { kind, hash } = sessionCredential(token);
+		announceRevoked({ kind, hash });
+	}
+	clearSessionCookie(cookies, url);
 }
