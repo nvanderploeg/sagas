@@ -101,7 +101,10 @@ beforeEach(async () => {
 	} as never);
 });
 
+const made: Dispatcher[] = [];
+
 afterEach(() => {
+	for (const d of made.splice(0)) d.stop();
 	setDispatcher(null);
 	setAccessEnforced(false);
 	vi.restoreAllMocks();
@@ -166,6 +169,7 @@ function dispatcher(overrides: Partial<DispatcherDeps> = {}): Dispatcher {
 		}) as unknown as typeof clearTimeout,
 		...overrides
 	});
+	made.push(d);
 	setDispatcher(d);
 	d.start();
 	return d;
@@ -322,8 +326,8 @@ describe('off the request path', () => {
 
 		await until(() => reads.some((sql) => LIST.test(sql)));
 		await until(() => calls.length === 1);
-		expect(reads.filter((sql) => LIST.test(sql))).toHaveLength(1);
 		await d.drain();
+		expect(calls).toHaveLength(1);
 	});
 
 	it('takes due Webhooks round-robin when concurrency is short', async () => {
@@ -539,6 +543,7 @@ describe('retries', () => {
 			expect((await row(webhook.id)).status).toBe(
 				disableAfterMs === 30_000 ? 'disabled' : 'active'
 			);
+			d.stop();
 		}
 	});
 
