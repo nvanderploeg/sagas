@@ -1,12 +1,31 @@
 services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sagas
+      POSTGRES_USER: sagas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sagas}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sagas -d sagas']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
   app:
     build: .
     restart: unless-stopped
-    user: "0:0"
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - '${SAGAS_PORT:-3290}:3000'
     environment:
+      DATABASE_URL: postgres://sagas:${POSTGRES_PASSWORD:-sagas}@db:5432/sagas
       PROTOCOL_HEADER: ${SAGAS_PROTOCOL_HEADER-x-forwarded-proto}
       HOST_HEADER: ${SAGAS_HOST_HEADER-x-forwarded-host}
-    volumes:
-      - ./data:/data
+
+volumes:
+  pgdata:

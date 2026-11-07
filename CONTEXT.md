@@ -1,6 +1,6 @@
 # sagas
 
-A labour tracker for a small team, self-hosted as one container with its SQLite file on a mounted volume. Sister to workstate: workstate shows agents' live work, sagas holds the labours that work is for. Terms below are binding vocabulary.
+A labour tracker for a small team, self-hosted as one container against a PostgreSQL database. Sister to workstate: workstate shows agents' live work, sagas holds the labours that work is for. Terms below are binding vocabulary.
 
 ## Language
 
@@ -14,11 +14,7 @@ A User of kind `agent`. Has no password and signs in only with API tokens. Can o
 A User who can manage Users and Invites. The first User, created on the first-run setup screen, is an Admin.
 
 **Data bundle**:
-A single .zip an Admin exports to move the instance: a consistent snapshot of the database, the attachment files stored on the server, and `manifest.json` (format, app version, schema level, each file's size and sha256). Importing one replaces all data. The contract is `docs/data-bundle.md`.
-_Avoid_: backup, which is the copy the server keeps of what an import replaces.
-
-**Staged import**:
-A Data bundle that passed validation and was unpacked beside the database, waiting for the next server start to be swapped in. An Admin can discard it until then.
+A single .zip an Admin exports to move the instance: a consistent snapshot of every table and `manifest.json` (format, app version, schema level, each file's size and sha256). Importing one replaces all data in one transaction. The contract is `docs/data-bundle.md`. A bundle from the SQLite build imports too.
 
 **Invite**:
 A single-use link an Admin creates so a person can set their own password and join.

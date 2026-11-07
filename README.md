@@ -17,13 +17,21 @@ pnpm install
 pnpm --filter web dev
 ```
 
-Open <http://localhost:5173>. The default database path is `/data/sagas.db`, which is for the
-container; export `DATABASE_PATH` (see `.env.example`) to point at a writable file locally.
+Open <http://localhost:5173>. sagas needs a PostgreSQL 16 database; export `DATABASE_URL` (see
+`.env.example`) to point at one. Migrations run when the server starts.
+
+Tests need a database whose name ends in `_test`; they clone a template database per test:
+
+```sh
+docker run -d --name sagas-pg -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=sagas_test -p 5432:5432 postgres:16
+export DATABASE_URL=postgres://postgres:pw@127.0.0.1:5432/sagas_test
+pnpm test && pnpm e2e
+```
 
 ## Run in Docker
 
-The SQLite database lives outside the container in `./data`, bind-mounted to `/data`. The
-entrypoint hands `/data` to the `node` user and runs the app as `node`, never as root.
+`compose.yaml` starts PostgreSQL 16 and the app. The app keeps nothing on disk: all data is in the
+database, so the container runs read-only as `1000:1000` with no volume.
 
 ```sh
 docker-compose up -d --build
@@ -37,6 +45,23 @@ reverse proxy, have the proxy send `X-Forwarded-Proto` and `X-Forwarded-Host`; t
 is `Secure` exactly when the forwarded protocol is https. `SAGAS_PROTOCOL_HEADER` and
 `SAGAS_HOST_HEADER` name those headers; set one empty to ignore it (see `.env.example`).
 
+## Production and a shared database
+
+`deploy/compose.yaml` is the hardened stack (read-only root, no capabilities, `/tmp` on tmpfs).
+Point `DATABASE_URL` at an external server for a database over the internet:
+
+```
+DATABASE_URL=postgres://user:pw@host:5432/sagas?sslmode=verify-full
+```
+
+- `pg` 8.23 reads `sslmode=require`, `prefer` and `verify-ca` as full verification and `no-verify`
+  as none; add `uselibpqcompat=true` for libpq's meanings. A private CA goes in `sslrootcert=/path`.
+- The password is spliced into the URL unencoded: use hex (`openssl rand -hex 24`).
+- Run one app replica. The Event Stream, the Event bus, the Webhook dispatcher, the embedding queue
+  and the import lock are per process.
+- Migrations run at start under `pg_advisory_lock`, so pods starting together do not race.
+- The embedding model ships in the image (`/app/models`); nothing else needs a volume.
+
 ## Move to another host
 
 An Admin opens `/admin` for instance stats (version, database size, row counts, applied
@@ -46,18 +71,16 @@ migrations), **Export** and **Import**. The contract is `docs/data-bundle.md`.
 2. On the new host, start sagas with the same `WEBHOOK_KEY` (it decrypts Webhook secrets), complete
    `/setup` to create a throwaway Admin, then sign in and open `/admin`.
 3. Choose the bundle, type `REPLACE ALL DATA`, and press Replace all data. Import replaces
-   everything: Users, Realms, Labours, Scrolls, tokens, sessions, attachments. Sign in afterwards
-   as a User from the bundle.
-4. Restart the server (`docker compose restart app`). The swap happens at startup, before the
-   database opens: the current data is saved to `backups/pre-import-<time>/` beside the database,
-   the new files are renamed into place, and older bundles are migrated.
+   everything in one transaction: Users, Realms, Labours, Scrolls, tokens, sessions. Sign in
+   afterwards as a User from the bundle. Nothing is kept of what it replaced; export first.
 
-`SAGAS_IMPORT_MAX_BYTES` (default 10 GiB) caps the upload. The browser sends the bundle in 256 KiB
-chunks, so the default `BODY_SIZE_LIMIT` of adapter-node needs no change. A reverse proxy must allow
-request bodies of at least that chunk size on `/admin/import`.
+A bundle from the SQLite build imports the same way. `SAGAS_IMPORT_MAX_BYTES` (default 10 GiB) caps
+the upload. The browser sends the bundle in 256 KiB chunks, so the default `BODY_SIZE_LIMIT` of
+adapter-node needs no change. A reverse proxy must allow request bodies of at least that chunk size
+on `/admin/import`.
 
-If the swap fails at startup, sagas logs the error, moves the staged import to `quarantine/`, and
-boots on the current data. Only the newest 5 `backups/pre-import-*` are kept.
+`pnpm --filter web exec node scripts/verify-legacy-import.mjs <bundle.zip>` imports a bundle into a
+throwaway database and checks counts, keys, search and sequences.
 
 ## Embedding model
 

@@ -1,32 +1,46 @@
 services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    command: ['postgres', '-c', 'shared_buffers=64MB', '-c', 'max_connections=50']
+    environment:
+      POSTGRES_DB: sagas
+      POSTGRES_USER: sagas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sagas -d sagas']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
   app:
     image: ghcr.io/nvanderploeg/sagas:latest
     pull_policy: always
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - '127.0.0.1:${SAGAS_PORT:-3290}:3000'
     environment:
+      # An external Postgres over TLS: replace with
+      # postgres://user:pw@host:5432/sagas?sslmode=verify-full (see deploy/README.md).
+      DATABASE_URL: postgres://sagas:${POSTGRES_PASSWORD}@db:5432/sagas
       PROTOCOL_HEADER: x-forwarded-proto
       HOST_HEADER: x-forwarded-host
       ADDRESS_HEADER: x-forwarded-for
       XFF_DEPTH: '1'
       ADMIN_USERNAME: ${ADMIN_USERNAME:?set ADMIN_USERNAME in .env}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
-    volumes:
-      - data:/data
     read_only: true
     tmpfs:
-      - /tmp
+      - /tmp:size=1g
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    cap_add:
-      - CHOWN
-      - DAC_OVERRIDE
-      - FOWNER
-      - SETUID
-      - SETGID
     pids_limit: 256
     mem_limit: 512m
     logging:
@@ -36,4 +50,4 @@ services:
         max-file: '3'
 
 volumes:
-  data:
+  pgdata:
