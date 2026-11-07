@@ -69,7 +69,7 @@ migrations), **Export** and **Import**. The contract is `docs/data-bundle.md`.
 
 1. On the old host, choose Download export.
 2. On the new host, start sagas with the same `WEBHOOK_KEY` (it decrypts Webhook secrets), complete
-   `/setup` to create a throwaway Admin, then sign in and open `/admin`.
+   `ADMIN_EMAILS` naming you, sign in and open `/admin`.
 3. Choose the bundle, type `REPLACE ALL DATA`, and press Replace all data. Import replaces
    everything in one transaction: Users, Realms, Labours, Scrolls, tokens, sessions. Sign in
    afterwards as a User from the bundle. Nothing is kept of what it replaced; export first.
@@ -92,7 +92,7 @@ at build time. The server never downloads a model. For local development, run
 ## Connect an agent over MCP
 
 sagas serves an MCP server at `/mcp` (Streamable HTTP). It authenticates with an API token and
-acts as that token's User. The first Admin's token is shown once, at the end of `/setup`; for more,
+acts as that token's User. Create the first token on `/account` after signing in; for more,
 call the `create_api_token` tool (an Admin can also make an Agent user with `create_agent_user` and
 give it its own token).
 

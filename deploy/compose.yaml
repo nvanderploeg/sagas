@@ -33,8 +33,12 @@ services:
       ADDRESS_HEADER: x-forwarded-for
       XFF_DEPTH: '1'
       SAGAS_IMPORT_MAX_BYTES: ${SAGAS_IMPORT_MAX_BYTES:-209715200}
-      ADMIN_USERNAME: ${ADMIN_USERNAME:?set ADMIN_USERNAME in .env}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:?set ADMIN_EMAILS in .env}
+      FIREBASE_WEB_API_KEY: ${FIREBASE_WEB_API_KEY:?set FIREBASE_WEB_API_KEY in .env}
+      AUTH_COOKIE_DOMAIN: ${AUTH_COOKIE_DOMAIN:-}
+      FIREBASE_SERVICE_ACCOUNT_FILE: /run/secrets/firebase-service-account.json
+    volumes:
+      - ${FIREBASE_SERVICE_ACCOUNT_PATH:?set FIREBASE_SERVICE_ACCOUNT_PATH in .env}:/run/secrets/firebase-service-account.json:ro
     read_only: true
     tmpfs:
       - /tmp:size=1g

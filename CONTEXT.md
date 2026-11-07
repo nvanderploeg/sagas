@@ -5,19 +5,16 @@ A labour tracker for a small team, self-hosted as one container against a Postgr
 ## Language
 
 **User**:
-A person or agent who can act in sagas. Has a kind of `human` or `agent`. Owners, assignees and audit entries all point at Users.
+A person or agent who can act in sagas. Has a kind of `human` or `agent`. Owners, assignees and audit entries all point at Users. A human signs in with Firebase (Google or an emailed link) and is linked to a Firebase uid; a first sign-in links to the User already holding that verified email, otherwise creates one. Anyone with a Firebase account may sign in. Each User has a Realm limit, 1 by default, on the Realms they may create.
 
 **Agent user**:
-A User of kind `agent`. Has no password and signs in only with API tokens. Can own and be assigned Labours like any human.
+A User of kind `agent`. Has no Firebase account and signs in only with API tokens. Can own and be assigned Labours like any human.
 
 **Admin**:
-A User who can manage Users and Invites. The first User, created on the first-run setup screen, is an Admin.
+A User who can manage Users: set an email, a Realm limit, create Agent users. A User whose verified email is in `ADMIN_EMAILS` is an Admin when they sign in.
 
 **Data bundle**:
 A single .zip an Admin exports to move the instance: a consistent snapshot of every table and `manifest.json` (format, app version, schema level, each file's size and sha256). Importing one replaces all data in one transaction. The contract is `docs/data-bundle.md`. A bundle from the SQLite build imports too.
-
-**Invite**:
-A single-use link an Admin creates so a person can set their own password and join.
 
 **API token**:
 A secret a User creates to call sagas without a browser session, as the MCP server does. The server keeps only its hash. It acts as that User.
@@ -36,7 +33,9 @@ One User's role in one Realm: `owner`, `editor` or `viewer`. A Realm is private 
 
 **Offer**:
 A pending Membership an Owner makes to a User by username. Grants nothing until the invitee accepts; declining or withdrawing deletes it.
-_Avoid_: Invite, which is the Admin's link for a new person.
+
+**Realm limit**:
+How many Realms a User may create, 1 by default; an Admin changes it. Creating past it is refused. It counts Realms the User created, not Realms they joined.
 
 **Realm key**:
 2–6 letters or digits starting with a letter, unique across the instance, stored uppercase. Renaming one keeps the old key as an Alias for every Labour in the Realm.
