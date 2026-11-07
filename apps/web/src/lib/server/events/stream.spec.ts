@@ -266,6 +266,16 @@ describe('stream lifetime', () => {
 		expect(held()).toEqual(nothing);
 	});
 
+	it('releases everything when the opening read fails', async () => {
+		await db.$client.end();
+		const streams = [1, 2, 3].map(() => openEventStream(db, { guard, since: 0, heartbeatMs: 60_000 }));
+
+		const reads = await Promise.allSettled(streams.map((stream) => stream.getReader().read()));
+
+		expect(reads.every((read) => read.status === 'rejected')).toBe(true);
+		expect(held()).toEqual(nothing);
+	});
+
 	it('leaves nothing behind when it ends while opening', async () => {
 		const realm = await seedRealm(db, 'AM');
 		for (let i = 0; i < 6; i++) await seedLabour(db, { realmId: realm.id });

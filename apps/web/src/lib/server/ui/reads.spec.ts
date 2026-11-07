@@ -7,7 +7,7 @@ import { createState } from '../domain/states.ts';
 import type { Actor } from '../domain/write.ts';
 import { testDb } from '../test/db.ts';
 import { seedActor, seedRealm, seedLabour, seedUser } from '../test/fixtures.ts';
-import { readHome, readLabourPage } from './reads.ts';
+import { readHome, readLabourPage, searchLabours } from './reads.ts';
 import { countStatements } from '#lib/server/test/db.ts';
 
 let db: Db;
@@ -34,6 +34,22 @@ async function questsWithMembers(ownerId: number, count: number, realmId: number
 		}
 	}
 }
+
+describe('searchLabours', () => {
+	it('matches titles and key prefixes regardless of case', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const ownerId = await seedUser(db, 'finder');
+		const hit = await seedLabour(db, { realmId: realm.id, ownerId, title: 'Fix Dragon Wings' });
+		await seedLabour(db, { realmId: realm.id, ownerId, title: 'Unrelated' });
+		const viewer = { id: ownerId };
+
+		const byTitle = await searchLabours(db, viewer, 'dRaGoN');
+		const byKey = await searchLabours(db, viewer, `am-${hit.number}`);
+
+		expect(byTitle.map((m) => m.id)).toEqual([hit.id]);
+		expect(byKey.map((m) => m.id)).toEqual([hit.id]);
+	});
+});
 
 describe('page reads', () => {
 	it('read a Labour page in as many statements however many Quests exist', async () => {

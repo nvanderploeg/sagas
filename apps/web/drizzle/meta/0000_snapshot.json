@@ -1252,7 +1252,7 @@
           "primaryKey": false,
           "notNull": false,
           "generated": {
-            "as": "setweight(to_tsvector('english', \"title\"), 'A') || setweight(to_tsvector('english', \"brief\"), 'B') || setweight(to_tsvector('english', \"notes\"), 'C') || setweight(to_tsvector('english', \"description\"), 'D') || setweight(to_tsvector('english', \"comments\"), 'D')",
+            "as": "setweight(to_tsvector('sagas_english', \"title\"), 'A') || setweight(to_tsvector('sagas_english', \"brief\"), 'B') || setweight(to_tsvector('sagas_english', \"notes\"), 'C') || setweight(to_tsvector('sagas_english', \"description\"), 'D') || setweight(to_tsvector('sagas_english', \"comments\"), 'D')",
             "type": "stored"
           }
         }
@@ -3988,7 +3988,7 @@
           "primaryKey": false,
           "notNull": false,
           "generated": {
-            "as": "setweight(to_tsvector('english', \"title\"), 'A') || setweight(to_tsvector('english', \"body\"), 'B')",
+            "as": "setweight(to_tsvector('sagas_english', \"title\"), 'A') || setweight(to_tsvector('sagas_english', \"body\"), 'B')",
             "type": "stored"
           }
         }

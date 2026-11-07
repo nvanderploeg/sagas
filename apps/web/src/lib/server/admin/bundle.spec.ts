@@ -189,6 +189,26 @@ describe('export and import', () => {
 		expect((await eventWindow(target)).last).toBe(last);
 	});
 
+	it('keeps the live event counter above the bundle when the instance is ahead of it', async () => {
+		const source = await testDb();
+		await populate(source);
+		const bundle = join(root, 'out.zip');
+		await exportTo(source, bundle);
+		const bundleLast = (await eventWindow(source)).last;
+		const target = await testDb();
+		await populate(target);
+		for (let i = 0; i < 5; i++) await seedLabour(target, { realmId: 1 });
+		const liveLast = (await eventWindow(target)).last;
+		expect(liveLast).toBeGreaterThan(bundleLast);
+
+		await importBundle(target, bundle, LIMITS);
+
+		expect((await eventWindow(target)).last).toBe(liveLast);
+		const made = await createLabour(target, await seedActor(target), { realmId: 1, title: 'next', ownerId: 1 });
+		void made;
+		expect((await eventWindow(target)).last).toBe(liveLast + 1);
+	});
+
 	it('exports a snapshot with a manifest listing the file with its checksum', async () => {
 		const db = await testDb();
 		await populate(db);

@@ -42,7 +42,7 @@ Replace-everything, in one request and one transaction.
    `TRUNCATE`s every table, rows are inserted in batches of at most 500 rows and 60 000 bound
    parameters, with every foreign key deferred to the commit. Ids are kept. After the last row the
    derived tables are rebuilt, every identity sequence is set above the largest imported id (an empty
-   table restarts at 1), and `event_counter` is set to at least the largest imported `events.seq`. A
+   table restarts at 1), and `event_counter` is set to the largest of the imported counter, the largest imported `events.seq` and the counter this instance had before the import, so a seq already handed to a connected client is never reused. A
    failure rolls back and leaves the current data untouched. SQLSTATE classes 22 (data exception)
    and 23 (integrity violation) answer 422; anything else is a 500.
 

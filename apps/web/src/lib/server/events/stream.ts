@@ -177,7 +177,13 @@ export function openEventStream(db: Db, options: StreamOptions): ReadableStream<
 						tail = tail.then(() => emit(event)).catch(report);
 					})
 				);
-				const opening = await opened;
+				let opening: Awaited<typeof opened>;
+				try {
+					opening = await opened;
+				} catch (error) {
+					release();
+					throw error;
+				}
 				lastSeq = opening.seq;
 				for (const frame of opening.frames) send(frame);
 				const timer = setInterval(() => void heartbeat().catch(report), options.heartbeatMs);

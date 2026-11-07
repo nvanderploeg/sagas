@@ -620,6 +620,21 @@ describe('failed writes', () => {
 	});
 });
 
+describe('Event seqs', () => {
+	it('start at 1 with no gaps, and the counter ends on the last one', async () => {
+		const realm = await seedRealm(db, 'AM');
+		await seedLabour(db, { realmId: realm.id });
+		await deleteRealm(db, actor, realm.id);
+
+		const seqs = (await db.select().from(events)).map((e) => e.seq).sort((a, b) => a - b);
+		const counter = await db.$client.query<{ last: number }>('SELECT last FROM event_counter');
+
+		expect(seqs.length).toBeGreaterThan(2);
+		expect(seqs).toEqual(seqs.map((_, i) => i + 1));
+		expect(counter.rows[0].last).toBe(seqs.length);
+	});
+});
+
 describe('publishing', () => {
 	it("publishes a write's Events after its commit, with consecutive seqs, as stored", async () => {
 		const am = await seedRealm(db, 'AM');
@@ -628,13 +643,16 @@ describe('publishing', () => {
 		await seedLabour(db, { realmId: bl.id, parentId: parent.id });
 		const inside: boolean[] = [];
 		const stop = subscribe(() => inside.push(inTransaction()));
+		const before = await lastSeq();
 
 		const found = await recorded(() => deleteRealm(db, actor, am.id));
 		stop();
 
 		expect(found.length).toBeGreaterThan(1);
 		expect(inside).toEqual(found.map(() => false));
-		const first = found[0].seq;
-		expect(found.map((e) => e.seq)).toEqual(found.map((_, i) => first + i));
+		expect(found.map((e) => e.seq)).toEqual(found.map((_, i) => before + 1 + i));
+		expect((await db.select().from(events)).map((e) => e.seq).slice(-found.length)).toEqual(
+			found.map((e) => e.seq)
+		);
 	});
 });

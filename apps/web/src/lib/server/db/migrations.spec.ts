@@ -1,3 +1,7 @@
+import { spawnSync } from 'node:child_process';
+import { cpSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { testDb } from '#lib/server/test/db.ts';
 
@@ -104,4 +108,29 @@ describe('the baseline migration', () => {
 
 		expect(rows.sort()).toEqual(['labour_text_search_idx', 'scroll_text_search_idx']);
 	});
+
+	it('has a schema.ts and snapshot that drizzle-kit generate finds no difference in', () => {
+		const root = resolve(import.meta.dirname, '../../../..');
+		const scratch = mkdtempSync(join(tmpdir(), 'sagas-drift-'));
+		try {
+			cpSync(join(root, 'drizzle'), join(scratch, 'drizzle'), { recursive: true });
+			writeFileSync(
+				join(scratch, 'drizzle.config.ts'),
+				`export default { schema: ${JSON.stringify(join(root, 'src/lib/server/db/schema.ts'))}, out: './drizzle', dialect: 'postgresql' };\n`
+			);
+
+			const run = spawnSync(
+				join(root, 'node_modules/.bin/drizzle-kit'),
+				['generate', '--config', 'drizzle.config.ts', '--name', 'drift'],
+				{ cwd: scratch, encoding: 'utf8' }
+			);
+
+			expect(run.stdout + run.stderr).toContain('No schema changes');
+			expect(readdirSync(join(scratch, 'drizzle')).filter((n) => n.endsWith('.sql'))).toEqual([
+				'0000_baseline.sql'
+			]);
+		} finally {
+			rmSync(scratch, { recursive: true, force: true });
+		}
+	}, 60_000);
 });

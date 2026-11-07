@@ -312,6 +312,8 @@ async function load(
 		await client.query('SET LOCAL statement_timeout = 0');
 		await client.query('SELECT pg_advisory_xact_lock($1)', [WRITER_LOCK]);
 		await client.query('SET CONSTRAINTS ALL DEFERRED');
+		const live = await client.query<{ last: number }>('SELECT last FROM event_counter');
+		const liveSeq = live.rows[0]?.last ?? 0;
 		const everything = [...BUNDLE_TABLES.map((entry) => entry.name), ...DERIVED_TABLES];
 		await client.query(`TRUNCATE ${everything.map(quote).join(', ')}`);
 
@@ -364,7 +366,7 @@ async function load(
 
 		const { eventSeq } = await fill(insert);
 		await rebuildDerived(client);
-		await resetSequences(client, eventSeq);
+		await resetSequences(client, Math.max(eventSeq ?? 0, liveSeq));
 		await client.query('COMMIT');
 		clean = true;
 	} catch (error) {
@@ -384,8 +386,8 @@ async function rebuildDerived(client: pg.PoolClient): Promise<void> {
 }
 
 // Imported rows carry their own ids: every sequence must continue above them, empty tables
-// included.
-async function resetSequences(client: pg.PoolClient, eventSeq: number | null): Promise<void> {
+// included. The event counter never falls below the seq this instance already handed out.
+async function resetSequences(client: pg.PoolClient, eventSeq: number): Promise<void> {
 	const identities = await client.query<{ table_name: string; column_name: string }>(
 		`SELECT table_name, column_name FROM information_schema.columns
 		 WHERE table_schema = 'public' AND is_identity = 'YES'`
@@ -405,6 +407,6 @@ async function resetSequences(client: pg.PoolClient, eventSeq: number | null): P
 		 VALUES (1, GREATEST($1::int, COALESCE((SELECT max(seq) FROM events), 0)))
 		 ON CONFLICT (id) DO UPDATE
 		 SET last = GREATEST(event_counter.last, EXCLUDED.last)`,
-		[eventSeq ?? 0]
+		[eventSeq]
 	);
 }
