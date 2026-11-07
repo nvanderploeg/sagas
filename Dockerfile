@@ -40,7 +40,8 @@ COPY --from=build /models ./models
 COPY --from=build /app/apps/web/build ./build
 COPY --from=build /app/apps/web/server ./server
 COPY docker-entrypoint.sh /usr/local/bin/
-RUN mkdir /data && chown node:node /data
+RUN mkdir /data && chown 1000:1000 /data
+USER 1000:1000
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 	CMD node -e "fetch('http://127.0.0.1:3000/login',{redirect:'manual'}).then(r=>process.exit(r.status<500?0:1),()=>process.exit(1))"

@@ -2,6 +2,7 @@ services:
   app:
     build: .
     restart: unless-stopped
+    user: "0:0"
     ports:
       - '${SAGAS_PORT:-3290}:3000'
     environment:
