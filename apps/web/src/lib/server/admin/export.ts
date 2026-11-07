@@ -1,133 +1,94 @@
-import { randomBytes } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { mkdir, open, readdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
+import pg from 'pg';
+import Cursor from 'pg-cursor';
 import type { Db } from '#lib/server/db/client.ts';
-import type { DataLayout } from './layout.ts';
 import {
-	ATTACHMENT_PREFIX,
+	buildSchema,
 	DATABASE_NAME,
 	FORMAT,
 	MANIFEST_NAME,
-	isBundledPath,
-	appliedMigrations,
-	schemaOf,
+	SERVICE,
 	type Manifest
 } from './manifest.ts';
+import { BUNDLE_TABLES, columnKind, quote } from './tables.ts';
 import { zipChunks, type ZipEntry } from './zip.ts';
 
-export type RemoteAttachment = { driver: string; key: string };
+const CURSOR_ROWS = 256;
+const FLUSH_BYTES = 1 << 16;
 
-export type ExportOptions = {
-	appVersion?: string;
-	now?: Date;
-	// Attachments whose bytes live in a bucket: listed in the manifest, never copied.
-	remoteAttachments?: (db: Db) => RemoteAttachment[];
-};
+export type ExportOptions = { appVersion?: string; now?: Date };
 
-async function localAttachments(
-	root: string
-): Promise<{ files: string[]; skipped: Manifest['skipped'] }> {
-	const files: string[] = [];
-	const skipped: Manifest['skipped'] = [];
-	const walk = async (dir: string, prefix: string): Promise<void> => {
-		let names;
-		try {
-			names = await readdir(dir, { withFileTypes: true });
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-			throw error;
-		}
-		for (const item of names.sort((a, b) => (a.name < b.name ? -1 : 1))) {
-			if (item.isDirectory()) await walk(join(dir, item.name), `${prefix}${item.name}/`);
-			else if (item.isFile()) files.push(`${prefix}${item.name}`);
-			else {
-				skipped.push({
-					path: `${ATTACHMENT_PREFIX}${prefix}${item.name}`,
-					reason: 'not a regular file'
-				});
-			}
-		}
-	};
-	await walk(root, '');
-	return { files, skipped };
+function selectExpression(name: string, kind: ReturnType<typeof columnKind>): string {
+	const column = quote(name);
+	if (kind === 'json') return `${column}::text`;
+	if (kind === 'bytea') return `encode(${column}, 'base64')`;
+	return column;
 }
 
-export async function exportBundle(
-	db: Db,
-	layout: DataLayout,
-	options: ExportOptions = {}
-): Promise<{ stream: Readable; filename: string }> {
-	const now = options.now ?? new Date();
-	const scratch = join(layout.dataDir, `export-tmp-${randomBytes(6).toString('hex')}`);
-	await mkdir(scratch, { recursive: true });
-	try {
-		const snapshot = join(scratch, 'sagas.db');
-		db.$client.prepare('VACUUM INTO ?').run(snapshot);
-		const schema = schemaOf(appliedMigrations(db.$client));
-		const found = await localAttachments(layout.attachmentsDir);
-		const attachments = found.files;
-		const remote = options.remoteAttachments?.(db) ?? [];
-
-		const files: Manifest['files'] = [];
-		const skipped: Manifest['skipped'] = [...found.skipped];
-		const record = (path: string) => (info: { size: number; sha256: string }) => {
-			files.push({ path, ...info });
-		};
-
-		async function* entries(): AsyncGenerator<ZipEntry> {
-			yield {
-				name: DATABASE_NAME,
-				data: createReadStream(snapshot),
-				done: record(DATABASE_NAME)
-			};
-			for (const rel of attachments) {
-				const path = `${ATTACHMENT_PREFIX}${rel}`;
-				if (!isBundledPath(path)) {
-					skipped.push({ path, reason: 'name cannot be imported' });
-					continue;
-				}
-				let handle;
-				try {
-					handle = await open(join(layout.attachmentsDir, rel), 'r');
-				} catch (error) {
-					if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-					skipped.push({ path, reason: 'vanished during export' });
-					continue;
-				}
-				yield { name: path, data: handle.createReadStream(), done: record(path) };
-			}
-			const manifest: Manifest = {
-				format: FORMAT,
-				appVersion: options.appVersion ?? __APP_VERSION__,
-				createdAt: now.toISOString(),
-				schema,
-				files,
-				skipped,
-				remoteAttachments: remote
-			};
-			yield { name: MANIFEST_NAME, data: Buffer.from(JSON.stringify(manifest, null, 2)) };
-		}
-
-		async function* chunks() {
-			try {
-				yield* zipChunks(entries(), now);
-			} finally {
-				await rm(scratch, { recursive: true, force: true });
+async function* dump(client: pg.PoolClient): AsyncGenerator<Buffer> {
+	for (const { name, columns } of BUNDLE_TABLES) {
+		yield Buffer.from(`${JSON.stringify({ table: name, columns: columns.map((c) => c.name) })}\n`);
+		const select = columns.map((c) => selectExpression(c.name, columnKind(c))).join(', ');
+		const cursor = client.query(
+			new Cursor(`SELECT ${select} FROM ${quote(name)}`, [], { rowMode: 'array' })
+		);
+		let pending = '';
+		for (;;) {
+			const batch = await cursor.read(CURSOR_ROWS);
+			if (batch.length === 0) break;
+			for (const row of batch) pending += `${JSON.stringify(row)}\n`;
+			if (pending.length > FLUSH_BYTES) {
+				yield Buffer.from(pending);
+				pending = '';
 			}
 		}
-
-		const stream = Readable.from(chunks());
-		stream.on('close', () => {
-			void rm(scratch, { recursive: true, force: true });
-		});
-		return {
-			stream,
-			filename: `sagas-export-${now.toISOString().slice(0, 10)}.zip`
-		};
-	} catch (error) {
-		await rm(scratch, { recursive: true, force: true });
-		throw error;
+		await cursor.close();
+		if (pending) yield Buffer.from(pending);
 	}
+}
+
+// Every table is read inside one snapshot, so the Bundle is consistent however long it streams.
+async function* entries(db: Db, now: Date, appVersion: string): AsyncGenerator<ZipEntry> {
+	const client = await db.$client.connect();
+	let clean = false;
+	try {
+		await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+		await client.query('SET LOCAL statement_timeout = 0');
+		await client.query('SELECT pg_current_snapshot()');
+		const hash = createHash('sha256');
+		let size = 0;
+		async function* body(): AsyncGenerator<Buffer> {
+			for await (const chunk of dump(client)) {
+				hash.update(chunk);
+				size += chunk.length;
+				yield chunk;
+			}
+		}
+		yield { name: DATABASE_NAME, data: Readable.from(body()) };
+		const manifest: Manifest = {
+			format: FORMAT,
+			service: SERVICE,
+			appVersion,
+			createdAt: now.toISOString(),
+			schema: buildSchema(),
+			files: [{ path: DATABASE_NAME, size, sha256: hash.digest('hex') }]
+		};
+		yield { name: MANIFEST_NAME, data: Buffer.from(JSON.stringify(manifest, null, 2)) };
+		clean = true;
+	} finally {
+		if (clean) await client.query('ROLLBACK').catch(() => {});
+		client.release(clean ? undefined : true);
+	}
+}
+
+export function exportBundle(
+	db: Db,
+	options: ExportOptions = {}
+): { stream: Readable; filename: string } {
+	const now = options.now ?? new Date();
+	const stream = Readable.from(
+		zipChunks(entries(db, now, options.appVersion ?? __APP_VERSION__), now)
+	);
+	return { stream, filename: `sagas-export-${now.toISOString().slice(0, 10)}.zip` };
 }

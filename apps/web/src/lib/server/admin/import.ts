@@ -1,171 +1,170 @@
-import { randomBytes } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, rm, statfs, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve, sep } from 'node:path';
-import { Writable } from 'node:stream';
-import Database from 'better-sqlite3';
-import { openDatabase } from '#lib/server/db/client.ts';
-import { pendingDir, type DataLayout } from './layout.ts';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { PassThrough, Writable } from 'node:stream';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import type pg from 'pg';
+import * as schema from '#lib/server/db/schema.ts';
+import type { Db, Handle } from '#lib/server/db/client.ts';
+import { WRITER_LOCK } from '#lib/server/db/tx.ts';
+import { rebuildLabourText } from '#lib/server/agent/derived.ts';
+import { endEventStreams } from '#lib/server/events/stream.ts';
 import {
-	ATTACHMENT_PREFIX,
 	BundleError,
+	buildSchema,
 	DATABASE_NAME,
 	FORMAT,
+	LEGACY_DATABASE_NAME,
+	LEGACY_FORMAT,
+	LEGACY_LEVEL,
 	MANIFEST_NAME,
-	appliedMigrations,
-	buildSchema,
-	checkHistory,
-	isBundledPath,
-	manifestSchema,
-	schemaOf,
-	type Manifest,
-	type Schema
+	MAX_MANIFEST_BYTES,
+	parseManifest,
+	SERVICE,
+	type Manifest
 } from './manifest.ts';
-import { ZipError, pipeEntry, readDirectory, safeRelativePath, type ZipFileEntry } from './zip.ts';
+import { legacyIntegrity, openLegacy, type Section } from './legacy.ts';
+import { BUNDLE_TABLES, columnKind, DERIVED_TABLES, quote, type BundleTable } from './tables.ts';
+import { pipeEntry, readDirectory, safeRelativePath, ZipError, type ZipFileEntry } from './zip.ts';
 
-export const MAX_MANIFEST_BYTES = 32 * 1024 * 1024;
-const FREE_SPACE_MARGIN = 1.1;
-
-export type PendingImport = {
-	stagedAt: string;
-	bundleCreatedAt: string;
-	bundleAppVersion: string;
-	bundleSchema: Schema;
-	files: number;
-	bytes: number;
-};
+export class BusyError extends Error {}
 
 export type ImportOptions = {
+	// Largest the Bundle may unpack to.
 	maxExpandedBytes: number;
-	now?: Date;
 };
 
-async function readEntryText(file: string, entry: ZipFileEntry, max: number): Promise<string> {
-	if (entry.size > max) throw new BundleError(`${entry.name} is too large`);
-	const chunks: Buffer[] = [];
+export type ImportResult = {
+	format: number;
+	appVersion: string;
+	createdAt: string;
+	rows: Record<string, number>;
+	ignoredFiles: number;
+};
+
+type Rows = Record<string, number>;
+type Insert = (section: Section) => Promise<void>;
+type Loaded = { eventSeq: number | null };
+
+const BATCH_ROWS = 500;
+const PARAMETER_BUDGET = 60_000;
+const MAX_LINE_BYTES = 40 << 20;
+
+let busy = false;
+
+// Only SQLSTATE classes 22 (data exception) and 23 (integrity violation) blame the Bundle.
+export function isRowError(error: unknown): error is Error & { code: string } {
+	const code = (error as { code?: unknown } | null)?.code;
+	return typeof code === 'string' && /^2[23]/.test(code);
+}
+
+export async function importBundle(
+	db: Db,
+	zipFile: string,
+	options: ImportOptions
+): Promise<ImportResult> {
+	if (busy) throw new BusyError('Another import is running');
+	busy = true;
+	const scratch = await mkdtemp(join(tmpdir(), 'sagas-import-'));
+	try {
+		return await run(db, zipFile, scratch, options);
+	} catch (error) {
+		if (error instanceof ZipError) throw new BundleError(error.message);
+		if (error instanceof SyntaxError) throw new BundleError('db.ndjson is not valid');
+		if (isRowError(error)) throw new BundleError(error.message);
+		if (/^Z_/.test(String((error as { code?: unknown } | null)?.code))) {
+			throw new BundleError(`The bundle is damaged: ${(error as Error).message}`);
+		}
+		throw error;
+	} finally {
+		busy = false;
+		await rm(scratch, { recursive: true, force: true });
+	}
+}
+
+async function readText(zipFile: string, entry: ZipFileEntry, limit: number): Promise<string> {
+	const parts: Buffer[] = [];
+	let total = 0;
 	await pipeEntry(
-		file,
+		zipFile,
 		entry,
 		new Writable({
 			write(chunk: Buffer, _encoding, callback) {
-				chunks.push(chunk);
+				total += chunk.length;
+				if (total > limit) return callback(new BundleError(`${entry.name} is too large`));
+				parts.push(chunk);
 				callback();
 			}
 		})
 	);
-	return Buffer.concat(chunks).toString('utf8');
+	return Buffer.concat(parts).toString('utf8');
 }
 
-async function extractEntry(
-	file: string,
-	entry: ZipFileEntry,
-	destination: string
-): Promise<string> {
-	await mkdir(dirname(destination), { recursive: true });
-	try {
-		return await pipeEntry(file, entry, createWriteStream(destination, { flags: 'wx' }));
-	} catch (error) {
-		if (String((error as NodeJS.ErrnoException).code).startsWith('Z_')) {
-			throw new BundleError(`${entry.name} is corrupt`);
-		}
-		throw error;
+async function verify(zipFile: string, entry: ZipFileEntry, expected: string): Promise<void> {
+	const digest = await pipeEntry(
+		zipFile,
+		entry,
+		new Writable({ write: (_chunk, _encoding, callback) => callback() })
+	);
+	if (digest !== expected) throw new BundleError(`${entry.name} fails its checksum`);
+}
+
+function checkSchema(manifest: Manifest, legacy: boolean): void {
+	const build = buildSchema();
+	const newer = legacy
+		? manifest.schema.level > LEGACY_LEVEL
+		: manifest.schema.level > build.level || manifest.schema.latest > build.latest;
+	if (newer) {
+		throw new BundleError(
+			`The bundle's schema (${manifest.schema.level} migrations) is newer than this build. Upgrade this server first.`
+		);
 	}
 }
 
-function within(root: string, path: string): boolean {
-	const base = resolve(root) + sep;
-	return resolve(path).startsWith(base);
+function summary(manifest: Manifest, rows: Rows, ignoredFiles: number): ImportResult {
+	return {
+		format: manifest.format,
+		appVersion: manifest.appVersion,
+		createdAt: manifest.createdAt,
+		rows,
+		ignoredFiles
+	};
 }
 
-function parseManifest(text: string): Manifest {
-	let json: unknown;
-	try {
-		json = JSON.parse(text);
-	} catch {
-		throw new BundleError('manifest.json is not valid JSON');
-	}
-	const head = (json as { format?: unknown } | null)?.format;
-	if (typeof head === 'number' && head > FORMAT) {
-		throw new BundleError(`The bundle format ${head} is newer than this build reads (${FORMAT})`);
-	}
-	const parsed = manifestSchema.safeParse(json);
-	if (!parsed.success) throw new BundleError('manifest.json is malformed');
-	if (parsed.data.format !== FORMAT) {
-		throw new BundleError(`Unsupported bundle format ${parsed.data.format}`);
-	}
-	return parsed.data;
-}
-
-export class BusyError extends Error {}
-
-let staging = false;
-
-export async function stageImport(
+async function run(
+	db: Db,
 	zipFile: string,
-	layout: DataLayout,
+	scratch: string,
 	options: ImportOptions
-): Promise<PendingImport> {
-	if (staging) throw new BusyError('Another import is being staged');
-	staging = true;
-	try {
-		return await stageGuarded(zipFile, layout, options);
-	} finally {
-		staging = false;
-	}
-}
-
-async function stageGuarded(
-	zipFile: string,
-	layout: DataLayout,
-	options: ImportOptions
-): Promise<PendingImport> {
-	const stage = join(layout.dataDir, `import-tmp-${randomBytes(6).toString('hex')}`);
-	try {
-		return await stageInto(stage, zipFile, layout, options);
-	} catch (error) {
-		await rm(stage, { recursive: true, force: true });
-		if (error instanceof ZipError) throw new BundleError(error.message);
-		const code = (error as NodeJS.ErrnoException).code;
-		if (code === 'ENOTDIR' || code === 'EEXIST' || code === 'EISDIR') {
-			throw new BundleError('The bundle has paths that collide');
-		}
-		throw error;
-	}
-}
-
-async function stageInto(
-	stage: string,
-	zipFile: string,
-	layout: DataLayout,
-	options: ImportOptions
-): Promise<PendingImport> {
-	const entries = await readDirectory(zipFile);
-
+): Promise<ImportResult> {
 	const byName = new Map<string, ZipFileEntry>();
-	for (const entry of entries) {
+	for (const entry of await readDirectory(zipFile)) {
 		if (entry.name.endsWith('/') && entry.size === 0) continue;
 		if (byName.has(entry.name)) throw new BundleError(`The bundle repeats ${entry.name}`);
 		byName.set(entry.name, entry);
 	}
 	const manifestEntry = byName.get(MANIFEST_NAME);
 	if (!manifestEntry) throw new BundleError('The bundle has no manifest.json');
-	const manifest = parseManifest(await readEntryText(zipFile, manifestEntry, MAX_MANIFEST_BYTES));
+	const manifest = parseManifest(await readText(zipFile, manifestEntry, MAX_MANIFEST_BYTES));
 
-	const build = buildSchema();
-	if (manifest.schema.level > build.level || manifest.schema.latest > build.latest) {
-		throw new BundleError(
-			`The bundle's schema (${manifest.schema.level} migrations) is newer than this build (${build.level}). Upgrade this server first.`
-		);
+	const legacy = manifest.format === LEGACY_FORMAT;
+	if (!legacy && manifest.format !== FORMAT) {
+		throw new BundleError(`The bundle has format ${manifest.format}, which this build cannot read`);
 	}
+	if (!legacy && manifest.service !== SERVICE) {
+		throw new BundleError(`The bundle was made by ${manifest.service ?? 'another service'}`);
+	}
+	checkSchema(manifest, legacy);
 
 	const listed = new Map<string, Manifest['files'][number]>();
 	for (const file of manifest.files) {
-		if (!isBundledPath(file.path)) throw new BundleError(`Unsafe or unknown path ${file.path}`);
+		if (!safeRelativePath(file.path)) throw new BundleError(`Unsafe path ${file.path}`);
 		if (listed.has(file.path)) throw new BundleError(`The manifest repeats ${file.path}`);
 		listed.set(file.path, file);
 	}
-	if (!listed.has(DATABASE_NAME)) throw new BundleError('The bundle has no database');
+	const main = legacy ? LEGACY_DATABASE_NAME : DATABASE_NAME;
+	if (!listed.has(main)) throw new BundleError('The bundle has no database');
 	for (const name of byName.keys()) {
 		if (name !== MANIFEST_NAME && !listed.has(name)) {
 			throw new BundleError(`${name} is in the bundle but not in the manifest`);
@@ -178,110 +177,234 @@ async function stageInto(
 		if (entry.size !== file.size) throw new BundleError(`${file.path} differs from its manifest`);
 		total += file.size;
 	}
+	if (!legacy && listed.size !== 1) {
+		throw new BundleError(`A bundle holds ${DATABASE_NAME} and nothing else`);
+	}
 	if (total > options.maxExpandedBytes) {
 		throw new BundleError('The bundle unpacks to more than the import limit allows');
 	}
-	await mkdir(layout.dataDir, { recursive: true });
-	const space = await statfs(layout.dataDir);
-	if (total * FREE_SPACE_MARGIN > space.bavail * space.bsize) {
-		throw new BundleError('Not enough free disk space to unpack the bundle');
-	}
 
-	await mkdir(join(stage, 'attachments'), { recursive: true });
-	const databaseFile = join(stage, 'sagas.db');
-	const targets = [
-		listed.get(DATABASE_NAME)!,
-		...[...listed.values()].filter((f) => f.path !== DATABASE_NAME)
-	];
-	for (const file of targets) {
-		const entry = byName.get(file.path)!;
-		const destination =
-			file.path === DATABASE_NAME
-				? databaseFile
-				: join(stage, 'attachments', file.path.slice(ATTACHMENT_PREFIX.length));
-		if (!within(stage, destination) || !safeRelativePath(file.path)) {
-			throw new BundleError(`Unsafe path ${file.path}`);
-		}
-		const digest = await extractEntry(zipFile, entry, destination);
-		if (digest !== file.sha256) throw new BundleError(`${file.path} fails its checksum`);
-		if (file.path === DATABASE_NAME) checkDatabase(databaseFile, manifest);
-	}
+	const dbEntry = byName.get(main)!;
+	const expected = listed.get(main)!.sha256;
+	const ignoredFiles = listed.size - 1;
+	if (legacy) return importLegacy(db, zipFile, dbEntry, expected, scratch, manifest, ignoredFiles);
 
-	let migrated: ReturnType<typeof openDatabase>;
-	try {
-		migrated = openDatabase(databaseFile);
-	} catch {
-		throw new BundleError('The bundle database could not be migrated to this build');
-	}
-	try {
-		migrated.$client.pragma('wal_checkpoint(TRUNCATE)');
-		migrated.$client.pragma('journal_mode = DELETE');
-	} finally {
-		migrated.$client.close();
-	}
-
-	const pending: PendingImport = {
-		stagedAt: (options.now ?? new Date()).toISOString(),
-		bundleCreatedAt: manifest.createdAt,
-		bundleAppVersion: manifest.appVersion,
-		bundleSchema: manifest.schema,
-		files: listed.size,
-		bytes: total
-	};
-	await writeFile(join(stage, 'import.json'), JSON.stringify(pending, null, 2));
-	await rm(pendingDir(layout), { recursive: true, force: true });
-	await rename(stage, pendingDir(layout));
-	return pending;
+	await verify(zipFile, dbEntry, expected);
+	const rows = await load(db, false, async (insert) => {
+		await replay(zipFile, dbEntry, insert);
+		return { eventSeq: null };
+	});
+	endEventStreams();
+	return summary(manifest, rows, ignoredFiles);
 }
 
-function checkDatabase(file: string, manifest: Manifest): void {
-	let sqlite: Database.Database;
+async function importLegacy(
+	db: Db,
+	zipFile: string,
+	entry: ZipFileEntry,
+	expected: string,
+	scratch: string,
+	manifest: Manifest,
+	ignoredFiles: number
+): Promise<ImportResult> {
+	const file = join(scratch, 'legacy.db');
+	const digest = await pipeEntry(zipFile, entry, createWriteStream(file, { mode: 0o600 }));
+	if (digest !== expected) throw new BundleError(`${entry.name} fails its checksum`);
+	let problem: string | null;
 	try {
-		sqlite = new Database(file, { readonly: true, fileMustExist: true });
+		problem = legacyIntegrity(file);
 	} catch {
-		throw new BundleError('The bundle database is not a SQLite file');
+		throw new BundleError('The bundle holds no readable SQLite database');
 	}
+	if (problem !== null) throw new BundleError(`The bundle's database is damaged: ${problem}`);
+
+	const source = openLegacy(file, BUNDLE_TABLES);
 	try {
-		let check: unknown;
-		try {
-			check = sqlite.pragma('integrity_check', { simple: true });
-		} catch {
-			throw new BundleError('The bundle database is not a SQLite file');
-		}
-		if (check !== 'ok') throw new BundleError('The bundle database fails its integrity check');
-		const applied = appliedMigrations(sqlite);
-		checkHistory(applied);
-		const actual = schemaOf(applied);
-		if (actual.level !== manifest.schema.level || actual.latest !== manifest.schema.latest) {
-			throw new BundleError('The manifest schema does not match the bundle database');
-		}
+		const rows = await load(db, true, async (insert) => {
+			for (const section of source.sections) await insert(section);
+			return { eventSeq: source.eventSeq };
+		});
+		endEventStreams();
+		return summary(manifest, rows, ignoredFiles);
 	} finally {
-		sqlite.close();
+		source.close();
 	}
 }
 
-export async function readPendingImport(
-	layout: DataLayout
-): Promise<PendingImport | 'corrupt' | null> {
+async function* lines(source: AsyncIterable<Buffer>): AsyncGenerator<string> {
+	let rest: Buffer = Buffer.alloc(0);
+	for await (const chunk of source) {
+		rest = rest.length ? Buffer.concat([rest, chunk]) : chunk;
+		let at: number;
+		while ((at = rest.indexOf(10)) >= 0) {
+			yield rest.toString('utf8', 0, at);
+			rest = rest.subarray(at + 1);
+		}
+		if (rest.length > MAX_LINE_BYTES) throw new BundleError('A database line is absurdly long');
+	}
+	if (rest.length) yield rest.toString('utf8');
+}
+
+async function replay(zipFile: string, entry: ZipFileEntry, insert: Insert): Promise<void> {
+	const pass = new PassThrough();
+	const done = pipeEntry(zipFile, entry, pass);
+	done.catch(() => {});
 	try {
-		const parsed = JSON.parse(await readFile(join(pendingDir(layout), 'import.json'), 'utf8'));
-		const ok =
-			parsed &&
-			typeof parsed.stagedAt === 'string' &&
-			typeof parsed.bundleCreatedAt === 'string' &&
-			typeof parsed.bundleAppVersion === 'string' &&
-			typeof parsed.bundleSchema?.level === 'number' &&
-			typeof parsed.files === 'number' &&
-			typeof parsed.bytes === 'number';
-		return ok ? parsed : 'corrupt';
+		const pending: unknown[][] = [];
+		let header: { name: string; columns: string[] } | undefined;
+		const drain = async () => {
+			if (header && pending.length) {
+				await insert({ name: header.name, columns: header.columns, rows: pending.splice(0) });
+			}
+		};
+		for await (const line of lines(pass)) {
+			if (line === '') continue;
+			const parsed: unknown = JSON.parse(line);
+			if (Array.isArray(parsed)) {
+				if (!header || parsed.length !== header.columns.length) {
+					throw new BundleError('A row does not match its table header');
+				}
+				pending.push(parsed);
+				if (pending.length >= BATCH_ROWS) await drain();
+				continue;
+			}
+			await drain();
+			const given = parsed as { table?: unknown; columns?: unknown };
+			if (typeof given.table !== 'string' || !Array.isArray(given.columns)) {
+				throw new BundleError('db.ndjson holds a line that is neither a header nor a row');
+			}
+			header = { name: given.table, columns: given.columns.map(String) };
+		}
+		await drain();
+		await done;
+	} finally {
+		pass.destroy();
+	}
+}
+
+function convert(table: BundleTable, name: string, legacy: boolean): (value: unknown) => unknown {
+	const column = table.columns.find((entry) => entry.name === name)!;
+	switch (columnKind(column)) {
+		case 'boolean':
+			return (value) => (value === null ? null : Boolean(value));
+		case 'bytea':
+			return (value) =>
+				value === null || Buffer.isBuffer(value) || legacy
+					? value
+					: Buffer.from(String(value), 'base64');
+		default:
+			return (value) => value;
+	}
+}
+
+// Replace-everything, in one transaction: either the whole Bundle lands or the database is
+// untouched. The writer lock and TRUNCATE hold every other statement until the commit.
+async function load(
+	db: Db,
+	legacy: boolean,
+	fill: (insert: Insert) => Promise<Loaded>
+): Promise<Rows> {
+	const client = await db.$client.connect();
+	const counts: Rows = {};
+	let clean = false;
+	try {
+		await client.query('BEGIN');
+		await client.query('SET LOCAL statement_timeout = 0');
+		await client.query('SELECT pg_advisory_xact_lock($1)', [WRITER_LOCK]);
+		await client.query('SET CONSTRAINTS ALL DEFERRED');
+		const everything = [...BUNDLE_TABLES.map((entry) => entry.name), ...DERIVED_TABLES];
+		await client.query(`TRUNCATE ${everything.map(quote).join(', ')}`);
+
+		const seen = new Set<string>();
+		const insert: Insert = async (section) => {
+			const table = BUNDLE_TABLES.find((entry) => entry.name === section.name);
+			if (!table) throw new BundleError(`The bundle has an unknown table ${section.name}`);
+			if (!seen.has(section.name)) {
+				seen.add(section.name);
+				const given = new Set(section.columns);
+				for (const column of table.columns) {
+					if (!given.has(column.name) && column.notNull && !column.hasDefault) {
+						throw new BundleError(`${section.name}.${column.name} is missing and has no default`);
+					}
+				}
+			}
+			const known = new Set(table.columns.map((column) => column.name));
+			const picks = section.columns.flatMap((name, index) =>
+				known.has(name) ? [{ name, index, convert: convert(table, name, legacy) }] : []
+			);
+			if (picks.length === 0) return;
+			const per = Math.max(1, Math.min(BATCH_ROWS, Math.floor(PARAMETER_BUDGET / picks.length)));
+			const names = picks.map((pick) => quote(pick.name)).join(', ');
+			let batch: unknown[][] = [];
+			const flush = async () => {
+				if (batch.length === 0) return;
+				const placeholders = batch
+					.map((_, r) => `(${picks.map((_, c) => `$${r * picks.length + c + 1}`).join(', ')})`)
+					.join(', ');
+				for (const row of batch) {
+					if (row.some((value) => typeof value === 'string' && value.includes('\0'))) {
+						throw new BundleError(
+							`${section.name} holds U+0000, which PostgreSQL text cannot store`
+						);
+					}
+				}
+				await client.query(
+					`INSERT INTO ${quote(section.name)} (${names}) VALUES ${placeholders}`,
+					batch.flat()
+				);
+				counts[section.name] = (counts[section.name] ?? 0) + batch.length;
+				batch = [];
+			};
+			for (const row of section.rows) {
+				batch.push(picks.map((pick) => pick.convert(row[pick.index] ?? null)));
+				if (batch.length >= per) await flush();
+			}
+			await flush();
+		};
+
+		const { eventSeq } = await fill(insert);
+		await rebuildDerived(client);
+		await resetSequences(client, eventSeq);
+		await client.query('COMMIT');
+		clean = true;
 	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-			return existsSync(pendingDir(layout)) ? 'corrupt' : null;
-		}
-		return 'corrupt';
+		await client.query('ROLLBACK').catch(() => {});
+		throw error;
+	} finally {
+		client.release(clean ? undefined : true);
 	}
+	return counts;
 }
 
-export async function discardPendingImport(layout: DataLayout): Promise<void> {
-	await rm(pendingDir(layout), { recursive: true, force: true });
+async function rebuildDerived(client: pg.PoolClient): Promise<void> {
+	await client.query(
+		'INSERT INTO scroll_text (scroll_id, title, body) SELECT id, title, body FROM scrolls'
+	);
+	await rebuildLabourText(drizzle(client, { schema }) as unknown as Handle);
+}
+
+// Imported rows carry their own ids: every sequence must continue above them, empty tables
+// included.
+async function resetSequences(client: pg.PoolClient, eventSeq: number | null): Promise<void> {
+	const identities = await client.query<{ table_name: string; column_name: string }>(
+		`SELECT table_name, column_name FROM information_schema.columns
+		 WHERE table_schema = 'public' AND is_identity = 'YES'`
+	);
+	for (const { table_name, column_name } of identities.rows) {
+		const table = quote(table_name);
+		const column = quote(column_name);
+		await client.query(
+			`SELECT setval(pg_get_serial_sequence($1, $2),
+				COALESCE((SELECT max(${column}) FROM ${table}), 1),
+				(SELECT max(${column}) FROM ${table}) IS NOT NULL)`,
+			[`public.${table}`, column_name]
+		);
+	}
+	await client.query(
+		`INSERT INTO event_counter (id, last)
+		 VALUES (1, GREATEST($1::int, COALESCE((SELECT max(seq) FROM events), 0)))
+		 ON CONFLICT (id) DO UPDATE
+		 SET last = GREATEST(event_counter.last, EXCLUDED.last)`,
+		[eventSeq ?? 0]
+	);
 }
