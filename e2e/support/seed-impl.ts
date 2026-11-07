@@ -1,5 +1,4 @@
 import { createPool, openDatabase, type Db } from '../../apps/web/src/lib/server/db/client.ts';
-import { createInvite } from '../../apps/web/src/lib/server/auth/invites.ts';
 import { createApiToken, revokeApiToken } from '../../apps/web/src/lib/server/auth/tokens.ts';
 import { findUser } from '../../apps/web/src/lib/server/auth/users.ts';
 import { createRealm } from '../../apps/web/src/lib/server/domain/realms.ts';
@@ -46,10 +45,6 @@ export async function createSeed(db: Db, adminId: number) {
 				title: input.title ?? 'Labour',
 				ownerId: admin.id
 			});
-		},
-
-		async invite(): Promise<{ id: number; token: string }> {
-			return createInvite(db, admin);
 		},
 
 		async apiToken(userId: number = admin.id, name = 'e2e'): Promise<IssuedToken> {

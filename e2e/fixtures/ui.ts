@@ -74,7 +74,7 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
 
 	other: async ({ ui, browser }, use) => {
 		const username = uniqueName('pat');
-		const user = await ui.human(username, 'Pat Partner', PASSWORD);
+		const user = await ui.human(username, 'Pat Partner');
 		ui.shareNewRealmsWith(user.id);
 		const { context, page } = await signIn(browser, username, PASSWORD);
 		await use({

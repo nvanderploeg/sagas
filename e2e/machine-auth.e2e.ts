@@ -138,7 +138,7 @@ test.describe('machine endpoints', () => {
 
 	test('Basic plus a bad session cookie is still signed out', async ({ request }) => {
 		await expectUnauthorized(request, '/api/events', {
-			cookie: 'sagas_session=wls_forged',
+			cookie: 'runestone_session=wls_forged',
 			authorization: basic
 		});
 	});

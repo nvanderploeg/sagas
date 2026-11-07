@@ -3,38 +3,7 @@ import { expect, test } from './fixtures/ui.ts';
 import { getNoFollow, uniqueName } from './support/http.ts';
 import { origin } from './support/env.ts';
 
-const PASSWORD = 'a long enough password';
-
 test.describe('admin', () => {
-	test('creates an Invite, shows its link once, and the invitee joins', async ({
-		page,
-		browser
-	}) => {
-		await page.goto('/admin');
-		await page.getByRole('button', { name: 'Create Invite' }).click();
-		const link = await page.getByTestId('secret').locator('code').textContent();
-		expect(link).toMatch(/\/invite\/wli_/);
-
-		await page.reload();
-		await expect(page.getByTestId('secret')).toHaveCount(0);
-		await expect(page.getByTestId('invite').first()).toContainText('Open');
-
-		const username = uniqueName('newbie');
-		const guest = await browser.newContext();
-		const joining = await guest.newPage();
-		await joining.goto(link!);
-		await joining.getByLabel('Username').fill(username);
-		await joining.getByLabel('Display name').fill('New Bie');
-		await joining.getByLabel('Password').fill(PASSWORD);
-		await joining.getByRole('button', { name: 'Join' }).click();
-		await expect(joining.getByText(`Signed in as New Bie (@${username})`)).toBeVisible();
-		await guest.close();
-
-		await page.reload();
-		await expect(page.getByTestId('users')).toContainText(`@${username}`);
-		await expect(page.getByTestId('invite').first()).toContainText('Used by New Bie');
-	});
-
 	test('creates an Agent user and manages its API tokens', async ({ page, request }) => {
 		const username = uniqueName('agent');
 		await page.goto('/admin');

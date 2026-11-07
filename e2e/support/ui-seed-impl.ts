@@ -1,5 +1,6 @@
 import type { Db } from '../../apps/web/src/lib/server/db/client.ts';
-import { acceptInvite, createInvite } from '../../apps/web/src/lib/server/auth/invites.ts';
+import { users } from '../../apps/web/src/lib/server/db/schema.ts';
+import { toAuthUser } from '../../apps/web/src/lib/server/auth/users.ts';
 import { createAgentUser, findUser } from '../../apps/web/src/lib/server/auth/users.ts';
 import { appraise, type AppraiseItem } from '../../apps/web/src/lib/server/agent/appraisals.ts';
 import {
@@ -179,10 +180,11 @@ export async function createUiSeed(db: Db, actorId: number) {
 			return createAgentUser(db, actor, { username, displayName });
 		},
 
-		// A second human, signed up through an Invite.
-		async human(username: string, displayName: string, password: string) {
-			const { token } = await createInvite(db, actor);
-			return acceptInvite(db, token, { username, displayName, password });
+		async human(username: string, displayName: string) {
+			const row = (
+				await db.insert(users).values({ kind: 'human', username, displayName }).returning()
+			)[0];
+			return toAuthUser(row);
 		}
 	};
 	return self;

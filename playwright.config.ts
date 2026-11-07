@@ -13,19 +13,11 @@ export default defineConfig({
 	outputDir: 'test-results',
 	globalTeardown: './e2e/support/teardown.ts',
 	use: { baseURL: origin, trace: 'retain-on-failure' },
-	projects: [
-		{ name: 'setup', testMatch: 'setup.e2e.ts', use: { ...devices['Desktop Chrome'] } },
-		{
-			name: 'chromium',
-			testIgnore: 'setup.e2e.ts',
-			dependencies: ['setup'],
-			use: { ...devices['Desktop Chrome'] }
-		}
-	],
+	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 	webServer: {
 		command:
 			'node e2e/support/prepare-db.mjs && pnpm --filter web build && node apps/web/server/index.js',
-		url: `${origin}/setup`,
+		url: `${origin}/login`,
 		reuseExistingServer: false,
 		timeout: 240_000,
 		stdout: 'ignore',
