@@ -31,9 +31,9 @@ const people: Record<string, { id: number }> = {};
 let realmId: number;
 let labourId: number;
 
-const code = (action: () => unknown) => {
+const code = async (action: () => unknown) => {
 	try {
-		action();
+		await action();
 	} catch (error) {
 		if (error instanceof DomainError) return error.code;
 		throw error;
@@ -41,25 +41,28 @@ const code = (action: () => unknown) => {
 	return 'ok';
 };
 
-function join(name: string, role: Role) {
-	offerMembership(db, people.owner, realmId, people[name].id, role);
-	acceptOffer(db, people[name], realmId);
+async function join(name: string, role: Role) {
+	await offerMembership(db, people.owner, realmId, people[name].id, role);
+	await acceptOffer(db, people[name], realmId);
 }
 
-beforeEach(() => {
+beforeEach(async () => {
 	setAccessEnforced(true);
-	db = testDb();
+	db = await testDb();
 	for (const name of ['owner', 'editor', 'viewer', 'stranger']) {
-		people[name] = { id: seedUser(db, name) };
+		people[name] = { id: await seedUser(db, name) };
 	}
-	realmId = createRealm(db, people.owner, { name: 'Amber', key: 'AM', initialState: TODO }).id;
-	join('editor', 'editor');
-	join('viewer', 'viewer');
-	labourId = createLabour(db, people.owner, {
-		realmId,
-		title: 'First',
-		ownerId: people.owner.id
-	}).id;
+	realmId = (await createRealm(db, people.owner, { name: 'Amber', key: 'AM', initialState: TODO }))
+		.id;
+	await join('editor', 'editor');
+	await join('viewer', 'viewer');
+	labourId = (
+		await createLabour(db, people.owner, {
+			realmId,
+			title: 'First',
+			ownerId: people.owner.id
+		})
+	).id;
 });
 
 afterEach(() => setAccessEnforced(false));
@@ -73,57 +76,62 @@ describe('Labour writes', () => {
 		['appraise', (who) => appraise(db, who, [{ labourId, brief: 'A brief.' }])]
 	];
 
-	it.each(writes)('%s: an editor may, a viewer is forbidden, a stranger sees nothing', (_, run) => {
-		expect(code(() => run(people.editor))).toBe('ok');
-		expect(code(() => run(people.viewer))).toBe('forbidden');
-		expect(code(() => run(people.stranger))).toBe('not_found');
+	it.each(writes)(
+		'%s: an editor may, a viewer is forbidden, a stranger sees nothing',
+		async (_, run) => {
+			expect(await code(() => run(people.editor))).toBe('ok');
+			expect(await code(() => run(people.viewer))).toBe('forbidden');
+			expect(await code(() => run(people.stranger))).toBe('not_found');
+		}
+	);
+
+	it('delete follows the same rule', async () => {
+		expect(await code(() => deleteLabour(db, people.stranger, labourId))).toBe('not_found');
+		expect(await code(() => deleteLabour(db, people.viewer, labourId))).toBe('forbidden');
+		expect(await code(() => deleteLabour(db, people.editor, labourId))).toBe('ok');
 	});
 
-	it('delete follows the same rule', () => {
-		expect(code(() => deleteLabour(db, people.stranger, labourId))).toBe('not_found');
-		expect(code(() => deleteLabour(db, people.viewer, labourId))).toBe('forbidden');
-		expect(code(() => deleteLabour(db, people.editor, labourId))).toBe('ok');
-	});
-
-	it('refuses an Owner or Assignee who is not a member', () => {
+	it('refuses an Owner or Assignee who is not a member', async () => {
 		expect(
-			code(() =>
+			await code(() =>
 				createLabour(db, people.editor, { realmId, title: 'x', ownerId: people.stranger.id })
 			)
 		).toBe('invalid');
 		expect(
-			code(() => updateLabour(db, people.editor, labourId, { assigneeId: people.stranger.id }))
+			await code(() =>
+				updateLabour(db, people.editor, labourId, { assigneeId: people.stranger.id })
+			)
 		).toBe('invalid');
 		expect(
-			code(() => updateLabour(db, people.editor, labourId, { assigneeId: people.viewer.id }))
+			await code(() => updateLabour(db, people.editor, labourId, { assigneeId: people.viewer.id }))
 		).toBe('ok');
 	});
 
-	it('needs editor access in both Realms to move a Labour', () => {
-		const other = createRealm(db, people.stranger, {
+	it('needs editor access in both Realms to move a Labour', async () => {
+		const other = await createRealm(db, people.stranger, {
 			name: 'Other',
 			key: 'OT',
 			initialState: TODO
 		});
 
-		expect(code(() => moveLabour(db, people.editor, labourId, { realmId: other.id }))).toBe(
+		expect(await code(() => moveLabour(db, people.editor, labourId, { realmId: other.id }))).toBe(
 			'not_found'
 		);
 	});
 
-	it("needs editor access to a parent's Realm", () => {
-		const other = createRealm(db, people.stranger, {
+	it("needs editor access to a parent's Realm", async () => {
+		const other = await createRealm(db, people.stranger, {
 			name: 'Other',
 			key: 'OT',
 			initialState: TODO
 		});
-		const theirs = createLabour(db, people.stranger, {
+		const theirs = await createLabour(db, people.stranger, {
 			realmId: other.id,
 			title: 'Theirs',
 			ownerId: people.stranger.id
 		});
 
-		expect(code(() => setParent(db, people.editor, labourId, theirs.id))).toBe('not_found');
+		expect(await code(() => setParent(db, people.editor, labourId, theirs.id))).toBe('not_found');
 	});
 });
 
@@ -151,116 +159,123 @@ describe('Realm configuration', () => {
 		]
 	];
 
-	it.each(configs)('%s: only an Owner', (_, run) => {
-		expect(code(() => run(people.stranger))).toBe('not_found');
-		expect(code(() => run(people.viewer))).toBe('forbidden');
-		expect(code(() => run(people.editor))).toBe('forbidden');
-		expect(code(() => run(people.owner))).toBe('ok');
+	it.each(configs)('%s: only an Owner', async (_, run) => {
+		expect(await code(() => run(people.stranger))).toBe('not_found');
+		expect(await code(() => run(people.viewer))).toBe('forbidden');
+		expect(await code(() => run(people.editor))).toBe('forbidden');
+		expect(await code(() => run(people.owner))).toBe('ok');
 	});
 
-	it('delete: only an Owner', () => {
-		expect(code(() => deleteRealm(db, people.editor, realmId))).toBe('forbidden');
-		expect(code(() => deleteRealm(db, people.owner, realmId))).toBe('ok');
+	it('delete: only an Owner', async () => {
+		expect(await code(() => deleteRealm(db, people.editor, realmId))).toBe('forbidden');
+		expect(await code(() => deleteRealm(db, people.owner, realmId))).toBe('ok');
 	});
 });
 
 describe('Quests', () => {
 	const spec = (name: string, ownerId: number) => ({ realmId, name, ownerId });
 
-	it("follow their Realm's roles: an editor changes them, a viewer cannot, a stranger sees nothing", () => {
-		const quest = createQuest(db, people.editor, spec('Q', people.editor.id));
+	it("follow their Realm's roles: an editor changes them, a viewer cannot, a stranger sees nothing", async () => {
+		const quest = await createQuest(db, people.editor, spec('Q', people.editor.id));
 
-		expect(code(() => updateQuest(db, people.owner, quest.id, { name: 'Z' }))).toBe('ok');
-		expect(code(() => updateQuest(db, people.viewer, quest.id, { name: 'Y' }))).toBe('forbidden');
-		expect(code(() => updateQuest(db, people.stranger, quest.id, { name: 'X' }))).toBe('not_found');
-		expect(code(() => createQuest(db, people.viewer, spec('V', people.viewer.id)))).toBe(
+		expect(await code(() => updateQuest(db, people.owner, quest.id, { name: 'Z' }))).toBe('ok');
+		expect(await code(() => updateQuest(db, people.viewer, quest.id, { name: 'Y' }))).toBe(
 			'forbidden'
 		);
-		expect(code(() => createQuest(db, people.stranger, spec('S', people.stranger.id)))).toBe(
+		expect(await code(() => updateQuest(db, people.stranger, quest.id, { name: 'X' }))).toBe(
+			'not_found'
+		);
+		expect(await code(() => createQuest(db, people.viewer, spec('V', people.viewer.id)))).toBe(
+			'forbidden'
+		);
+		expect(await code(() => createQuest(db, people.stranger, spec('S', people.stranger.id)))).toBe(
 			'not_found'
 		);
 	});
 
-	it('are owned by a member of their Realm', () => {
-		expect(code(() => createQuest(db, people.owner, spec('Q', people.stranger.id)))).toBe(
+	it('are owned by a member of their Realm', async () => {
+		expect(await code(() => createQuest(db, people.owner, spec('Q', people.stranger.id)))).toBe(
 			'invalid'
 		);
 	});
 
-	it('may list Labours of another Realm the caller can only read, and none they cannot see', () => {
-		const other = createRealm(db, people.stranger, {
+	it('may list Labours of another Realm the caller can only read, and none they cannot see', async () => {
+		const other = await createRealm(db, people.stranger, {
 			name: 'Other',
 			key: 'OT',
 			initialState: TODO
 		});
-		const theirs = createLabour(db, people.stranger, {
+		const theirs = await createLabour(db, people.stranger, {
 			realmId: other.id,
 			title: 'Theirs',
 			ownerId: people.stranger.id
 		});
-		const quest = createQuest(db, people.editor, spec('Q', people.editor.id));
+		const quest = await createQuest(db, people.editor, spec('Q', people.editor.id));
 
-		expect(code(() => addQuestLabour(db, people.editor, quest.id, theirs.id))).toBe('not_found');
+		expect(await code(() => addQuestLabour(db, people.editor, quest.id, theirs.id))).toBe(
+			'not_found'
+		);
 
-		offerMembership(db, people.stranger, other.id, people.editor.id, 'viewer');
-		acceptOffer(db, people.editor, other.id);
+		await offerMembership(db, people.stranger, other.id, people.editor.id, 'viewer');
+		await acceptOffer(db, people.editor, other.id);
 
-		expect(code(() => addQuestLabour(db, people.editor, quest.id, theirs.id))).toBe('ok');
+		expect(await code(() => addQuestLabour(db, people.editor, quest.id, theirs.id))).toBe('ok');
 	});
 });
 
 describe('Quests with children', () => {
-	it('refuse a child in a Realm the caller cannot edit, which addQuestLabours would refuse too', () => {
-		const other = createRealm(db, people.stranger, {
+	it('refuse a child in a Realm the caller cannot edit, which addQuestLabours would refuse too', async () => {
+		const other = await createRealm(db, people.stranger, {
 			name: 'Other',
 			key: 'OT',
 			initialState: TODO
 		});
-		const child = createLabour(db, people.stranger, {
+		const child = await createLabour(db, people.stranger, {
 			realmId: other.id,
 			title: 'Child',
 			ownerId: people.stranger.id
 		});
-		setParent(db, people.stranger, child.id, null);
-		db.update(labours).set({ parentId: labourId }).where(eq(labours.id, child.id)).run();
-		const quest = createQuest(db, people.editor, {
+		await setParent(db, people.stranger, child.id, null);
+		await db.update(labours).set({ parentId: labourId }).where(eq(labours.id, child.id));
+		const quest = await createQuest(db, people.editor, {
 			realmId,
 			name: 'Q',
 			ownerId: people.editor.id
 		});
 
-		expect(code(() => addQuestLabourWithChildren(db, people.editor, quest.id, labourId))).toBe(
-			'not_found'
-		);
+		expect(
+			await code(() => addQuestLabourWithChildren(db, people.editor, quest.id, labourId))
+		).toBe('not_found');
 	});
 });
 
 describe('deleting a Pulse', () => {
-	const affinity = () => {
-		const { attribute } = defineAttribute(db, people.owner, realmId, {
+	const affinity = async () => {
+		const { attribute } = await defineAttribute(db, people.owner, realmId, {
 			key: 'mood',
 			kind: 'text',
 			label: 'Mood',
 			rubric: 'How it feels.'
 		} as never);
-		return db
-			.insert(pulses)
-			.values({
-				userId: people.viewer.id,
-				authorId: people.viewer.id,
-				attributeId: attribute.id,
-				rawKey: 'mood',
-				amount: 1,
-				mood: 1
-			})
-			.returning({ id: pulses.id })
-			.get().id;
+		return (
+			await db
+				.insert(pulses)
+				.values({
+					userId: people.viewer.id,
+					authorId: people.viewer.id,
+					attributeId: attribute.id,
+					rawKey: 'mood',
+					amount: 1,
+					mood: 1
+				})
+				.returning({ id: pulses.id })
+		)[0].id;
 	};
 
-	it("leaves a User's Affinity Pulse to that User alone", () => {
-		const id = affinity();
+	it("leaves a User's Affinity Pulse to that User alone", async () => {
+		const id = await affinity();
 
-		expect(code(() => deletePulse(db, people.owner, id))).toBe('not_found');
-		expect(code(() => deletePulse(db, people.viewer, id))).toBe('ok');
+		expect(await code(() => deletePulse(db, people.owner, id))).toBe('not_found');
+		expect(await code(() => deletePulse(db, people.viewer, id))).toBe('ok');
 	});
 });

@@ -18,17 +18,19 @@ export function signedIn(locals: App.Locals): AuthUser {
 }
 
 // Runs a write. The result carries `seq`, the last seq once the write is done: a client holds its
-// optimistic patch until its view has applied that seq. Read it with no await after the write, so
-// no other write can come between.
+// optimistic patch until its view has applied that seq.
 export type Performed<T> = (T extends Record<string, unknown> ? T : unknown) & {
 	scope: string;
 	seq: number;
 };
 
-export function perform<T extends Record<string, unknown> | void>(scope: string, run: () => T) {
+export async function perform<T extends Record<string, unknown> | void>(
+	scope: string,
+	run: () => T | Promise<T>
+) {
 	try {
-		const value = run();
-		return { ...(value ?? {}), scope, seq: eventWindow(getDb()).last } as Performed<T>;
+		const value = await run();
+		return { ...(value ?? {}), scope, seq: (await eventWindow(getDb())).last } as Performed<T>;
 	} catch (e) {
 		if (e instanceof DomainError) return fail(STATUS[e.code], { scope, error: e.message });
 		throw e;

@@ -8,6 +8,7 @@ import type { WebhookRuntime } from './runtime.ts';
 import type { SafeFetchResult } from './safe-fetch.ts';
 import { signedHeaders, webhookMessageId } from './sign.ts';
 import { signingSecrets, type WebhookEnv } from './store.ts';
+import { transact } from '#lib/server/db/tx.ts';
 
 export type PingAttempt = {
 	ok: boolean;
@@ -24,7 +25,7 @@ export async function testWebhook(
 	fetch: WebhookRuntime['fetch']
 ): Promise<PingAttempt> {
 	if (!env.key) throw new DomainError('invalid', 'webhooks need WEBHOOK_KEY');
-	const row = db.select().from(webhooks).where(eq(webhooks.id, id)).get();
+	const row = (await db.select().from(webhooks).where(eq(webhooks.id, id)).limit(1))[0];
 	if (!row || (row.ownerId !== actor.id && !actor.isAdmin)) {
 		throw new DomainError('not_found', 'Webhook not found');
 	}
@@ -50,9 +51,12 @@ export async function testWebhook(
 		error: result.ok ? null : result.error,
 		durationMs: Math.round(result.durationMs)
 	};
-	db.transaction((tx) => {
-		if (!tx.select({ id: webhooks.id }).from(webhooks).where(eq(webhooks.id, id)).get()) return;
-		recordDelivery(tx, {
+	await transact(db, async (tx) => {
+		if (
+			!(await tx.select({ id: webhooks.id }).from(webhooks).where(eq(webhooks.id, id)).limit(1))[0]
+		)
+			return;
+		await recordDelivery(tx, {
 			webhookId: id,
 			attemptedAt: env.now,
 			messageId: webhookMessageId(kind),

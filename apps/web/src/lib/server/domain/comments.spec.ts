@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { eventsSince } from '#lib/server/events/log.ts';
 import { testDb } from '#lib/server/test/db.ts';
@@ -12,43 +12,39 @@ let db: Db;
 let actor: Actor;
 let labourId: number;
 
-beforeEach(() => {
-	db = testDb();
-	actor = seedActor(db);
-	labourId = seedLabour(db, { realmId: seedRealm(db).id }).id;
-});
-
-afterEach(() => {
-	db.$client.close();
+beforeEach(async () => {
+	db = await testDb();
+	actor = await seedActor(db);
+	labourId = (await seedLabour(db, { realmId: (await seedRealm(db)).id })).id;
 });
 
 describe('Comments', () => {
-	it('records the author and lists oldest first', () => {
-		const other = { id: seedUser(db, 'other') };
+	it('records the author and lists oldest first', async () => {
+		const other = { id: await seedUser(db, 'other') };
 
-		addComment(db, actor, labourId, 'first');
-		addComment(db, other, labourId, 'second');
+		await addComment(db, actor, labourId, 'first');
+		await addComment(db, other, labourId, 'second');
 
-		expect(listComments(db, labourId).map((c) => [c.authorId, c.body])).toEqual([
+		expect((await listComments(db, labourId)).map((c) => [c.authorId, c.body])).toEqual([
 			[actor.id, 'first'],
 			[other.id, 'second']
 		]);
 	});
 
-	it('keeps each Labour its own', () => {
-		const elsewhere = seedLabour(db, { realmId: seedRealm(db, 'BL').id }).id;
+	it('keeps each Labour its own', async () => {
+		const elsewhere = (await seedLabour(db, { realmId: (await seedRealm(db, 'BL')).id })).id;
 
-		addComment(db, actor, labourId, 'here');
+		await addComment(db, actor, labourId, 'here');
 
-		expect(listComments(db, elsewhere)).toEqual([]);
+		expect(await listComments(db, elsewhere)).toEqual([]);
 	});
 
-	it('records one labour.commented Event carrying the Comment', () => {
-		const before = eventsSince(db, 0).length;
+	it('records one labour.commented Event carrying the Comment', async () => {
+		const before = (await eventsSince(db, 0)).length;
 
-		const comment = addComment(db, actor, labourId, 'noted');
+		const comment = await addComment(db, actor, labourId, 'noted');
 
-		const recorded = eventsSince(db, 0).slice(before);
+		const recorded = (await eventsSince(db, 0)).slice(before);
 		expect(recorded).toHaveLength(1);
 		expect(recorded[0]).toMatchObject({
 			type: 'labour.commented',
@@ -56,64 +52,62 @@ describe('Comments', () => {
 		});
 	});
 
-	it('refuses a blank or over-long body, and a missing Labour, recording nothing', () => {
-		const before = eventsSince(db, 0).length;
-		const refused = (run: () => unknown) => {
+	it('refuses a blank or over-long body, and a missing Labour, recording nothing', async () => {
+		const before = (await eventsSince(db, 0)).length;
+		const refused = async (run: () => unknown) => {
 			try {
-				run();
+				await run();
 			} catch (error) {
 				return (error as DomainError).code;
 			}
 		};
 
-		expect(refused(() => addComment(db, actor, labourId, '  \n'))).toBe('invalid');
-		expect(refused(() => addComment(db, actor, labourId, 'x'.repeat(COMMENT_MAX + 1)))).toBe(
+		expect(await refused(() => addComment(db, actor, labourId, '  \n'))).toBe('invalid');
+		expect(await refused(() => addComment(db, actor, labourId, 'x'.repeat(COMMENT_MAX + 1)))).toBe(
 			'invalid'
 		);
-		expect(refused(() => addComment(db, actor, 9999, 'hi'))).toBe('not_found');
+		expect(await refused(() => addComment(db, actor, 9999, 'hi'))).toBe('not_found');
 
-		expect(eventsSince(db, 0)).toHaveLength(before);
+		expect(await eventsSince(db, 0)).toHaveLength(before);
 	});
 
-	it('goes with the Labour', () => {
-		addComment(db, actor, labourId, 'gone soon');
+	it('goes with the Labour', async () => {
+		await addComment(db, actor, labourId, 'gone soon');
 
-		deleteLabour(db, actor, labourId);
+		await deleteLabour(db, actor, labourId);
 
-		expect(listComments(db, labourId)).toEqual([]);
+		expect(await listComments(db, labourId)).toEqual([]);
 	});
 
-	it('lets only the author edit, and records an Event only for a real change', () => {
-		const other = { id: seedUser(db, 'other') };
-		const { id } = addComment(db, actor, labourId, 'draft');
-		const before = eventsSince(db, 0).length;
+	it('lets only the author edit, and records an Event only for a real change', async () => {
+		const other = { id: await seedUser(db, 'other') };
+		const { id } = await addComment(db, actor, labourId, 'draft');
+		const before = (await eventsSince(db, 0)).length;
 
-		const edited = editComment(db, actor, id, 'final');
-		editComment(db, actor, id, 'final');
+		const edited = await editComment(db, actor, id, 'final');
+		await editComment(db, actor, id, 'final');
 
 		expect(edited).toMatchObject({ body: 'final' });
 		expect(edited.updatedAt).toBeInstanceOf(Date);
-		expect(
-			eventsSince(db, 0)
-				.slice(before)
-				.map((e) => e.type)
-		).toEqual(['labour.comment_edited']);
-		expect(() => editComment(db, other, id, 'mine now')).toThrow(/author/);
-		expect(listComments(db, labourId)[0].body).toBe('final');
+		expect((await eventsSince(db, 0)).slice(before).map((e) => e.type)).toEqual([
+			'labour.comment_edited'
+		]);
+		await expect(editComment(db, other, id, 'mine now')).rejects.toThrow(/author/);
+		expect((await listComments(db, labourId))[0].body).toBe('final');
 	});
 
-	it('lets only the author delete, and records the deletion', () => {
-		const other = { id: seedUser(db, 'other') };
-		const { id } = addComment(db, actor, labourId, 'oops');
+	it('lets only the author delete, and records the deletion', async () => {
+		const other = { id: await seedUser(db, 'other') };
+		const { id } = await addComment(db, actor, labourId, 'oops');
 
-		expect(() => deleteComment(db, other, id)).toThrow(/author/);
-		deleteComment(db, actor, id);
+		await expect(deleteComment(db, other, id)).rejects.toThrow(/author/);
+		await deleteComment(db, actor, id);
 
-		expect(listComments(db, labourId)).toEqual([]);
-		expect(eventsSince(db, 0).at(-1)).toMatchObject({
+		expect(await listComments(db, labourId)).toEqual([]);
+		expect((await eventsSince(db, 0)).at(-1)).toMatchObject({
 			type: 'labour.comment_deleted',
 			data: { id, labourId }
 		});
-		expect(() => deleteComment(db, actor, id)).toThrow(/not found/);
+		await expect(deleteComment(db, actor, id)).rejects.toThrow(/not found/);
 	});
 });

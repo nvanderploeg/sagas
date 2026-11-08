@@ -6,8 +6,8 @@ import type { Feature } from './types.ts';
 // In [-1, 1]; a candidate without data takes 0.
 export const affinity: Feature = {
 	name: 'affinity',
-	load(ctx) {
-		const held = heldOf(ctx);
+	async load(ctx) {
+		const held = await heldOf(ctx);
 		const attributeIds = new Set<number>();
 		for (const entries of held.values()) {
 			for (const entry of entries) attributeIds.add(entry.attributeId);
@@ -16,11 +16,13 @@ export const affinity: Feature = {
 		if (attributeIds.size === 0) return scores;
 
 		const strengths = new Map(
-			totalsOf(
-				ctx.db,
-				sql`p.user_id = ${ctx.forUserId} AND ${inAttributes([...attributeIds])}`,
-				ctx.now,
-				'user'
+			(
+				await totalsOf(
+					ctx.db,
+					sql`p.user_id = ${ctx.forUserId} AND ${inAttributes([...attributeIds])}`,
+					ctx.now,
+					'user'
+				)
 			).map((total) => [
 				keyOf(total.attributeId, total.member),
 				{ v: total.volume / (total.volume + AFFINITY_LOUDNESS), mood: total.mood }

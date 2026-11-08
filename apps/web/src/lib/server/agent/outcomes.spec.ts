@@ -1,5 +1,5 @@
 import { asc, eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { events, labours, outcomes, pulses, surveys } from '#lib/server/db/schema.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
@@ -21,13 +21,9 @@ import { pruneSurveys, survey } from './survey/index.ts';
 let db: Db;
 let actor: Actor;
 
-beforeEach(() => {
-	db = testDb();
-	actor = seedActor(db);
-});
-
-afterEach(() => {
-	db.$client.close();
+beforeEach(async () => {
+	db = await testDb();
+	actor = await seedActor(db);
 });
 
 const DAY = 86_400_000;
@@ -37,10 +33,10 @@ const daysAgo = (days: number) => new Date(NOW.getTime() - days * DAY);
 // Every Labour scores 0 on it while no Links exist, so the order is the board order.
 const NEUTRAL = { evidence: 1 };
 
-function expectDomainError(action: () => unknown, code: DomainError['code']) {
+async function expectDomainError(action: () => unknown, code: DomainError['code']) {
 	let thrown: unknown;
 	try {
-		action();
+		await action();
 	} catch (error) {
 		thrown = error;
 	}
@@ -50,8 +46,8 @@ function expectDomainError(action: () => unknown, code: DomainError['code']) {
 
 const json = (value: unknown) => (typeof value === 'string' ? JSON.parse(value) : value) as any;
 
-function scale(realmId: number, key: string, min: number, max: number) {
-	defineAttribute(db, actor, realmId, {
+async function scale(realmId: number, key: string, min: number, max: number) {
+	await defineAttribute(db, actor, realmId, {
 		key,
 		kind: 'scale',
 		label: key,
@@ -60,8 +56,8 @@ function scale(realmId: number, key: string, min: number, max: number) {
 	});
 }
 
-function tags(realmId: number, key: string, members: string[]) {
-	defineAttribute(db, actor, realmId, {
+async function tags(realmId: number, key: string, members: string[]) {
+	await defineAttribute(db, actor, realmId, {
 		key,
 		kind: 'tags',
 		label: key,
@@ -73,12 +69,17 @@ function tags(realmId: number, key: string, members: string[]) {
 const set = (labourId: number, values: Record<string, unknown>) =>
 	setValues(db, actor, labourId, values);
 
-const attributeId = (realmId: number, key: string) =>
-	readAttributes(db, realmId).find((a) => a.key === key)!.id;
+const attributeId = async (realmId: number, key: string) =>
+	(await readAttributes(db, realmId)).find((a) => a.key === key)!.id;
 
-function ask(forUserId: number, input: { limit?: number; realmIds?: number[] } = {}, at = NOW) {
-	return survey(db, actor, { weights: NEUTRAL, temperature: 0, forUserId, ...input }, { now: at })
-		.surveyId;
+async function ask(
+	forUserId: number,
+	input: { limit?: number; realmIds?: number[] } = {},
+	at = NOW
+) {
+	return (
+		await survey(db, actor, { weights: NEUTRAL, temperature: 0, forUserId, ...input }, { now: at })
+	).surveyId;
 }
 
 type Item = { labourId: number; verdict: Verdict };
@@ -86,147 +87,149 @@ type Item = { labourId: number; verdict: Verdict };
 const report = (surveyId: number, items: Item[], by: number, at = NOW) =>
 	reportOutcomes(db, { id: by }, surveyId, items, at);
 
-const affinityRows = (userId: number) =>
-	db.select().from(pulses).where(eq(pulses.userId, userId)).orderBy(asc(pulses.id)).all();
+const affinityRows = async (userId: number) =>
+	await db.select().from(pulses).where(eq(pulses.userId, userId)).orderBy(asc(pulses.id));
 
 const byRawKey = <T extends { rawKey: string }>(rows: T[]) =>
 	[...rows].sort((a, b) => (a.rawKey < b.rawKey ? -1 : 1));
 
-const storedOutcomes = () =>
-	db
-		.select()
-		.from(outcomes)
-		.all()
-		.sort((a, b) => a.labourId - b.labourId || (a.verdict < b.verdict ? -1 : 1));
+const storedOutcomes = async () =>
+	(await db.select().from(outcomes)).sort(
+		(a, b) => a.labourId - b.labourId || (a.verdict < b.verdict ? -1 : 1)
+	);
 
 // `rich` holds impact 3 of 0-4 (x 0.75), effort 2 of 1-5 (x 0.25), area audio and ui (x 1 each).
-function world() {
-	const am = seedRealm(db, 'AM');
-	scale(am.id, 'impact', 0, 4);
-	scale(am.id, 'effort', 1, 5);
-	tags(am.id, 'area', ['ui', 'audio', 'net']);
-	const bob = seedUser(db, 'bob');
-	const carol = seedUser(db, 'carol');
-	const rich = seedLabour(db, { realmId: am.id, title: 'Rich' });
-	const plain = seedLabour(db, { realmId: am.id, title: 'Plain' });
-	set(rich.id, { impact: 3, effort: 2, area: ['audio', 'ui'] });
+async function world() {
+	const am = await seedRealm(db, 'AM');
+	await scale(am.id, 'impact', 0, 4);
+	await scale(am.id, 'effort', 1, 5);
+	await tags(am.id, 'area', ['ui', 'audio', 'net']);
+	const bob = await seedUser(db, 'bob');
+	const carol = await seedUser(db, 'carol');
+	const rich = await seedLabour(db, { realmId: am.id, title: 'Rich' });
+	const plain = await seedLabour(db, { realmId: am.id, title: 'Plain' });
+	await set(rich.id, { impact: 3, effort: 2, area: ['audio', 'ui'] });
 	return { am, bob, carol, rich, plain };
 }
 
 describe('reportOutcomes validation', () => {
-	it('refuses an unknown Survey as not_found and stores nothing', () => {
-		const { rich, bob, carol } = world();
+	it('refuses an unknown Survey as not_found and stores nothing', async () => {
+		const { rich, bob, carol } = await world();
 
-		expectDomainError(
+		await expectDomainError(
 			() => report(9999, [{ labourId: rich.id, verdict: 'picked' }], carol),
 			'not_found'
 		);
 
-		expect(storedOutcomes()).toEqual([]);
-		expect(affinityRows(bob)).toEqual([]);
+		expect(await storedOutcomes()).toEqual([]);
+		expect(await affinityRows(bob)).toEqual([]);
 	});
 
-	it('refuses an empty list as invalid', () => {
-		const { bob, carol } = world();
+	it('refuses an empty list as invalid', async () => {
+		const { bob, carol } = await world();
 
-		expectDomainError(() => report(ask(bob), [], carol), 'invalid');
+		await expectDomainError(async () => report(await ask(bob), [], carol), 'invalid');
 	});
 
-	it('takes 50 items and refuses 51 as invalid, recording nothing for the refused call', () => {
-		const am = seedRealm(db, 'AM');
-		const bob = seedUser(db, 'bob');
-		const carol = seedUser(db, 'carol');
-		const all = Array.from({ length: 50 }, () => seedLabour(db, { realmId: am.id }));
-		const id = ask(bob, { limit: 50 });
+	it('takes 50 items and refuses 51 as invalid, recording nothing for the refused call', async () => {
+		const am = await seedRealm(db, 'AM');
+		const bob = await seedUser(db, 'bob');
+		const carol = await seedUser(db, 'carol');
+		const all = await Promise.all(
+			Array.from({ length: 50 }, () => seedLabour(db, { realmId: am.id }))
+		);
+		const id = await ask(bob, { limit: 50 });
 		const items = all.map((l): Item => ({ labourId: l.id, verdict: 'picked' }));
 
-		expectDomainError(() => report(id, [...items, items[0]], carol), 'invalid');
-		expect(storedOutcomes()).toEqual([]);
-		const reported = report(id, items, carol);
+		await expectDomainError(() => report(id, [...items, items[0]], carol), 'invalid');
+		expect(await storedOutcomes()).toEqual([]);
+		const reported = await report(id, items, carol);
 
 		expect(reported).toHaveLength(50);
 		expect(reported.every((r) => r.recorded)).toBe(true);
-		expect(storedOutcomes()).toHaveLength(50);
+		expect(await storedOutcomes()).toHaveLength(50);
 	});
 
-	it('refuses a verdict that is not picked, skipped or done as invalid', () => {
-		const { rich, bob, carol } = world();
-		const id = ask(bob);
+	it('refuses a verdict that is not picked, skipped or done as invalid', async () => {
+		const { rich, bob, carol } = await world();
+		const id = await ask(bob);
 
 		for (const verdict of ['liked', '']) {
-			expectDomainError(
+			await expectDomainError(
 				() => report(id, [{ labourId: rich.id, verdict: verdict as Verdict }], carol),
 				'invalid'
 			);
 		}
 
-		expect(storedOutcomes()).toEqual([]);
-		expect(affinityRows(bob)).toEqual([]);
+		expect(await storedOutcomes()).toEqual([]);
+		expect(await affinityRows(bob)).toEqual([]);
 	});
 
-	it('refuses a Labour id that is not in the Survey results as invalid', () => {
-		const { bob, carol } = world();
+	it('refuses a Labour id that is not in the Survey results as invalid', async () => {
+		const { bob, carol } = await world();
 
-		expectDomainError(
-			() => report(ask(bob), [{ labourId: 9999, verdict: 'picked' }], carol),
+		await expectDomainError(
+			async () => report(await ask(bob), [{ labourId: 9999, verdict: 'picked' }], carol),
 			'invalid'
 		);
-		expect(storedOutcomes()).toEqual([]);
+		expect(await storedOutcomes()).toEqual([]);
 	});
 
-	it('refuses a Labour that matched the Survey but was cut by its limit', () => {
-		const { am, rich, bob, carol } = world();
-		const cut = seedLabour(db, { realmId: am.id, title: 'Cut' });
-		set(cut.id, { impact: 4 });
-		const id = ask(bob, { limit: 1 });
-		const stored = json(db.select().from(surveys).where(eq(surveys.id, id)).get()!.results);
+	it('refuses a Labour that matched the Survey but was cut by its limit', async () => {
+		const { am, rich, bob, carol } = await world();
+		const cut = await seedLabour(db, { realmId: am.id, title: 'Cut' });
+		await set(cut.id, { impact: 4 });
+		const id = await ask(bob, { limit: 1 });
+		const stored = json(
+			(await db.select().from(surveys).where(eq(surveys.id, id)).limit(1))[0]!.results
+		);
 		expect(stored.map((r: { labour: number }) => r.labour)).toEqual([rich.id]);
 
-		expectDomainError(
+		await expectDomainError(
 			() => report(id, [{ labourId: cut.id, verdict: 'picked' }], carol),
 			'invalid'
 		);
 
-		expect(storedOutcomes()).toEqual([]);
-		expect(affinityRows(bob)).toEqual([]);
+		expect(await storedOutcomes()).toEqual([]);
+		expect(await affinityRows(bob)).toEqual([]);
 	});
 
-	it('refuses a Labour from a Realm the Survey did not cover', () => {
-		const { am, bob, carol } = world();
-		const bl = seedRealm(db, 'BL');
-		const elsewhere = seedLabour(db, { realmId: bl.id });
-		const id = ask(bob, { realmIds: [am.id] });
+	it('refuses a Labour from a Realm the Survey did not cover', async () => {
+		const { am, bob, carol } = await world();
+		const bl = await seedRealm(db, 'BL');
+		const elsewhere = await seedLabour(db, { realmId: bl.id });
+		const id = await ask(bob, { realmIds: [am.id] });
 
-		expectDomainError(
+		await expectDomainError(
 			() => report(id, [{ labourId: elsewhere.id, verdict: 'picked' }], carol),
 			'invalid'
 		);
-		expect(storedOutcomes()).toEqual([]);
+		expect(await storedOutcomes()).toEqual([]);
 	});
 
-	it('records nothing when any item of the batch is refused, whichever comes first', () => {
-		const { rich, bob, carol } = world();
-		const id = ask(bob);
+	it('records nothing when any item of the batch is refused, whichever comes first', async () => {
+		const { rich, bob, carol } = await world();
+		const id = await ask(bob);
 		const good: Item = { labourId: rich.id, verdict: 'picked' };
 		const unknown: Item = { labourId: 9999, verdict: 'picked' };
 		const badVerdict = { labourId: rich.id, verdict: 'nope' } as unknown as Item;
 
-		expectDomainError(() => report(id, [good, unknown], carol), 'invalid');
-		expectDomainError(() => report(id, [unknown, good], carol), 'invalid');
-		expectDomainError(() => report(id, [good, badVerdict], carol), 'invalid');
-		expectDomainError(() => report(id, [badVerdict, good], carol), 'invalid');
+		await expectDomainError(() => report(id, [good, unknown], carol), 'invalid');
+		await expectDomainError(() => report(id, [unknown, good], carol), 'invalid');
+		await expectDomainError(() => report(id, [good, badVerdict], carol), 'invalid');
+		await expectDomainError(() => report(id, [badVerdict, good], carol), 'invalid');
 
-		expect(storedOutcomes()).toEqual([]);
-		expect(db.select().from(pulses).all()).toEqual([]);
+		expect(await storedOutcomes()).toEqual([]);
+		expect(await db.select().from(pulses)).toEqual([]);
 	});
 });
 
 describe('reportOutcomes recording', () => {
-	it('answers each item in the order given, recorded true', () => {
-		const { rich, plain, bob, carol } = world();
-		const id = ask(bob);
+	it('answers each item in the order given, recorded true', async () => {
+		const { rich, plain, bob, carol } = await world();
+		const id = await ask(bob);
 
-		const answered = report(
+		const answered = await report(
 			id,
 			[
 				{ labourId: plain.id, verdict: 'skipped' },
@@ -241,13 +244,13 @@ describe('reportOutcomes recording', () => {
 		]);
 	});
 
-	it('stores the Survey, Labour, verdict, the reporter and the time', () => {
-		const { rich, bob, carol } = world();
-		const id = ask(bob);
+	it('stores the Survey, Labour, verdict, the reporter and the time', async () => {
+		const { rich, bob, carol } = await world();
+		const id = await ask(bob);
 
-		report(id, [{ labourId: rich.id, verdict: 'picked' }], carol, daysAgo(2));
+		await report(id, [{ labourId: rich.id, verdict: 'picked' }], carol, daysAgo(2));
 
-		expect(db.select().from(outcomes).all()).toEqual([
+		expect(await db.select().from(outcomes)).toEqual([
 			{
 				surveyId: id,
 				labourId: rich.id,
@@ -259,25 +262,25 @@ describe('reportOutcomes recording', () => {
 		]);
 	});
 
-	it('lets a User who is neither the Survey actor nor the Survey User report', () => {
-		const { rich, bob, carol } = world();
-		const id = ask(bob);
+	it('lets a User who is neither the Survey actor nor the Survey User report', async () => {
+		const { rich, bob, carol } = await world();
+		const id = await ask(bob);
 		expect(new Set([actor.id, bob, carol]).size).toBe(3);
 
-		const answered = report(id, [{ labourId: rich.id, verdict: 'done' }], carol);
+		const answered = await report(id, [{ labourId: rich.id, verdict: 'done' }], carol);
 
 		expect(answered[0].recorded).toBe(true);
 	});
 
-	it('changes nothing when a Labour already has that verdict for the Survey', () => {
-		const { rich, bob, carol } = world();
-		const dave = seedUser(db, 'dave');
-		const id = ask(bob);
-		report(id, [{ labourId: rich.id, verdict: 'picked' }], carol);
-		const outcomesBefore = storedOutcomes();
-		const pulsesBefore = db.select().from(pulses).orderBy(asc(pulses.id)).all();
+	it('changes nothing when a Labour already has that verdict for the Survey', async () => {
+		const { rich, bob, carol } = await world();
+		const dave = await seedUser(db, 'dave');
+		const id = await ask(bob);
+		await report(id, [{ labourId: rich.id, verdict: 'picked' }], carol);
+		const outcomesBefore = await storedOutcomes();
+		const pulsesBefore = await db.select().from(pulses).orderBy(asc(pulses.id));
 
-		const again = report(
+		const again = await report(
 			id,
 			[{ labourId: rich.id, verdict: 'picked' }],
 			dave,
@@ -285,18 +288,18 @@ describe('reportOutcomes recording', () => {
 		);
 
 		expect(again).toEqual([{ labourId: rich.id, verdict: 'picked', recorded: false }]);
-		expect(storedOutcomes()).toEqual(outcomesBefore);
-		expect(db.select().from(pulses).orderBy(asc(pulses.id)).all()).toEqual(pulsesBefore);
+		expect(await storedOutcomes()).toEqual(outcomesBefore);
+		expect(await db.select().from(pulses).orderBy(asc(pulses.id))).toEqual(pulsesBefore);
 	});
 
-	it('records the new item of a batch beside a repeat, posting Pulses for the new one only', () => {
-		const { rich, plain, bob, carol } = world();
-		set(plain.id, { impact: 4 });
-		const id = ask(bob);
-		report(id, [{ labourId: rich.id, verdict: 'picked' }], carol);
-		const before = affinityRows(bob).length;
+	it('records the new item of a batch beside a repeat, posting Pulses for the new one only', async () => {
+		const { rich, plain, bob, carol } = await world();
+		await set(plain.id, { impact: 4 });
+		const id = await ask(bob);
+		await report(id, [{ labourId: rich.id, verdict: 'picked' }], carol);
+		const before = (await affinityRows(bob)).length;
 
-		const answered = report(
+		const answered = await report(
 			id,
 			[
 				{ labourId: rich.id, verdict: 'picked' },
@@ -306,84 +309,89 @@ describe('reportOutcomes recording', () => {
 		);
 
 		expect(answered.map((r) => r.recorded)).toEqual([false, true]);
-		expect(storedOutcomes()).toHaveLength(2);
-		expect(affinityRows(bob)).toHaveLength(before + 1);
+		expect(await storedOutcomes()).toHaveLength(2);
+		expect(await affinityRows(bob)).toHaveLength(before + 1);
 	});
 
-	it('keeps picked then done as two Outcomes, each posting its own Pulses', () => {
-		const { rich, bob, carol } = world();
-		const id = ask(bob);
+	it('keeps picked then done as two Outcomes, each posting its own Pulses', async () => {
+		const { rich, bob, carol } = await world();
+		const id = await ask(bob);
 
-		const first = report(id, [{ labourId: rich.id, verdict: 'picked' }], carol);
-		const second = report(id, [{ labourId: rich.id, verdict: 'done' }], carol);
+		const first = await report(id, [{ labourId: rich.id, verdict: 'picked' }], carol);
+		const second = await report(id, [{ labourId: rich.id, verdict: 'done' }], carol);
 
 		expect(first[0].recorded).toBe(true);
 		expect(second[0].recorded).toBe(true);
-		expect(storedOutcomes().map((o) => o.verdict)).toEqual(['done', 'picked']);
-		const rows = affinityRows(bob);
+		expect((await storedOutcomes()).map((o) => o.verdict)).toEqual(['done', 'picked']);
+		const rows = await affinityRows(bob);
 		expect(rows).toHaveLength(8);
 		expect(rows.filter((r) => r.note.startsWith('picked'))).toHaveLength(4);
 		expect(rows.filter((r) => r.note.startsWith('done'))).toHaveLength(4);
 	});
 
-	it('treats picked then skipped as two Outcomes too', () => {
-		const { rich, bob, carol } = world();
-		const id = ask(bob);
+	it('treats picked then skipped as two Outcomes too', async () => {
+		const { rich, bob, carol } = await world();
+		const id = await ask(bob);
 
-		report(id, [{ labourId: rich.id, verdict: 'picked' }], carol);
-		const second = report(id, [{ labourId: rich.id, verdict: 'skipped' }], carol);
+		await report(id, [{ labourId: rich.id, verdict: 'picked' }], carol);
+		const second = await report(id, [{ labourId: rich.id, verdict: 'skipped' }], carol);
 
 		expect(second[0].recorded).toBe(true);
-		expect(storedOutcomes()).toHaveLength(2);
+		expect(await storedOutcomes()).toHaveLength(2);
 	});
 
-	it('records the same verdict for the same Labour in another Survey', () => {
-		const { rich, bob, carol } = world();
-		const first = ask(bob);
-		const second = ask(bob);
-		report(first, [{ labourId: rich.id, verdict: 'picked' }], carol);
+	it('records the same verdict for the same Labour in another Survey', async () => {
+		const { rich, bob, carol } = await world();
+		const first = await ask(bob);
+		const second = await ask(bob);
+		await report(first, [{ labourId: rich.id, verdict: 'picked' }], carol);
 
-		const answered = report(second, [{ labourId: rich.id, verdict: 'picked' }], carol);
+		const answered = await report(second, [{ labourId: rich.id, verdict: 'picked' }], carol);
 
 		expect(answered[0].recorded).toBe(true);
-		expect(affinityRows(bob)).toHaveLength(8);
+		expect(await affinityRows(bob)).toHaveLength(8);
 	});
 
-	it('records an Outcome for a Labour that holds no values and posts no Pulse', () => {
-		const { plain, bob, carol } = world();
-		const id = ask(bob);
+	it('records an Outcome for a Labour that holds no values and posts no Pulse', async () => {
+		const { plain, bob, carol } = await world();
+		const id = await ask(bob);
 
-		const answered = report(id, [{ labourId: plain.id, verdict: 'picked' }], carol);
+		const answered = await report(id, [{ labourId: plain.id, verdict: 'picked' }], carol);
 
 		expect(answered[0].recorded).toBe(true);
-		expect(storedOutcomes()).toHaveLength(1);
-		expect(affinityRows(bob)).toEqual([]);
+		expect(await storedOutcomes()).toHaveLength(1);
+		expect(await affinityRows(bob)).toEqual([]);
 	});
 
-	it('records no Event, leaves labours.updatedAt alone and does not bump the Realm version', () => {
-		const { am, rich, bob, carol } = world();
-		const id = ask(bob);
-		const eventsBefore = db.select().from(events).all();
-		const laboursBefore = db.select().from(labours).all();
-		const versionBefore = readRealmAgent(db, am.id).version;
+	it('records no Event, leaves labours.updatedAt alone and does not bump the Realm version', async () => {
+		const { am, rich, bob, carol } = await world();
+		const id = await ask(bob);
+		const eventsBefore = await db.select().from(events);
+		const laboursBefore = await db.select().from(labours);
+		const versionBefore = (await readRealmAgent(db, am.id)).version;
 		expect(versionBefore).toBeGreaterThan(0);
 
-		report(id, [{ labourId: rich.id, verdict: 'done' }], carol, new Date(NOW.getTime() + 5 * DAY));
+		await report(
+			id,
+			[{ labourId: rich.id, verdict: 'done' }],
+			carol,
+			new Date(NOW.getTime() + 5 * DAY)
+		);
 
-		expect(db.select().from(events).all()).toEqual(eventsBefore);
-		expect(db.select().from(labours).all()).toEqual(laboursBefore);
-		expect(readRealmAgent(db, am.id).version).toBe(versionBefore);
+		expect(await db.select().from(events)).toEqual(eventsBefore);
+		expect(await db.select().from(labours)).toEqual(laboursBefore);
+		expect((await readRealmAgent(db, am.id)).version).toBe(versionBefore);
 	});
 });
 
 describe('Affinity Pulses', () => {
-	it('posts one per held key, filed under the Attribute and member, to the Survey User', () => {
-		const { am, rich, bob, carol } = world();
-		const id = ask(bob);
+	it('posts one per held key, filed under the Attribute and member, to the Survey User', async () => {
+		const { am, rich, bob, carol } = await world();
+		const id = await ask(bob);
 
-		report(id, [{ labourId: rich.id, verdict: 'picked' }], carol);
+		await report(id, [{ labourId: rich.id, verdict: 'picked' }], carol);
 
-		const rows = byRawKey(affinityRows(bob));
+		const rows = byRawKey(await affinityRows(bob));
 		expect(
 			rows.map((r) => ({
 				userId: r.userId,
@@ -400,25 +408,27 @@ describe('Affinity Pulses', () => {
 				createdAt: r.createdAt
 			}))
 		).toEqual(
-			[
-				['area:audio', 'area', 'audio', 1],
-				['area:ui', 'area', 'ui', 1],
-				['effort', 'effort', null, 0.25],
-				['impact', 'impact', null, 0.75]
-			].map(([rawKey, attribute, member, amount]) => ({
-				userId: bob,
-				realmId: null,
-				attributeId: attributeId(am.id, attribute as string),
-				member,
-				rawKey,
-				amount,
-				mood: 1,
-				halfLifeDays: 30,
-				note: `picked AM-1 in Survey ${id}`,
-				evidence: [{ labour: rich.id }],
-				authorId: carol,
-				createdAt: NOW
-			}))
+			await Promise.all(
+				[
+					['area:audio', 'area', 'audio', 1],
+					['area:ui', 'area', 'ui', 1],
+					['effort', 'effort', null, 0.25],
+					['impact', 'impact', null, 0.75]
+				].map(async ([rawKey, attribute, member, amount]) => ({
+					userId: bob,
+					realmId: null,
+					attributeId: await attributeId(am.id, attribute as string),
+					member,
+					rawKey,
+					amount,
+					mood: 1,
+					halfLifeDays: 30,
+					note: `picked AM-1 in Survey ${id}`,
+					evidence: [{ labour: rich.id }],
+					authorId: carol,
+					createdAt: NOW
+				}))
+			)
 		);
 	});
 
@@ -426,13 +436,13 @@ describe('Affinity Pulses', () => {
 		['picked', 1, 1],
 		['done', 2, 1],
 		['skipped', 0.5, -1]
-	] as const)('weights a %s Outcome by base %s with mood %s', (verdict, base, mood) => {
-		const { rich, bob, carol } = world();
-		const id = ask(bob);
+	] as const)('weights a %s Outcome by base %s with mood %s', async (verdict, base, mood) => {
+		const { rich, bob, carol } = await world();
+		const id = await ask(bob);
 
-		report(id, [{ labourId: rich.id, verdict }], carol);
+		await report(id, [{ labourId: rich.id, verdict }], carol);
 
-		const rows = byRawKey(affinityRows(bob));
+		const rows = byRawKey(await affinityRows(bob));
 		expect(rows.map((r) => [r.rawKey, r.amount, r.mood])).toEqual([
 			['area:audio', base * 1, mood],
 			['area:ui', base * 1, mood],
@@ -442,94 +452,95 @@ describe('Affinity Pulses', () => {
 		expect(rows.every((r) => r.note === `${verdict} AM-1 in Survey ${id}`)).toBe(true);
 	});
 
-	it('skips a scale key at its minimum, whatever the minimum is', () => {
-		const { am, bob, carol } = world();
-		const floor = seedLabour(db, { realmId: am.id });
-		set(floor.id, { impact: 0, effort: 1, area: ['ui'] });
-		const id = ask(bob);
+	it('skips a scale key at its minimum, whatever the minimum is', async () => {
+		const { am, bob, carol } = await world();
+		const floor = await seedLabour(db, { realmId: am.id });
+		await set(floor.id, { impact: 0, effort: 1, area: ['ui'] });
+		const id = await ask(bob);
 
-		report(id, [{ labourId: floor.id, verdict: 'picked' }], carol);
+		await report(id, [{ labourId: floor.id, verdict: 'picked' }], carol);
 
-		expect(affinityRows(bob).map((r) => r.rawKey)).toEqual(['area:ui']);
+		expect((await affinityRows(bob)).map((r) => r.rawKey)).toEqual(['area:ui']);
 	});
 
-	it('posts base x 1 for a scale value at its maximum', () => {
-		const { am, bob, carol } = world();
-		const top = seedLabour(db, { realmId: am.id });
-		set(top.id, { impact: 4, effort: 5 });
-		const id = ask(bob);
+	it('posts base x 1 for a scale value at its maximum', async () => {
+		const { am, bob, carol } = await world();
+		const top = await seedLabour(db, { realmId: am.id });
+		await set(top.id, { impact: 4, effort: 5 });
+		const id = await ask(bob);
 
-		report(id, [{ labourId: top.id, verdict: 'done' }], carol);
+		await report(id, [{ labourId: top.id, verdict: 'done' }], carol);
 
-		expect(byRawKey(affinityRows(bob)).map((r) => [r.rawKey, r.amount])).toEqual([
+		expect(byRawKey(await affinityRows(bob)).map((r) => [r.rawKey, r.amount])).toEqual([
 			['effort', 2],
 			['impact', 2]
 		]);
 	});
 
-	it('posts nothing for a key the Labour holds no value for, or for a text Attribute', () => {
-		const { am, bob, carol } = world();
-		defineAttribute(db, actor, am.id, {
+	it('posts nothing for a key the Labour holds no value for, or for a text Attribute', async () => {
+		const { am, bob, carol } = await world();
+		await defineAttribute(db, actor, am.id, {
 			key: 'notes',
 			kind: 'text',
 			label: 'Notes',
 			rubric: 'rubric'
 		});
-		const sparse = seedLabour(db, { realmId: am.id });
-		set(sparse.id, { notes: 'words', impact: 2 });
-		const id = ask(bob);
+		const sparse = await seedLabour(db, { realmId: am.id });
+		await set(sparse.id, { notes: 'words', impact: 2 });
+		const id = await ask(bob);
 
-		report(id, [{ labourId: sparse.id, verdict: 'picked' }], carol);
+		await report(id, [{ labourId: sparse.id, verdict: 'picked' }], carol);
 
-		expect(affinityRows(bob).map((r) => r.rawKey)).toEqual(['impact']);
+		expect((await affinityRows(bob)).map((r) => r.rawKey)).toEqual(['impact']);
 	});
 
-	it('files under the Labour own Realm Attribute, not another Realm with the same key', () => {
-		const { am, bob, carol } = world();
-		const bl = seedRealm(db, 'BL');
-		scale(bl.id, 'impact', 0, 10);
-		const there = seedLabour(db, { realmId: bl.id });
-		set(there.id, { impact: 5 });
-		const id = ask(bob);
+	it('files under the Labour own Realm Attribute, not another Realm with the same key', async () => {
+		const { am, bob, carol } = await world();
+		const bl = await seedRealm(db, 'BL');
+		await scale(bl.id, 'impact', 0, 10);
+		const there = await seedLabour(db, { realmId: bl.id });
+		await set(there.id, { impact: 5 });
+		const id = await ask(bob);
 
-		report(id, [{ labourId: there.id, verdict: 'picked' }], carol);
+		await report(id, [{ labourId: there.id, verdict: 'picked' }], carol);
 
-		const [row] = affinityRows(bob);
-		expect(row.attributeId).toBe(attributeId(bl.id, 'impact'));
-		expect(row.attributeId).not.toBe(attributeId(am.id, 'impact'));
+		const [row] = await affinityRows(bob);
+		expect(row.attributeId).toBe(await attributeId(bl.id, 'impact'));
+		expect(row.attributeId).not.toBe(await attributeId(am.id, 'impact'));
 		expect(row.amount).toBe(0.5);
 		expect(row.note).toBe(`picked BL-1 in Survey ${id}`);
 	});
 
-	it('posts to the Survey User, never to the actor or the reporter', () => {
-		const { rich, bob, carol } = world();
-		const id = ask(bob);
+	it('posts to the Survey User, never to the actor or the reporter', async () => {
+		const { rich, bob, carol } = await world();
+		const id = await ask(bob);
 
-		report(id, [{ labourId: rich.id, verdict: 'picked' }], carol);
+		await report(id, [{ labourId: rich.id, verdict: 'picked' }], carol);
 
-		expect(affinityRows(bob)).toHaveLength(4);
-		expect(affinityRows(carol)).toEqual([]);
-		expect(affinityRows(actor.id)).toEqual([]);
-		const all = db.select().from(pulses).all();
+		expect(await affinityRows(bob)).toHaveLength(4);
+		expect(await affinityRows(carol)).toEqual([]);
+		expect(await affinityRows(actor.id)).toEqual([]);
+		const all = await db.select().from(pulses);
 		expect(all.every((r) => r.userId === bob && r.realmId === null)).toBe(true);
 	});
 
-	it('posts to the Survey actor when the Survey was not run for anyone else', () => {
-		const { rich, carol } = world();
-		const id = survey(db, actor, { weights: NEUTRAL, temperature: 0 }, { now: NOW }).surveyId;
+	it('posts to the Survey actor when the Survey was not run for anyone else', async () => {
+		const { rich, carol } = await world();
+		const id = (await survey(db, actor, { weights: NEUTRAL, temperature: 0 }, { now: NOW }))
+			.surveyId;
 
-		report(id, [{ labourId: rich.id, verdict: 'picked' }], carol);
+		await report(id, [{ labourId: rich.id, verdict: 'picked' }], carol);
 
-		expect(affinityRows(actor.id)).toHaveLength(4);
+		expect(await affinityRows(actor.id)).toHaveLength(4);
 	});
 
-	it('keeps Sentiment and Affinity apart: neither reads the other Pulses', () => {
-		const { am, rich, bob, carol } = world();
-		report(ask(bob), [{ labourId: rich.id, verdict: 'picked' }], carol);
-		postPulses(db, actor, am.id, [{ key: 'impact', amount: 3, mood: 1 }], NOW);
+	it('keeps Sentiment and Affinity apart: neither reads the other Pulses', async () => {
+		const { am, rich, bob, carol } = await world();
+		await report(await ask(bob), [{ labourId: rich.id, verdict: 'picked' }], carol);
+		await postPulses(db, actor, am.id, [{ key: 'impact', amount: 3, mood: 1 }], NOW);
 
-		const sentiment = readSentiment(db, am.id, { now: NOW });
-		const affinity = readAffinity(db, bob, { now: NOW });
+		const sentiment = await readSentiment(db, am.id, { now: NOW });
+		const affinity = await readAffinity(db, bob, { now: NOW });
 
 		expect(sentiment.keys.map((k) => k.key)).toEqual(['impact']);
 		expect(sentiment.keys[0].volume).toBeCloseTo(3, 10);
@@ -539,28 +550,28 @@ describe('Affinity Pulses', () => {
 });
 
 describe('retention and cleanup', () => {
-	it('deletes Outcomes with their Survey in pruneSurveys, keeping the Pulses', () => {
-		const { rich, bob, carol } = world();
-		const old = ask(bob, {}, daysAgo(40));
-		const recent = ask(bob, {}, NOW);
-		report(old, [{ labourId: rich.id, verdict: 'picked' }], carol, daysAgo(40));
-		report(recent, [{ labourId: rich.id, verdict: 'picked' }], carol, NOW);
+	it('deletes Outcomes with their Survey in pruneSurveys, keeping the Pulses', async () => {
+		const { rich, bob, carol } = await world();
+		const old = await ask(bob, {}, daysAgo(40));
+		const recent = await ask(bob, {}, NOW);
+		await report(old, [{ labourId: rich.id, verdict: 'picked' }], carol, daysAgo(40));
+		await report(recent, [{ labourId: rich.id, verdict: 'picked' }], carol, NOW);
 
-		const removed = pruneSurveys(db, 30 * DAY, NOW.getTime());
+		const removed = await pruneSurveys(db, 30 * DAY, NOW.getTime());
 
 		expect(removed).toBe(1);
-		expect(storedOutcomes().map((o) => o.surveyId)).toEqual([recent]);
-		expect(affinityRows(bob)).toHaveLength(8);
+		expect((await storedOutcomes()).map((o) => o.surveyId)).toEqual([recent]);
+		expect(await affinityRows(bob)).toHaveLength(8);
 	});
 
-	it('deletes an Attribute Affinity Pulses with it and no other Realm', () => {
-		const { am, rich, bob, carol } = world();
-		const bl = seedRealm(db, 'BL');
-		scale(bl.id, 'impact', 0, 10);
-		const there = seedLabour(db, { realmId: bl.id });
-		set(there.id, { impact: 5 });
-		const id = ask(bob);
-		report(
+	it('deletes an Attribute Affinity Pulses with it and no other Realm', async () => {
+		const { am, rich, bob, carol } = await world();
+		const bl = await seedRealm(db, 'BL');
+		await scale(bl.id, 'impact', 0, 10);
+		const there = await seedLabour(db, { realmId: bl.id });
+		await set(there.id, { impact: 5 });
+		const id = await ask(bob);
+		await report(
 			id,
 			[
 				{ labourId: rich.id, verdict: 'picked' },
@@ -569,32 +580,32 @@ describe('retention and cleanup', () => {
 			carol
 		);
 		const kept = [
-			['area:audio', attributeId(am.id, 'area')],
-			['area:ui', attributeId(am.id, 'area')],
-			['effort', attributeId(am.id, 'effort')],
-			['impact', attributeId(bl.id, 'impact')]
+			['area:audio', await attributeId(am.id, 'area')],
+			['area:ui', await attributeId(am.id, 'area')],
+			['effort', await attributeId(am.id, 'effort')],
+			['impact', await attributeId(bl.id, 'impact')]
 		];
 
-		deleteAttribute(db, actor, am.id, 'impact');
+		await deleteAttribute(db, actor, am.id, 'impact');
 
-		expect(byRawKey(affinityRows(bob)).map((r) => [r.rawKey, r.attributeId])).toEqual(kept);
+		expect(byRawKey(await affinityRows(bob)).map((r) => [r.rawKey, r.attributeId])).toEqual(kept);
 	});
 
-	it('leaves no Affinity Pulse unfiled when an Attribute is deleted', () => {
-		const { am, rich, bob, carol } = world();
-		report(ask(bob), [{ labourId: rich.id, verdict: 'done' }], carol);
+	it('leaves no Affinity Pulse unfiled when an Attribute is deleted', async () => {
+		const { am, rich, bob, carol } = await world();
+		await report(await ask(bob), [{ labourId: rich.id, verdict: 'done' }], carol);
 
-		deleteAttribute(db, actor, am.id, 'area');
+		await deleteAttribute(db, actor, am.id, 'area');
 
-		expect(byRawKey(affinityRows(bob)).map((r) => r.rawKey)).toEqual(['effort', 'impact']);
-		expect(readAffinity(db, bob, { now: NOW }).unfiled).toEqual([]);
+		expect(byRawKey(await affinityRows(bob)).map((r) => r.rawKey)).toEqual(['effort', 'impact']);
+		expect((await readAffinity(db, bob, { now: NOW })).unfiled).toEqual([]);
 	});
 
-	it('deletes the Affinity Pulses of a removed tags member and keeps its siblings', () => {
-		const { am, rich, bob, carol } = world();
-		report(ask(bob), [{ labourId: rich.id, verdict: 'picked' }], carol);
+	it('deletes the Affinity Pulses of a removed tags member and keeps its siblings', async () => {
+		const { am, rich, bob, carol } = await world();
+		await report(await ask(bob), [{ labourId: rich.id, verdict: 'picked' }], carol);
 
-		defineAttribute(db, actor, am.id, {
+		await defineAttribute(db, actor, am.id, {
 			key: 'area',
 			kind: 'tags',
 			spec: {
@@ -605,23 +616,23 @@ describe('retention and cleanup', () => {
 			}
 		});
 
-		expect(byRawKey(affinityRows(bob)).map((r) => r.rawKey)).toEqual([
+		expect(byRawKey(await affinityRows(bob)).map((r) => r.rawKey)).toEqual([
 			'area:ui',
 			'effort',
 			'impact'
 		]);
 	});
 
-	it('prunes Affinity Pulses past 30 x log2(100) days and keeps younger ones', () => {
-		const { rich, bob, carol } = world();
-		const id = ask(bob);
-		report(id, [{ labourId: rich.id, verdict: 'picked' }], carol, daysAgo(200));
-		report(id, [{ labourId: rich.id, verdict: 'done' }], carol, daysAgo(199));
+	it('prunes Affinity Pulses past 30 x log2(100) days and keeps younger ones', async () => {
+		const { rich, bob, carol } = await world();
+		const id = await ask(bob);
+		await report(id, [{ labourId: rich.id, verdict: 'picked' }], carol, daysAgo(200));
+		await report(id, [{ labourId: rich.id, verdict: 'done' }], carol, daysAgo(199));
 
-		const removed = prunePulses(db, NOW.getTime());
+		const removed = await prunePulses(db, NOW.getTime());
 
 		expect(removed).toBe(4);
-		const left = affinityRows(bob);
+		const left = await affinityRows(bob);
 		expect(left).toHaveLength(4);
 		expect(left.every((r) => r.note.startsWith('done'))).toBe(true);
 	});
@@ -629,23 +640,23 @@ describe('retention and cleanup', () => {
 
 describe('readAffinity', () => {
 	// impact: picked L1 (x 1) 60 days ago, skipped L1 now, done L2 (x 0.5) now.
-	function learned() {
-		const { am, bob, carol } = world();
-		const l1 = seedLabour(db, { realmId: am.id, title: 'L1' });
-		const l2 = seedLabour(db, { realmId: am.id, title: 'L2' });
-		set(l1.id, { impact: 4, area: ['ui'] });
-		set(l2.id, { impact: 2, area: ['audio'] });
-		const id = ask(bob);
-		report(id, [{ labourId: l1.id, verdict: 'picked' }], carol, daysAgo(60));
-		report(id, [{ labourId: l1.id, verdict: 'skipped' }], carol, NOW);
-		report(id, [{ labourId: l2.id, verdict: 'done' }], carol, NOW);
+	async function learned() {
+		const { am, bob, carol } = await world();
+		const l1 = await seedLabour(db, { realmId: am.id, title: 'L1' });
+		const l2 = await seedLabour(db, { realmId: am.id, title: 'L2' });
+		await set(l1.id, { impact: 4, area: ['ui'] });
+		await set(l2.id, { impact: 2, area: ['audio'] });
+		const id = await ask(bob);
+		await report(id, [{ labourId: l1.id, verdict: 'picked' }], carol, daysAgo(60));
+		await report(id, [{ labourId: l1.id, verdict: 'skipped' }], carol, NOW);
+		await report(id, [{ labourId: l2.id, verdict: 'done' }], carol, NOW);
 		return { am, bob, carol };
 	}
 
-	it('sums weights per key into volume, signed mood and v, ordered by volume', () => {
-		const { am, bob } = learned();
+	it('sums weights per key into volume, signed mood and v, ordered by volume', async () => {
+		const { am, bob } = await learned();
 
-		const view = readAffinity(db, bob, { now: NOW });
+		const view = await readAffinity(db, bob, { now: NOW });
 
 		expect(view.asOf).toEqual(NOW);
 		expect(view.unfiled).toEqual([]);
@@ -665,36 +676,39 @@ describe('readAffinity', () => {
 		expect(ui.v).toBeCloseTo(0.75 / 5.75, 10);
 	});
 
-	it('lists each key heaviest Pulses first, three by default', () => {
-		const { rich, bob, carol } = world();
-		const first = ask(bob);
-		const second = ask(bob);
-		report(first, [{ labourId: rich.id, verdict: 'picked' }], carol, daysAgo(60));
-		report(first, [{ labourId: rich.id, verdict: 'done' }], carol, daysAgo(60));
-		report(second, [{ labourId: rich.id, verdict: 'picked' }], carol, NOW);
-		report(second, [{ labourId: rich.id, verdict: 'done' }], carol, NOW);
+	it('lists each key heaviest Pulses first, three by default', async () => {
+		const { rich, bob, carol } = await world();
+		const first = await ask(bob);
+		const second = await ask(bob);
+		await report(first, [{ labourId: rich.id, verdict: 'picked' }], carol, daysAgo(60));
+		await report(first, [{ labourId: rich.id, verdict: 'done' }], carol, daysAgo(60));
+		await report(second, [{ labourId: rich.id, verdict: 'picked' }], carol, NOW);
+		await report(second, [{ labourId: rich.id, verdict: 'done' }], carol, NOW);
 
-		const ui = (limit?: number) =>
-			readAffinity(db, bob, { now: NOW, limit }).keys.find((k) => k.key === 'area:ui')!;
+		const ui = async (limit?: number) =>
+			(await readAffinity(db, bob, { now: NOW, limit })).keys.find((k) => k.key === 'area:ui')!;
 
-		expect(ui().pulses.map((p) => [p.note, p.weight])).toEqual([
+		expect((await ui()).pulses.map((p) => [p.note, p.weight])).toEqual([
 			[`done AM-1 in Survey ${second}`, 2],
 			[`picked AM-1 in Survey ${second}`, 1],
 			[`done AM-1 in Survey ${first}`, 0.5]
 		]);
-		expect(ui(1).pulses.map((p) => p.note)).toEqual([`done AM-1 in Survey ${second}`]);
-		expect(ui(4).pulses).toHaveLength(4);
-		expect(ui().pulses[0]).toMatchObject({ authorId: carol, evidence: [{ labour: rich.id }] });
+		expect((await ui(1)).pulses.map((p) => p.note)).toEqual([`done AM-1 in Survey ${second}`]);
+		expect((await ui(4)).pulses).toHaveLength(4);
+		expect((await ui()).pulses[0]).toMatchObject({
+			authorId: carol,
+			evidence: [{ labour: rich.id }]
+		});
 	});
 
-	it('keeps the same key of two Realms apart, each with its realmId', () => {
-		const { am, rich, bob, carol } = world();
-		const bl = seedRealm(db, 'BL');
-		scale(bl.id, 'impact', 0, 10);
-		const there = seedLabour(db, { realmId: bl.id });
-		set(there.id, { impact: 10 });
-		report(
-			ask(bob),
+	it('keeps the same key of two Realms apart, each with its realmId', async () => {
+		const { am, rich, bob, carol } = await world();
+		const bl = await seedRealm(db, 'BL');
+		await scale(bl.id, 'impact', 0, 10);
+		const there = await seedLabour(db, { realmId: bl.id });
+		await set(there.id, { impact: 10 });
+		await report(
+			await ask(bob),
 			[
 				{ labourId: rich.id, verdict: 'picked' },
 				{ labourId: there.id, verdict: 'picked' }
@@ -702,7 +716,7 @@ describe('readAffinity', () => {
 			carol
 		);
 
-		const view = readAffinity(db, bob, { now: NOW });
+		const view = await readAffinity(db, bob, { now: NOW });
 
 		const impacts = view.keys
 			.filter((k) => k.key === 'impact')
@@ -714,50 +728,54 @@ describe('readAffinity', () => {
 		]);
 	});
 
-	it('counts only that User Pulses', () => {
-		const { rich, bob, carol } = world();
-		const alice = seedUser(db, 'alice');
-		report(ask(bob), [{ labourId: rich.id, verdict: 'picked' }], carol);
-		report(ask(alice), [{ labourId: rich.id, verdict: 'skipped' }], carol);
+	it('counts only that User Pulses', async () => {
+		const { rich, bob, carol } = await world();
+		const alice = await seedUser(db, 'alice');
+		await report(await ask(bob), [{ labourId: rich.id, verdict: 'picked' }], carol);
+		await report(await ask(alice), [{ labourId: rich.id, verdict: 'skipped' }], carol);
 
-		const mine = readAffinity(db, bob, { now: NOW }).keys.find((k) => k.key === 'impact')!;
-		const hers = readAffinity(db, alice, { now: NOW }).keys.find((k) => k.key === 'impact')!;
+		const mine = (await readAffinity(db, bob, { now: NOW })).keys.find((k) => k.key === 'impact')!;
+		const hers = (await readAffinity(db, alice, { now: NOW })).keys.find(
+			(k) => k.key === 'impact'
+		)!;
 
 		expect(mine.mood).toBeCloseTo(1, 10);
 		expect(hers.mood).toBeCloseTo(-1, 10);
-		expect(readAffinity(db, carol, { now: NOW }).keys).toEqual([]);
+		expect((await readAffinity(db, carol, { now: NOW })).keys).toEqual([]);
 	});
 
-	it('uses loudness 5 and half-life 30 whatever the Realm settings', () => {
-		const { am, rich, bob, carol } = world();
-		tuneRealm(db, actor, am.id, { loudness: 500, halfLifeDays: 3 });
-		report(ask(bob), [{ labourId: rich.id, verdict: 'picked' }], carol, daysAgo(30));
+	it('uses loudness 5 and half-life 30 whatever the Realm settings', async () => {
+		const { am, rich, bob, carol } = await world();
+		await tuneRealm(db, actor, am.id, { loudness: 500, halfLifeDays: 3 });
+		await report(await ask(bob), [{ labourId: rich.id, verdict: 'picked' }], carol, daysAgo(30));
 
-		const impact = readAffinity(db, bob, { now: NOW }).keys.find((k) => k.key === 'impact')!;
+		const impact = (await readAffinity(db, bob, { now: NOW })).keys.find(
+			(k) => k.key === 'impact'
+		)!;
 
-		expect(affinityRows(bob).every((r) => r.halfLifeDays === 30)).toBe(true);
+		expect((await affinityRows(bob)).every((r) => r.halfLifeDays === 30)).toBe(true);
 		expect(impact.volume).toBeCloseTo(0.375, 10);
 		expect(impact.v).toBeCloseTo(0.375 / 5.375, 10);
 	});
 
-	it('never ages a Pulse below 0 days', () => {
-		const { rich, bob, carol } = world();
-		report(ask(bob), [{ labourId: rich.id, verdict: 'picked' }], carol, NOW);
+	it('never ages a Pulse below 0 days', async () => {
+		const { rich, bob, carol } = await world();
+		await report(await ask(bob), [{ labourId: rich.id, verdict: 'picked' }], carol, NOW);
 
-		const early = readAffinity(db, bob, { now: daysAgo(10) });
+		const early = await readAffinity(db, bob, { now: daysAgo(10) });
 
 		expect(early.keys.find((k) => k.key === 'impact')!.volume).toBeCloseTo(0.75, 10);
 	});
 
-	it('reads empty for a User with no Pulses', () => {
-		const { bob } = world();
+	it('reads empty for a User with no Pulses', async () => {
+		const { bob } = await world();
 
-		expect(readAffinity(db, bob, { now: NOW })).toEqual({ asOf: NOW, keys: [], unfiled: [] });
+		expect(await readAffinity(db, bob, { now: NOW })).toEqual({ asOf: NOW, keys: [], unfiled: [] });
 	});
 
-	it('refuses an unknown User as not_found', () => {
-		world();
+	it('refuses an unknown User as not_found', async () => {
+		await world();
 
-		expectDomainError(() => readAffinity(db, 9999, { now: NOW }), 'not_found');
+		await expectDomainError(() => readAffinity(db, 9999, { now: NOW }), 'not_found');
 	});
 });

@@ -31,7 +31,6 @@ RUN arch="$(node -p process.arch)" \
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production \
 	PORT=3000 \
-	DATABASE_PATH=/data/sagas.db \
 	EMBEDDING_MODEL_DIR=/app/models
 WORKDIR /app
 COPY --from=build /deploy/package.json ./
@@ -39,11 +38,8 @@ COPY --from=build /deploy/node_modules ./node_modules
 COPY --from=build /models ./models
 COPY --from=build /app/apps/web/build ./build
 COPY --from=build /app/apps/web/server ./server
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN mkdir /data && chown 1000:1000 /data
 USER 1000:1000
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 	CMD node -e "fetch('http://127.0.0.1:3000/login',{redirect:'manual'}).then(r=>process.exit(r.status<500?0:1),()=>process.exit(1))"
-ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "server/index.js"]

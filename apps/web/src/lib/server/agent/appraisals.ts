@@ -22,6 +22,7 @@ import { refreshLabourText } from './search.ts';
 import { embeddingTextChanged } from './vectors/hook.ts';
 import { refreshEmbeddingInput } from './vectors/input.ts';
 import { readNeeds, writeNeeds, type NeedView } from './skills.ts';
+import { transact } from '#lib/server/db/tx.ts';
 
 export type Reference = { href: string; label: string | null };
 
@@ -79,14 +80,14 @@ function invalid(message: string): never {
 	throw new DomainError('invalid', message);
 }
 
-function readRow(db: Handle, labourId: number): AppraisalRow | undefined {
-	return db.select().from(appraisals).where(eq(appraisals.labourId, labourId)).get();
+async function readRow(db: Handle, labourId: number): Promise<AppraisalRow | undefined> {
+	return (await db.select().from(appraisals).where(eq(appraisals.labourId, labourId)).limit(1))[0];
 }
 
-export function readAppraisal(db: Handle, labourId: number): AppraisalView {
-	getLabour(db, labourId);
-	const row = readRow(db, labourId);
-	const hash = contentHash(db, labourId);
+export async function readAppraisal(db: Handle, labourId: number): Promise<AppraisalView> {
+	await getLabour(db, labourId);
+	const row = await readRow(db, labourId);
+	const hash = await contentHash(db, labourId);
 	const stamp =
 		row?.contentHash == null
 			? null
@@ -107,10 +108,10 @@ export function readAppraisal(db: Handle, labourId: number): AppraisalView {
 		stamp,
 		unappraised: stamp === null,
 		stale: stamp !== null && stamp.contentHash !== hash,
-		values: readValues(db, labourId),
-		links: readLinks(db, labourId),
-		needs: readNeeds(db, labourId),
-		mentions: readMentions(db, labourId)
+		values: await readValues(db, labourId),
+		links: await readLinks(db, labourId),
+		needs: await readNeeds(db, labourId),
+		mentions: await readMentions(db, labourId)
 	};
 }
 
@@ -146,46 +147,52 @@ function normalizeRefs(refs: unknown): Reference[] {
 }
 
 // The one place a Brief or References are written.
-function writeAppraisal(
+async function writeAppraisal(
 	tx: Handle,
 	userId: number,
 	labourId: number,
 	patch: { brief?: string; refs?: Reference[] },
 	now: Date,
 	rebriefed: Set<number>
-): void {
-	const before = readRow(tx, labourId)?.brief ?? '';
+): Promise<void> {
+	const before = (await readRow(tx, labourId))?.brief ?? '';
 	const set = { ...patch, setBy: userId, via: currentVia(), setAt: now };
-	tx.insert(appraisals)
+	await tx
+		.insert(appraisals)
 		.values({ labourId, ...set })
-		.onConflictDoUpdate({ target: appraisals.labourId, set })
-		.run();
+		.onConflictDoUpdate({ target: appraisals.labourId, set });
 	if (patch.brief === undefined) return;
-	refreshLabourText(tx, labourId);
-	refreshEmbeddingInput(tx, labourId);
+	await refreshLabourText(tx, labourId);
+	await refreshEmbeddingInput(tx, labourId);
 	if (patch.brief !== before) rebriefed.add(labourId);
 }
 
-function writeStamp(tx: Handle, userId: number, labourId: number, hash: string, now: Date): void {
+async function writeStamp(
+	tx: Handle,
+	userId: number,
+	labourId: number,
+	hash: string,
+	now: Date
+): Promise<void> {
 	const set = {
 		contentHash: hash,
 		appraisedBy: userId,
 		appraisedAt: now,
 		appraisedVia: currentVia()
 	};
-	tx.insert(appraisals)
+	await tx
+		.insert(appraisals)
 		.values({ labourId, ...set })
-		.onConflictDoUpdate({ target: appraisals.labourId, set })
-		.run();
+		.onConflictDoUpdate({ target: appraisals.labourId, set });
 }
 
-function applyLinks(
+async function applyLinks(
 	tx: Handle,
 	userId: number,
 	labourId: number,
 	inputs: LinkInput[],
 	now: Date
-): void {
+): Promise<void> {
 	if (!Array.isArray(inputs)) invalid('Links must be an array');
 	for (const input of inputs) {
 		if (input === null || typeof input !== 'object' || !LINK_TYPES.includes(input.type)) {
@@ -204,8 +211,8 @@ function applyLinks(
 		}
 		const other = (input.to ?? input.from)!;
 		if (other === labourId) invalid('A Labour cannot be linked to itself');
-		requireRealmRole(tx, { id: userId }, getLabour(tx, other).realmId, 'viewer');
-		writeLink(
+		await requireRealmRole(tx, { id: userId }, (await getLabour(tx, other)).realmId, 'viewer');
+		await writeLink(
 			tx,
 			userId,
 			{
@@ -220,60 +227,64 @@ function applyLinks(
 	}
 }
 
-function applyItem(
+async function applyItem(
 	tx: Handle,
 	userId: number,
 	item: AppraiseItem,
 	now: Date,
 	touched: Set<number>,
 	rebriefed: Set<number>
-): boolean {
-	const labour = getLabour(tx, item.labourId);
+): Promise<boolean> {
+	const labour = await getLabour(tx, item.labourId);
 
 	const patch: { brief?: string; refs?: Reference[] } = {};
 	if (item.brief !== undefined) patch.brief = normalizeBrief(item.brief);
 	if (item.refs !== undefined) patch.refs = normalizeRefs(item.refs);
 	if (patch.brief !== undefined || patch.refs !== undefined) {
-		writeAppraisal(tx, userId, labour.id, patch, now, rebriefed);
+		await writeAppraisal(tx, userId, labour.id, patch, now, rebriefed);
 	}
 
-	if (item.values !== undefined) writeValues(tx, userId, labour, item.values, now, touched);
-	if (item.links !== undefined) applyLinks(tx, userId, labour.id, item.links, now);
-	if (item.needs !== undefined) writeNeeds(tx, userId, labour.id, item.needs, now);
+	if (item.values !== undefined) await writeValues(tx, userId, labour, item.values, now, touched);
+	if (item.links !== undefined) await applyLinks(tx, userId, labour.id, item.links, now);
+	if (item.needs !== undefined) await writeNeeds(tx, userId, labour.id, item.needs, now);
 
 	if (item.stamp === undefined) return false;
 	if (typeof item.stamp !== 'string') invalid('Stamp must be a content hash');
-	const hash = contentHash(tx, labour.id);
+	const hash = await contentHash(tx, labour.id);
 	if (item.stamp !== hash) return false;
-	writeStamp(tx, userId, labour.id, hash, now);
+	await writeStamp(tx, userId, labour.id, hash, now);
 	return true;
 }
 
-export function appraise(
+export async function appraise(
 	db: Db,
 	actor: Actor,
 	items: AppraiseItem[],
 	now: Date = new Date()
-): { labourId: number; stamped: boolean }[] {
+): Promise<{ labourId: number; stamped: boolean }[]> {
 	if (!Array.isArray(items) || items.length < 1 || items.length > BATCH_MAX) {
 		invalid(`Appraise takes 1 to ${BATCH_MAX} items`);
 	}
 	const rebriefed = new Set<number>();
-	const results = db.transaction((tx) => {
+	const results = await transact(db, async (tx) => {
 		const seen = new Set<number>();
 		for (const item of items) {
-			if (seen.has(item.labourId)) invalid(`${labourName(tx)(item.labourId)} is listed twice`);
+			if (seen.has(item.labourId))
+				invalid(`${await labourName(tx)(item.labourId)} is listed twice`);
 			seen.add(item.labourId);
 		}
 		const touched = new Set<number>();
 		for (const item of items) {
-			requireRealmRole(tx, actor, getLabour(tx, item.labourId).realmId, 'editor');
+			await requireRealmRole(tx, actor, (await getLabour(tx, item.labourId)).realmId, 'editor');
 		}
-		const results = items.map((item) => ({
-			labourId: item.labourId,
-			stamped: applyItem(tx, actor.id, item, now, touched, rebriefed)
-		}));
-		bumpRealms(tx, touched, now);
+		const results: { labourId: number; stamped: boolean }[] = [];
+		for (const item of items) {
+			results.push({
+				labourId: item.labourId,
+				stamped: await applyItem(tx, actor.id, item, now, touched, rebriefed)
+			});
+		}
+		await bumpRealms(tx, touched, now);
 		return results;
 	});
 	for (const labourId of rebriefed) embeddingTextChanged(labourId);
@@ -282,39 +293,38 @@ export function appraise(
 
 export type UnappraisedFilter = { realms?: number[]; realmId?: number; includeClosed?: boolean };
 
-export function listUnappraised(
+export async function listUnappraised(
 	db: Handle,
 	filter: UnappraisedFilter,
 	page: { offset: number; limit: number }
-): { items: { labourId: number; reason: UnappraisedReason }[]; total: number } {
+): Promise<{ items: { labourId: number; reason: UnappraisedReason }[]; total: number }> {
 	const where = [];
 	if (filter.realms !== undefined) where.push(inArray(labours.realmId, filter.realms));
 	if (filter.realmId !== undefined) where.push(eq(labours.realmId, filter.realmId));
 	if (filter.includeClosed !== true) where.push(eq(states.isClosed, false));
 
-	const candidates = db
+	const candidates = await db
 		.select({ id: labours.id, stamped: appraisals.contentHash })
 		.from(labours)
 		.innerJoin(states, eq(states.id, labours.stateId))
 		.leftJoin(appraisals, eq(appraisals.labourId, labours.id))
 		.where(and(...where))
-		.orderBy(desc(labours.id))
-		.all();
+		.orderBy(desc(labours.id));
 
 	const staleValues = new Set(
-		db
-			.selectDistinct({ labourId: labourAttributes.labourId })
-			.from(labourAttributes)
-			.innerJoin(attributes, eq(attributes.id, labourAttributes.attributeId))
-			.where(lt(labourAttributes.setAt, attributes.revisedAt))
-			.all()
-			.map((row) => row.labourId)
+		(
+			await db
+				.selectDistinct({ labourId: labourAttributes.labourId })
+				.from(labourAttributes)
+				.innerJoin(attributes, eq(attributes.id, labourAttributes.attributeId))
+				.where(lt(labourAttributes.setAt, attributes.revisedAt))
+		).map((row) => row.labourId)
 	);
 
 	const groups: Record<UnappraisedReason, number[]> = { unappraised: [], content: [], values: [] };
 	for (const { id, stamped } of candidates) {
 		if (stamped === null) groups.unappraised.push(id);
-		else if (stamped !== contentHash(db, id)) groups.content.push(id);
+		else if (stamped !== (await contentHash(db, id))) groups.content.push(id);
 		else if (staleValues.has(id)) groups.values.push(id);
 	}
 

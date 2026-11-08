@@ -18,6 +18,7 @@ import {
 import type { AuthUser } from '#lib/server/auth/users.ts';
 import { nudgeWebhook } from './registry.ts';
 import { checkTargetUrl } from './safe-fetch.ts';
+import { transact } from '#lib/server/db/tx.ts';
 
 export type WebhookEnv = {
 	key: Buffer | undefined;
@@ -90,8 +91,8 @@ function canSee(actor: AuthUser, ownerId: number): boolean {
 	return actor.id === ownerId || actor.isAdmin;
 }
 
-function requireWebhook(db: Handle, actor: AuthUser, id: number): WebhookRow {
-	const row = db.select().from(webhooks).where(eq(webhooks.id, id)).get();
+async function requireWebhook(db: Handle, actor: AuthUser, id: number): Promise<WebhookRow> {
+	const row = (await db.select().from(webhooks).where(eq(webhooks.id, id)).limit(1))[0];
 	if (!row || !canSee(actor, row.ownerId)) throw new DomainError('not_found', 'Webhook not found');
 	return row;
 }
@@ -115,12 +116,12 @@ function encodeEventTypes(types: string[] | null): string | null {
 
 // A Realm the owner cannot see answers like one that does not exist. Ids already stored pass
 // unchecked: a deleted Realm's id stays in the list.
-function encodeRealmIds(
+async function encodeRealmIds(
 	db: Handle,
 	ownerId: number,
 	ids: number[] | null,
 	stored: number[] = []
-): string | null {
+): Promise<string | null> {
 	if (ids === null) return null;
 	if (ids.length === 0) throw new DomainError('invalid', 'realmIds must not be empty');
 	const unique = [...new Set(ids)];
@@ -128,8 +129,8 @@ function encodeRealmIds(
 		throw new DomainError('invalid', 'realmIds must be integers');
 	}
 	const added = unique.filter((id) => !stored.includes(id));
-	const found = db.select({ id: realms.id }).from(realms).where(inArray(realms.id, added)).all();
-	const visible = visibleRealmIds(db, { id: ownerId });
+	const found = await db.select({ id: realms.id }).from(realms).where(inArray(realms.id, added));
+	const visible = await visibleRealmIds(db, { id: ownerId });
 	const missing = added.filter(
 		(id) => !found.some((row) => row.id === id) || (visible !== null && !visible.includes(id))
 	);
@@ -139,79 +140,86 @@ function encodeRealmIds(
 	return JSON.stringify(unique);
 }
 
-function countWebhooks(db: Handle, ownerId?: number): number {
-	return db
-		.select({ n: count() })
-		.from(webhooks)
-		.where(ownerId === undefined ? undefined : eq(webhooks.ownerId, ownerId))
-		.get()!.n;
+async function countWebhooks(db: Handle, ownerId?: number): Promise<number> {
+	return (
+		await db
+			.select({ n: count() })
+			.from(webhooks)
+			.where(ownerId === undefined ? undefined : eq(webhooks.ownerId, ownerId))
+			.limit(1)
+	)[0]!.n;
 }
 
-export function createWebhook(
+export async function createWebhook(
 	db: Db,
 	actor: AuthUser,
 	input: WebhookInput,
 	env: WebhookEnv
-): { webhook: WebhookInfo; secret: string } {
+): Promise<{ webhook: WebhookInfo; secret: string }> {
 	const key = requireKey(env);
-	return db.transaction((tx) => {
+	return transact(db, async (tx) => {
 		const name = requireText(input.name, 'Webhook name', 100);
 		const url = checkUrl(input.url, env);
 		const eventTypes = encodeEventTypes(input.eventTypes ?? null);
-		const realmIds = encodeRealmIds(tx, actor.id, input.realmIds ?? null);
-		const total = countWebhooks(tx);
+		const realmIds = await encodeRealmIds(tx, actor.id, input.realmIds ?? null);
+		const total = await countWebhooks(tx);
 		if (total >= env.max) {
 			throw new DomainError('conflict', `the instance allows ${env.max} Webhooks`);
 		}
-		if (countWebhooks(tx, actor.id) >= env.maxPerUser) {
+		if ((await countWebhooks(tx, actor.id)) >= env.maxPerUser) {
 			throw new DomainError('conflict', `a User may own ${env.maxPerUser} Webhooks`);
 		}
 		const secret = generateWebhookSecret();
 		const at = new Date(env.now);
-		const row = tx
-			.insert(webhooks)
-			.values({
-				ownerId: actor.id,
-				name,
-				url,
-				eventTypes,
-				realmIds,
-				cursor: eventWindow(tx).last,
-				secret: seal(secret, key),
-				createdAt: at,
-				updatedAt: at
-			})
-			.returning()
-			.get();
+		const row = (
+			await tx
+				.insert(webhooks)
+				.values({
+					ownerId: actor.id,
+					name,
+					url,
+					eventTypes,
+					realmIds,
+					cursor: (await eventWindow(tx)).last,
+					secret: seal(secret, key),
+					createdAt: at,
+					updatedAt: at
+				})
+				.returning()
+		)[0];
 		return { webhook: toInfo(row), secret };
 	});
 }
 
-export function listWebhooks(
+export async function listWebhooks(
 	db: Handle,
 	actor: AuthUser,
 	userId: number,
 	env: WebhookEnv
-): WebhookInfo[] {
+): Promise<WebhookInfo[]> {
 	requireKey(env);
-	if (!canSee(actor, userId) || !db.select().from(users).where(eq(users.id, userId)).get()) {
+	if (
+		!canSee(actor, userId) ||
+		!(await db.select().from(users).where(eq(users.id, userId)).limit(1))[0]
+	) {
 		throw new DomainError('not_found', 'User not found');
 	}
-	return db
-		.select()
-		.from(webhooks)
-		.where(eq(webhooks.ownerId, userId))
-		.orderBy(webhooks.id)
-		.all()
-		.map(toInfo);
+	return (
+		await db.select().from(webhooks).where(eq(webhooks.ownerId, userId)).orderBy(webhooks.id)
+	).map(toInfo);
 }
 
-export function getWebhook(db: Handle, actor: AuthUser, id: number, env: WebhookEnv): WebhookInfo {
+export async function getWebhook(
+	db: Handle,
+	actor: AuthUser,
+	id: number,
+	env: WebhookEnv
+): Promise<WebhookInfo> {
 	requireKey(env);
-	return toInfo(requireWebhook(db, actor, id));
+	return toInfo(await requireWebhook(db, actor, id));
 }
 
-export function updateWebhook(
+export async function updateWebhook(
 	db: Db,
 	actor: AuthUser,
 	id: number,
@@ -223,11 +231,11 @@ export function updateWebhook(
 		status?: 'active' | 'paused';
 	},
 	env: WebhookEnv
-): WebhookInfo {
+): Promise<WebhookInfo> {
 	const key = requireKey(env);
 	let resumed = false;
-	const info = db.transaction((tx) => {
-		const row = requireWebhook(tx, actor, id);
+	const info = await transact(db, async (tx) => {
+		const row = await requireWebhook(tx, actor, id);
 		const set: Partial<typeof webhooks.$inferInsert> = { updatedAt: new Date(env.now) };
 		if (patch.name !== undefined) set.name = requireText(patch.name, 'Webhook name', 100);
 		if (patch.url !== undefined) {
@@ -236,7 +244,7 @@ export function updateWebhook(
 		}
 		if (patch.eventTypes !== undefined) set.eventTypes = encodeEventTypes(patch.eventTypes);
 		if (patch.realmIds !== undefined)
-			set.realmIds = encodeRealmIds(
+			set.realmIds = await encodeRealmIds(
 				tx,
 				row.ownerId,
 				patch.realmIds,
@@ -259,69 +267,74 @@ export function updateWebhook(
 			set.nextAttemptAt = new Date(env.now);
 			resumed = true;
 		}
-		return toInfo(tx.update(webhooks).set(set).where(eq(webhooks.id, id)).returning().get());
+		return toInfo((await tx.update(webhooks).set(set).where(eq(webhooks.id, id)).returning())[0]);
 	});
-	if (resumed) nudgeWebhook(id);
+	if (resumed) await nudgeWebhook(id);
 	return info;
 }
 
-export function rotateWebhookSecret(
+export async function rotateWebhookSecret(
 	db: Db,
 	actor: AuthUser,
 	id: number,
 	env: WebhookEnv
-): { secret: string } {
+): Promise<{ secret: string }> {
 	const key = requireKey(env);
-	return db.transaction((tx) => {
-		const row = requireWebhook(tx, actor, id);
+	return transact(db, async (tx) => {
+		const row = await requireWebhook(tx, actor, id);
 		const secret = generateWebhookSecret();
 		const keep = sealedUnder(row.secret, key);
-		tx.update(webhooks)
+		await tx
+			.update(webhooks)
 			.set({
 				secret: seal(secret, key),
 				previousSecret: keep ? row.secret : null,
 				previousSecretExpiresAt: keep ? new Date(env.now + ROTATION_OVERLAP_MS) : null,
 				updatedAt: new Date(env.now)
 			})
-			.where(eq(webhooks.id, id))
-			.run();
+			.where(eq(webhooks.id, id));
 		return { secret };
 	});
 }
 
-export function deleteWebhook(db: Db, actor: AuthUser, id: number, env: WebhookEnv): void {
+export async function deleteWebhook(
+	db: Db,
+	actor: AuthUser,
+	id: number,
+	env: WebhookEnv
+): Promise<void> {
 	requireKey(env);
-	db.transaction((tx) => {
-		requireWebhook(tx, actor, id);
-		tx.delete(webhooks).where(eq(webhooks.id, id)).run();
+	await transact(db, async (tx) => {
+		await requireWebhook(tx, actor, id);
+		await tx.delete(webhooks).where(eq(webhooks.id, id));
 	});
 }
 
-export function pauseKeyChanged(db: Db, env: WebhookEnv): number {
+export async function pauseKeyChanged(db: Db, env: WebhookEnv): Promise<number> {
 	const key = env.key;
 	if (!key) return 0;
-	return db.transaction((tx) => {
-		const candidates = tx
-			.select()
-			.from(webhooks)
-			.where(
-				or(
-					eq(webhooks.status, 'active'),
-					and(eq(webhooks.status, 'paused'), isNull(webhooks.statusReason))
+	return transact(db, async (tx) => {
+		const candidates = (
+			await tx
+				.select()
+				.from(webhooks)
+				.where(
+					or(
+						eq(webhooks.status, 'active'),
+						and(eq(webhooks.status, 'paused'), isNull(webhooks.statusReason))
+					)
 				)
-			)
-			.all()
-			.filter((row) => !sealedUnder(row.secret, key));
+		).filter((row) => !sealedUnder(row.secret, key));
 		if (candidates.length === 0) return 0;
-		tx.update(webhooks)
+		await tx
+			.update(webhooks)
 			.set({ status: 'paused', statusReason: 'key_changed', updatedAt: new Date(env.now) })
 			.where(
 				inArray(
 					webhooks.id,
 					candidates.map((row) => row.id)
 				)
-			)
-			.run();
+			);
 		return candidates.length;
 	});
 }

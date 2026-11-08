@@ -6,10 +6,10 @@ import { perform, signedIn, text } from '#lib/server/ui/form.ts';
 import { readHome, toJson } from '#lib/server/ui/reads.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ locals }) => {
+export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) redirect(303, '/login');
 	const viewer = locals.user;
-	const { seq, value } = readAtSeq(getDb(), (tx) => readHome(tx, viewer));
+	const { seq, value } = await readAtSeq(getDb(), (tx) => readHome(tx, viewer));
 	return { seq, home: toJson(value) };
 };
 
@@ -17,8 +17,8 @@ export const actions: Actions = {
 	createRealm: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const result = perform('createRealm', () => {
-			const realm = createRealmWithStates(getDb(), actor, {
+		const result = await perform('createRealm', async () => {
+			const realm = await createRealmWithStates(getDb(), actor, {
 				name: text(form, 'name'),
 				key: text(form, 'key'),
 				initialState: { key: 'todo', label: 'To do', color: '#94a3b8', icon: 'circle' },

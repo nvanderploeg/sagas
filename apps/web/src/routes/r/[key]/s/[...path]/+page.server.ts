@@ -9,15 +9,15 @@ import { readMissingScroll, readScrollPage } from '#lib/server/ui/scroll-reads.t
 import { normalizePath } from '#lib/ui/scroll-path.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ params, locals, url }) => {
+export const load: PageServerLoad = async ({ params, locals, url }) => {
 	const viewer = signedIn(locals);
 	const db = getDb();
-	const realm = findRealmByKey(db, params.key, viewer);
+	const realm = await findRealmByKey(db, params.key, viewer);
 	if (!realm) error(404, 'No Realm has that key');
 	const path = normalizePath(params.path);
 	if (path === null) redirect(307, `/r/${realm.key}/s`);
 
-	const found = resolveScrollPath(db, realm.id, path);
+	const found = await resolveScrollPath(db, realm.id, path);
 	const canonical = found?.scroll.path ?? path;
 	if (realm.key !== params.key || canonical !== params.path) {
 		redirect(found && !found.current ? 308 : 307, `/r/${realm.key}/s/${canonical}${url.search}`);
@@ -26,10 +26,10 @@ export const load: PageServerLoad = ({ params, locals, url }) => {
 		return {
 			seq: null,
 			page: null,
-			missing: toJson(readMissingScroll(db, viewer, realm.id, path))
+			missing: toJson(await readMissingScroll(db, viewer, realm.id, path))
 		};
 	}
-	const { seq, value } = readAtSeq(db, (tx) => readScrollPage(tx, viewer, found.scroll.id));
+	const { seq, value } = await readAtSeq(db, (tx) => readScrollPage(tx, viewer, found.scroll.id));
 	return { seq, page: toJson(value), missing: null };
 };
 

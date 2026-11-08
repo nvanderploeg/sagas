@@ -8,9 +8,9 @@ import { authenticate, hasUsers } from '#lib/server/auth/users.ts';
 import { returnPath } from '#lib/ui/return-path.ts';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ locals, url }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
 	const db = getDb();
-	if (!hasUsers(db)) redirect(303, '/setup');
+	if (!(await hasUsers(db))) redirect(303, '/setup');
 	if (locals.user) redirect(303, returnPath(url.searchParams.get('next')));
 	return {};
 };
@@ -31,7 +31,7 @@ export const actions: Actions = {
 		}
 		clearFailures(attempts.slice(1));
 
-		const session = createSession(db, user.id);
+		const session = await createSession(db, user.id);
 		setSessionCookie(cookies, url, session.token, session.expiresAt);
 		redirect(303, returnPath(url.searchParams.get('next')));
 	}

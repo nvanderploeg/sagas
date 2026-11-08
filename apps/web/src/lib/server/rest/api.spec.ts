@@ -30,7 +30,7 @@ async function call(path: string, opts: Opts = {}) {
 	const headers: Record<string, string> = {};
 	if (opts.token) headers.authorization = `Bearer ${opts.token}`;
 	const request = new Request(url, { method: opts.method ?? 'GET', headers });
-	const auth = authFromRequest(db, request, opts.session);
+	const auth = await authFromRequest(db, request, opts.session);
 	const response = await handleRest(db, auth, {
 		method: request.method,
 		origin: ORIGIN,
@@ -47,34 +47,38 @@ async function call(path: string, opts: Opts = {}) {
 	return { status: response.status, json: (await response.json()) as any };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
 	setAccessEnforced(true);
-	db = testDb();
-	ada = seedHuman(db, 'ada');
-	bob = seedHuman(db, 'bob');
-	eve = seedHuman(db, 'eve');
-	adaToken = insertApiToken(db, ada.id, 'ada');
-	bobToken = insertApiToken(db, bob.id, 'bob');
-	eveToken = insertApiToken(db, eve.id, 'eve');
-	const realm = createRealm(db, ada, {
+	db = await testDb();
+	ada = await seedHuman(db, 'ada');
+	bob = await seedHuman(db, 'bob');
+	eve = await seedHuman(db, 'eve');
+	adaToken = await insertApiToken(db, ada.id, 'ada');
+	bobToken = await insertApiToken(db, bob.id, 'bob');
+	eveToken = await insertApiToken(db, eve.id, 'eve');
+	const realm = await createRealm(db, ada, {
 		name: 'Atlas',
 		key: 'am',
 		initialState: { key: 'todo', label: 'To do', color: '#94a3b8', icon: 'circle' }
 	});
-	createState(db, ada, realm.id, {
+	await createState(db, ada, realm.id, {
 		key: 'doing',
 		label: 'Doing',
 		color: '#3b82f6',
 		icon: 'circle'
 	});
-	createLabour(db, ada, { realmId: realm.id, title: 'First', ownerId: ada.id, assigneeId: null });
-	offerMembership(db, ada, realm.id, bob.id, 'viewer');
-	acceptOffer(db, bob, realm.id);
+	await createLabour(db, ada, {
+		realmId: realm.id,
+		title: 'First',
+		ownerId: ada.id,
+		assigneeId: null
+	});
+	await offerMembership(db, ada, realm.id, bob.id, 'viewer');
+	await acceptOffer(db, bob, realm.id);
 });
 
 afterEach(() => {
 	setAccessEnforced(false);
-	db.$client.close();
 });
 
 describe('authentication', () => {
@@ -84,7 +88,7 @@ describe('authentication', () => {
 	});
 
 	it('refuses a revoked token', async () => {
-		revokeApiToken(db, ada, adaToken.id);
+		await revokeApiToken(db, ada, adaToken.id);
 		expect((await call('/realms', { token: adaToken.token })).status).toBe(401);
 	});
 
@@ -147,7 +151,7 @@ describe('labours', () => {
 
 	it('pages with a cursor', async () => {
 		const realm = (await call('/realms/am', { token: adaToken.token })).json.realm;
-		createLabour(db, ada, {
+		await createLabour(db, ada, {
 			realmId: realm.id,
 			title: 'Second',
 			ownerId: ada.id,
@@ -192,7 +196,7 @@ describe('labours', () => {
 		const before = (await call('/labours/AM-1', { token: adaToken.token })).json.labour;
 		const realm = (await call('/realms/AM', { token: adaToken.token })).json.realm;
 		const { renameRealmKey } = await import('#lib/server/domain/realms.ts');
-		renameRealmKey(db, ada, realm.id, 'atl');
+		await renameRealmKey(db, ada, realm.id, 'atl');
 
 		const after = await call('/labours/AM-1', { token: adaToken.token });
 
@@ -206,8 +210,8 @@ describe('labours', () => {
 describe('PATCH', () => {
 	it('lets an editor change fields and move State, visible on GET', async () => {
 		const realm = (await call('/realms/am', { token: adaToken.token })).json.realm;
-		offerMembership(db, ada, realm.id, eve.id, 'editor');
-		acceptOffer(db, eve, realm.id);
+		await offerMembership(db, ada, realm.id, eve.id, 'editor');
+		await acceptOffer(db, eve, realm.id);
 
 		const patched = await call('/labours/am-1', {
 			method: 'PATCH',

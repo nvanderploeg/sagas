@@ -35,6 +35,7 @@ import {
 import { hashSecret } from './secrets.ts';
 import { createApiToken, listApiTokens, revokeApiToken, verifyApiToken } from './tokens.ts';
 import type { AuthUser } from './users.ts';
+import { inTransaction } from '#lib/server/db/tx.ts';
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -48,22 +49,21 @@ let grace: AuthUser;
 let heard: Credential[];
 let stopListening: () => void;
 
-beforeEach(() => {
-	db = testDb();
-	grace = seedHuman(db, 'grace');
+beforeEach(async () => {
+	db = await testDb();
+	grace = await seedHuman(db, 'grace');
 	heard = [];
 	stopListening = onRevoked((credential) => heard.push(credential));
 });
 
 afterEach(() => {
 	stopListening();
-	db.$client.close();
 });
 
-function expectOAuth(action: () => unknown, code: OAuthErrorCode) {
+async function expectOAuth(action: () => unknown, code: OAuthErrorCode) {
 	let thrown: unknown;
 	try {
-		action();
+		await action();
 	} catch (error) {
 		thrown = error;
 	}
@@ -91,14 +91,14 @@ type Connection = {
 	grantId: number;
 };
 
-function connect(
-	options: { user?: AuthUser; client?: ReturnType<typeof newClient>; now?: Date } = {}
-): Connection {
+async function connect(
+	options: { user?: AuthUser; client?: Awaited<ReturnType<typeof newClient>>; now?: Date } = {}
+): Promise<Connection> {
 	const user = options.user ?? grace;
-	const registered = options.client ?? newClient();
+	const registered = options.client ?? (await newClient());
 	const now = options.now ?? T0;
 	const { verifier, challenge } = pkce();
-	const code = issueCode(
+	const code = await issueCode(
 		db,
 		{
 			clientId: registered.client.clientId,
@@ -109,20 +109,22 @@ function connect(
 		},
 		now
 	);
-	const tokens = exchangeCode(
+	const tokens = await exchangeCode(
 		db,
 		{ client: registered.client, code, redirectUri: URI_A, codeVerifier: verifier },
 		now
 	);
-	return { ...registered, tokens, grantId: grantIdOf(tokens.accessToken) };
+	return { ...registered, tokens, grantId: await grantIdOf(tokens.accessToken) };
 }
 
-function grantIdOf(accessToken: string): number {
-	const row = db
-		.select({ grantId: apiTokens.grantId })
-		.from(apiTokens)
-		.where(eq(apiTokens.tokenHash, hashSecret(accessToken)))
-		.get();
+async function grantIdOf(accessToken: string): Promise<number> {
+	const row = (
+		await db
+			.select({ grantId: apiTokens.grantId })
+			.from(apiTokens)
+			.where(eq(apiTokens.tokenHash, hashSecret(accessToken)))
+			.limit(1)
+	)[0];
 	return row!.grantId!;
 }
 
@@ -164,8 +166,8 @@ describe('OAuthError', () => {
 });
 
 describe('registerClient', () => {
-	it('registers a public client by default, with no secret', () => {
-		const { client, clientSecret } = registerClient(db, { redirectUris: [URI_A] }, T0);
+	it('registers a public client by default, with no secret', async () => {
+		const { client, clientSecret } = await registerClient(db, { redirectUris: [URI_A] }, T0);
 
 		expect(clientSecret).toBeNull();
 		expect(client.clientId).toMatch(/^wlc_/);
@@ -175,34 +177,38 @@ describe('registerClient', () => {
 		expect(client.createdAt).toEqual(T0);
 	});
 
-	it('gives every client its own id', () => {
-		expect(newClient().client.clientId).not.toBe(newClient().client.clientId);
+	it('gives every client its own id', async () => {
+		expect((await newClient()).client.clientId).not.toBe((await newClient()).client.clientId);
 	});
 
 	it.each(['client_secret_post', 'client_secret_basic'] as const)(
 		'returns a one-time secret for a %s client and stores only its hash',
-		(authMethod) => {
-			const { client, clientSecret } = newClient(authMethod);
+		async (authMethod) => {
+			const { client, clientSecret } = await newClient(authMethod);
 
 			expect(client.authMethod).toBe(authMethod);
 			expect(clientSecret).toMatch(/^wlk_/);
-			const row = db.select().from(oauthClients).where(eq(oauthClients.id, client.clientId)).get()!;
+			const row = (
+				await db.select().from(oauthClients).where(eq(oauthClients.id, client.clientId)).limit(1)
+			)[0]!;
 			expect(row.secretHash).toBe(hashSecret(clientSecret!));
 			expect(JSON.stringify(row)).not.toContain(clientSecret!);
 			expect(JSON.stringify(client)).not.toContain(clientSecret!);
-			expect(JSON.stringify(getClient(db, client.clientId))).not.toContain(clientSecret!);
+			expect(JSON.stringify(await getClient(db, client.clientId))).not.toContain(clientSecret!);
 		}
 	);
 
-	it('stores no secret hash for a public client', () => {
-		const { client } = newClient('none');
+	it('stores no secret hash for a public client', async () => {
+		const { client } = await newClient('none');
 
-		const row = db.select().from(oauthClients).where(eq(oauthClients.id, client.clientId)).get()!;
+		const row = (
+			await db.select().from(oauthClients).where(eq(oauthClients.id, client.clientId)).limit(1)
+		)[0]!;
 		expect(row.secretHash).toBeNull();
 	});
 
-	it('accepts every allowed redirect URI together', () => {
-		const { client } = newClient('none', 'Claude', [URI_A, URI_B]);
+	it('accepts every allowed redirect URI together', async () => {
+		const { client } = await newClient('none', 'Claude', [URI_A, URI_B]);
 
 		expect(client.redirectUris).toEqual([URI_A, URI_B]);
 	});
@@ -215,8 +221,8 @@ describe('registerClient', () => {
 		['an empty array', []],
 		['an array holding a non-string', [URI_A, 7]],
 		['an array holding null', [null]]
-	])('rejects redirectUris that is %s', (_label, redirectUris) => {
-		expectOAuth(() => registerClient(db, { redirectUris }, T0), 'invalid_redirect_uri');
+	])('rejects redirectUris that is %s', async (_label, redirectUris) => {
+		await expectOAuth(() => registerClient(db, { redirectUris }, T0), 'invalid_redirect_uri');
 	});
 
 	it.each([
@@ -227,40 +233,43 @@ describe('registerClient', () => {
 		['another path on an allowed host', 'https://claude.ai/other'],
 		['a different case', URI_A.toUpperCase()],
 		['a localhost callback', 'http://localhost:3000/callback']
-	])('rejects a redirect URI with %s', (_label, uri) => {
-		expectOAuth(() => registerClient(db, { redirectUris: [uri] }, T0), 'invalid_redirect_uri');
+	])('rejects a redirect URI with %s', async (_label, uri) => {
+		await expectOAuth(
+			() => registerClient(db, { redirectUris: [uri] }, T0),
+			'invalid_redirect_uri'
+		);
 	});
 
-	it('rejects the whole registration when one of several URIs is not allowed', () => {
-		expectOAuth(
+	it('rejects the whole registration when one of several URIs is not allowed', async () => {
+		await expectOAuth(
 			() => registerClient(db, { redirectUris: [URI_A, 'https://evil.example/cb'] }, T0),
 			'invalid_redirect_uri'
 		);
-		expect(db.select().from(oauthClients).all()).toHaveLength(0);
+		expect(await db.select().from(oauthClients)).toHaveLength(0);
 	});
 
-	it('trims the name', () => {
-		expect(newClient('none', '  Claude  ').client.name).toBe('Claude');
+	it('trims the name', async () => {
+		expect((await newClient('none', '  Claude  ')).client.name).toBe('Claude');
 	});
 
 	it.each([
 		['absent', undefined],
 		['empty', ''],
 		['blank', '   ']
-	])('defaults a %s name to "OAuth client"', (_label, name) => {
-		const { client } = registerClient(db, { name, redirectUris: [URI_A] }, T0);
+	])('defaults a %s name to "OAuth client"', async (_label, name) => {
+		const { client } = await registerClient(db, { name, redirectUris: [URI_A] }, T0);
 
 		expect(client.name).toBe('OAuth client');
 	});
 
-	it('accepts a name of exactly 100 characters', () => {
+	it('accepts a name of exactly 100 characters', async () => {
 		const name = 'n'.repeat(100);
 
-		expect(newClient('none', name).client.name).toBe(name);
+		expect((await newClient('none', name)).client.name).toBe(name);
 	});
 
-	it('rejects a name over 100 characters', () => {
-		expectOAuth(() => newClient('none', 'n'.repeat(101)), 'invalid_client_metadata');
+	it('rejects a name over 100 characters', async () => {
+		await expectOAuth(() => newClient('none', 'n'.repeat(101)), 'invalid_client_metadata');
 	});
 
 	it.each([
@@ -268,8 +277,8 @@ describe('registerClient', () => {
 		['an object', {}],
 		['an array', ['Claude']],
 		['a boolean', true]
-	])('rejects a name that is %s', (_label, name) => {
-		expectOAuth(
+	])('rejects a name that is %s', async (_label, name) => {
+		await expectOAuth(
 			() => registerClient(db, { name, redirectUris: [URI_A] }, T0),
 			'invalid_client_metadata'
 		);
@@ -277,29 +286,32 @@ describe('registerClient', () => {
 
 	it.each(['private_key_jwt', 'CLIENT_SECRET_POST', '', 'basic'])(
 		'rejects the unknown auth method %j',
-		(authMethod) => {
-			expectOAuth(
+		async (authMethod) => {
+			await expectOAuth(
 				() => registerClient(db, { redirectUris: [URI_A], authMethod }, T0),
 				'invalid_client_metadata'
 			);
 		}
 	);
 
-	it('persists nothing when registration fails', () => {
-		expectOAuth(
+	it('persists nothing when registration fails', async () => {
+		await expectOAuth(
 			() => registerClient(db, { redirectUris: [URI_A], authMethod: 'nope' }, T0),
 			'invalid_client_metadata'
 		);
 
-		expect(db.select().from(oauthClients).all()).toHaveLength(0);
+		expect(await db.select().from(oauthClients)).toHaveLength(0);
 	});
 });
 
 describe('getClient', () => {
-	it('returns the registered client without its secret', () => {
-		const { client, clientSecret } = newClient('client_secret_post', 'Claude', [URI_A, URI_B]);
+	it('returns the registered client without its secret', async () => {
+		const { client, clientSecret } = await newClient('client_secret_post', 'Claude', [
+			URI_A,
+			URI_B
+		]);
 
-		const found = getClient(db, client.clientId)!;
+		const found = (await getClient(db, client.clientId))!;
 
 		expect(found.clientId).toBe(client.clientId);
 		expect(found.name).toBe('Claude');
@@ -309,34 +321,36 @@ describe('getClient', () => {
 		expect(JSON.stringify(found)).not.toContain(clientSecret!);
 	});
 
-	it('returns null for an unknown client', () => {
-		expect(getClient(db, 'wlc_nope')).toBeNull();
+	it('returns null for an unknown client', async () => {
+		expect(await getClient(db, 'wlc_nope')).toBeNull();
 	});
 });
 
 describe('authenticateClient', () => {
-	it('rejects an unknown client', () => {
-		expectOAuth(() => authenticateClient(db, 'wlc_nope', null), 'invalid_client');
+	it('rejects an unknown client', async () => {
+		await expectOAuth(() => authenticateClient(db, 'wlc_nope', null), 'invalid_client');
 	});
 
-	it('lets a public client in without a secret', () => {
-		const { client } = newClient('none');
+	it('lets a public client in without a secret', async () => {
+		const { client } = await newClient('none');
 
-		expect(authenticateClient(db, client.clientId, null).clientId).toBe(client.clientId);
+		expect((await authenticateClient(db, client.clientId, null)).clientId).toBe(client.clientId);
 	});
 
-	it('ignores a secret presented by a public client', () => {
-		const { client } = newClient('none');
+	it('ignores a secret presented by a public client', async () => {
+		const { client } = await newClient('none');
 
-		expect(authenticateClient(db, client.clientId, 'wlk_whatever').clientId).toBe(client.clientId);
+		expect((await authenticateClient(db, client.clientId, 'wlk_whatever')).clientId).toBe(
+			client.clientId
+		);
 	});
 
 	it.each(['client_secret_post', 'client_secret_basic'] as const)(
 		'lets a %s client in with its secret',
-		(authMethod) => {
-			const { client, clientSecret } = newClient(authMethod);
+		async (authMethod) => {
+			const { client, clientSecret } = await newClient(authMethod);
 
-			const authenticated = authenticateClient(db, client.clientId, clientSecret);
+			const authenticated = await authenticateClient(db, client.clientId, clientSecret);
 
 			expect(authenticated.clientId).toBe(client.clientId);
 			expect(authenticated.authMethod).toBe(authMethod);
@@ -346,28 +360,28 @@ describe('authenticateClient', () => {
 
 	it.each(['client_secret_post', 'client_secret_basic'] as const)(
 		'rejects a %s client with no secret',
-		(authMethod) => {
-			const { client } = newClient(authMethod);
+		async (authMethod) => {
+			const { client } = await newClient(authMethod);
 
-			expectOAuth(() => authenticateClient(db, client.clientId, null), 'invalid_client');
+			await expectOAuth(() => authenticateClient(db, client.clientId, null), 'invalid_client');
 		}
 	);
 
-	it('rejects a confidential client with a wrong secret', () => {
-		const { client, clientSecret } = newClient('client_secret_post');
+	it('rejects a confidential client with a wrong secret', async () => {
+		const { client, clientSecret } = await newClient('client_secret_post');
 
-		expectOAuth(
+		await expectOAuth(
 			() => authenticateClient(db, client.clientId, clientSecret + 'x'),
 			'invalid_client'
 		);
-		expectOAuth(() => authenticateClient(db, client.clientId, ''), 'invalid_client');
+		await expectOAuth(() => authenticateClient(db, client.clientId, ''), 'invalid_client');
 	});
 
-	it('rejects the secret of a different confidential client', () => {
-		const first = newClient('client_secret_post');
-		const second = newClient('client_secret_post');
+	it('rejects the secret of a different confidential client', async () => {
+		const first = await newClient('client_secret_post');
+		const second = await newClient('client_secret_post');
 
-		expectOAuth(
+		await expectOAuth(
 			() => authenticateClient(db, first.client.clientId, second.clientSecret),
 			'invalid_client'
 		);
@@ -375,62 +389,65 @@ describe('authenticateClient', () => {
 });
 
 describe('issueCode', () => {
-	it('returns a wla_ code and stores only its hash', () => {
-		const { client } = newClient();
+	it('returns a wla_ code and stores only its hash', async () => {
+		const { client } = await newClient();
 		const { challenge } = pkce();
 
-		const issued = code(client, challenge);
+		const issued = await code(client, challenge);
 
 		expect(issued).toMatch(/^wla_/);
-		const rows = db.select().from(oauthCodes).all();
+		const rows = await db.select().from(oauthCodes);
 		expect(rows).toHaveLength(1);
 		expect(rows[0].codeHash).toBe(hashSecret(issued));
 		expect(JSON.stringify(rows[0])).not.toContain(issued);
 	});
 
-	it('issues a different code every time', () => {
-		const { client } = newClient();
+	it('issues a different code every time', async () => {
+		const { client } = await newClient();
 		const { challenge } = pkce();
 
-		expect(code(client, challenge)).not.toBe(code(client, challenge));
+		expect(await code(client, challenge)).not.toBe(await code(client, challenge));
 	});
 
-	it('accepts the second registered redirect URI', () => {
-		const { client } = newClient('none', 'Claude', [URI_A, URI_B]);
+	it('accepts the second registered redirect URI', async () => {
+		const { client } = await newClient('none', 'Claude', [URI_A, URI_B]);
 
-		expect(code(client, pkce().challenge, T0, URI_B)).toMatch(/^wla_/);
+		expect(await code(client, pkce().challenge, T0, URI_B)).toMatch(/^wla_/);
 	});
 
-	it('accepts base64url characters - and _ in the challenge', () => {
-		const { client } = newClient();
+	it('accepts base64url characters - and _ in the challenge', async () => {
+		const { client } = await newClient();
 		const challenge = `-_${'A'.repeat(41)}`;
 
-		expect(code(client, challenge)).toMatch(/^wla_/);
+		expect(await code(client, challenge)).toMatch(/^wla_/);
 	});
 
-	it('rejects an unknown client', () => {
-		expectOAuth(
+	it('rejects an unknown client', async () => {
+		await expectOAuth(
 			() => code({ clientId: 'wlc_nope' } as OAuthClient, pkce().challenge),
 			'invalid_client'
 		);
 	});
 
-	it('rejects a redirect URI the client did not register, even an otherwise allowed one', () => {
-		const { client } = newClient('none', 'Claude', [URI_A]);
+	it('rejects a redirect URI the client did not register, even an otherwise allowed one', async () => {
+		const { client } = await newClient('none', 'Claude', [URI_A]);
 
-		expectOAuth(() => code(client, pkce().challenge, T0, URI_B), 'invalid_redirect_uri');
-		expectOAuth(
+		await expectOAuth(() => code(client, pkce().challenge, T0, URI_B), 'invalid_redirect_uri');
+		await expectOAuth(
 			() => code(client, pkce().challenge, T0, 'https://evil.example/cb'),
 			'invalid_redirect_uri'
 		);
-		expectOAuth(() => code(client, pkce().challenge, T0, `${URI_A}/`), 'invalid_redirect_uri');
-		expectOAuth(() => code(client, pkce().challenge, T0, ''), 'invalid_redirect_uri');
+		await expectOAuth(
+			() => code(client, pkce().challenge, T0, `${URI_A}/`),
+			'invalid_redirect_uri'
+		);
+		await expectOAuth(() => code(client, pkce().challenge, T0, ''), 'invalid_redirect_uri');
 	});
 
-	it('reports a bad redirect URI before a bad challenge, so the caller never redirects', () => {
-		const { client } = newClient();
+	it('reports a bad redirect URI before a bad challenge, so the caller never redirects', async () => {
+		const { client } = await newClient();
 
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				issueCode(
 					db,
@@ -447,10 +464,10 @@ describe('issueCode', () => {
 		);
 	});
 
-	it.each(['plain', 's256', '', 'S512'])('rejects the challenge method %j', (method) => {
-		const { client } = newClient();
+	it.each(['plain', 's256', '', 'S512'])('rejects the challenge method %j', async (method) => {
+		const { client } = await newClient();
 
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				issueCode(
 					db,
@@ -476,24 +493,24 @@ describe('issueCode', () => {
 		['standard base64 /', `/${'A'.repeat(42)}`],
 		['holding a space', ` ${'A'.repeat(42)}`],
 		['ending in a newline', `${'A'.repeat(43)}\n`]
-	])('rejects a challenge that is %s', (_label, challenge) => {
-		const { client } = newClient();
+	])('rejects a challenge that is %s', async (_label, challenge) => {
+		const { client } = await newClient();
 
-		expectOAuth(() => code(client, challenge), 'invalid_request');
+		await expectOAuth(() => code(client, challenge), 'invalid_request');
 	});
 
-	it('stores no code when validation fails', () => {
-		const { client } = newClient();
+	it('stores no code when validation fails', async () => {
+		const { client } = await newClient();
 
-		expectOAuth(() => code(client, 'short'), 'invalid_request');
+		await expectOAuth(() => code(client, 'short'), 'invalid_request');
 
-		expect(db.select().from(oauthCodes).all()).toHaveLength(0);
+		expect(await db.select().from(oauthCodes)).toHaveLength(0);
 	});
 });
 
 describe('exchangeCode', () => {
-	it('returns an access token, a refresh token, the TTL in seconds and the scope', () => {
-		const { tokens } = connect();
+	it('returns an access token, a refresh token, the TTL in seconds and the scope', async () => {
+		const { tokens } = await connect();
 
 		expect(tokens.accessToken).toMatch(/^wlt_/);
 		expect(tokens.refreshToken).toMatch(/^wlr_/);
@@ -501,16 +518,16 @@ describe('exchangeCode', () => {
 		expect(tokens.scope).toBe('sagas');
 	});
 
-	it('mints an access token that acts as the consenting User', () => {
-		const { tokens } = connect({ user: grace });
+	it('mints an access token that acts as the consenting User', async () => {
+		const { tokens } = await connect({ user: grace });
 
-		expect(verifyApiToken(db, tokens.accessToken, at(T0, 1000))?.id).toBe(grace.id);
+		expect((await verifyApiToken(db, tokens.accessToken, at(T0, 1000)))?.id).toBe(grace.id);
 	});
 
-	it('names the access token "<client> (OAuth)" and flags it as OAuth in the token list', () => {
-		connect({ client: newClient('none', 'Claude Desktop') });
+	it('names the access token "<client> (OAuth)" and flags it as OAuth in the token list', async () => {
+		await connect({ client: await newClient('none', 'Claude Desktop') });
 
-		const listed = listApiTokens(db, grace, grace.id);
+		const listed = await listApiTokens(db, grace, grace.id);
 
 		expect(listed).toHaveLength(1);
 		expect(listed[0].name).toBe('Claude Desktop (OAuth)');
@@ -519,75 +536,80 @@ describe('exchangeCode', () => {
 		expect(listed[0].expiresAt).toEqual(at(T0, ACCESS_TOKEN_TTL_MS));
 	});
 
-	it('stores the access token and refresh token only as hashes', () => {
-		const { tokens } = connect();
+	it('stores the access token and refresh token only as hashes', async () => {
+		const { tokens } = await connect();
 
-		const accessRow = db.select().from(apiTokens).all()[0];
+		const accessRow = (await db.select().from(apiTokens))[0];
 		expect(accessRow.tokenHash).toBe(hashSecret(tokens.accessToken));
 		expect(JSON.stringify(accessRow)).not.toContain(tokens.accessToken);
-		const refreshRows = db.select().from(oauthRefreshTokens).all();
+		const refreshRows = await db.select().from(oauthRefreshTokens);
 		expect(refreshRows).toHaveLength(1);
 		expect(refreshRows[0].tokenHash).toBe(hashSecret(tokens.refreshToken));
 		expect(JSON.stringify(refreshRows[0])).not.toContain(tokens.refreshToken);
 	});
 
-	it('gives the refresh token a 30 day life', () => {
-		connect();
+	it('gives the refresh token a 30 day life', async () => {
+		await connect();
 
-		const [row] = db.select().from(oauthRefreshTokens).all();
+		const [row] = await db.select().from(oauthRefreshTokens);
 
 		expect(row.expiresAt).toEqual(at(T0, REFRESH_TOKEN_TTL_MS));
 		expect(row.usedAt).toBeNull();
 	});
 
-	it('keeps an access token valid strictly before expires_at and refuses it from expires_at on', () => {
-		const { tokens } = connect();
+	it('keeps an access token valid strictly before expires_at and refuses it from expires_at on', async () => {
+		const { tokens } = await connect();
 		const expiry = at(T0, ACCESS_TOKEN_TTL_MS);
 		const credential = apiTokenCredential(tokens.accessToken);
 
-		expect(verifyApiToken(db, tokens.accessToken, at(expiry, -1))?.id).toBe(grace.id);
-		expect(credentialValid(db, credential, at(expiry, -1))).toBe(true);
-		expect(verifyApiToken(db, tokens.accessToken, expiry)).toBeNull();
-		expect(credentialValid(db, credential, expiry)).toBe(false);
-		expect(verifyApiToken(db, tokens.accessToken, at(expiry, 1))).toBeNull();
-		expect(credentialValid(db, credential, at(expiry, 1))).toBe(false);
+		expect((await verifyApiToken(db, tokens.accessToken, at(expiry, -1)))?.id).toBe(grace.id);
+		expect(await credentialValid(db, credential, at(expiry, -1))).toBe(true);
+		expect(await verifyApiToken(db, tokens.accessToken, expiry)).toBeNull();
+		expect(await credentialValid(db, credential, expiry)).toBe(false);
+		expect(await verifyApiToken(db, tokens.accessToken, at(expiry, 1))).toBeNull();
+		expect(await credentialValid(db, credential, at(expiry, 1))).toBe(false);
 	});
 
-	it('creates exactly one grant per exchange and keeps connections independent', () => {
-		const registered = newClient();
-		const one = connect({ client: registered });
-		const two = connect({ client: registered });
+	it('creates exactly one grant per exchange and keeps connections independent', async () => {
+		const registered = await newClient();
+		const one = await connect({ client: registered });
+		const two = await connect({ client: registered });
 
 		expect(one.grantId).not.toBe(two.grantId);
-		expect(db.select().from(oauthGrants).all()).toHaveLength(2);
+		expect(await db.select().from(oauthGrants)).toHaveLength(2);
 		expect(one.tokens.accessToken).not.toBe(two.tokens.accessToken);
 		expect(one.tokens.refreshToken).not.toBe(two.tokens.refreshToken);
 
-		revokeGrant(db, one.grantId, T0);
+		await revokeGrant(db, one.grantId, T0);
 
-		expect(verifyApiToken(db, one.tokens.accessToken, T0)).toBeNull();
-		expect(verifyApiToken(db, two.tokens.accessToken, T0)?.id).toBe(grace.id);
+		expect(await verifyApiToken(db, one.tokens.accessToken, T0)).toBeNull();
+		expect((await verifyApiToken(db, two.tokens.accessToken, T0))?.id).toBe(grace.id);
 		expect(
-			refreshGrant(db, { client: registered.client, refreshToken: two.tokens.refreshToken }, T0)
-				.accessToken
+			(
+				await refreshGrant(
+					db,
+					{ client: registered.client, refreshToken: two.tokens.refreshToken },
+					T0
+				)
+			).accessToken
 		).toMatch(/^wlt_/);
 	});
 
-	it('records the User who consented, not whoever calls', () => {
-		const ada = seedHuman(db, 'ada');
-		const { tokens } = connect({ user: ada });
+	it('records the User who consented, not whoever calls', async () => {
+		const ada = await seedHuman(db, 'ada');
+		const { tokens } = await connect({ user: ada });
 
-		expect(verifyApiToken(db, tokens.accessToken, T0)?.id).toBe(ada.id);
-		expect(listApiTokens(db, ada, ada.id)).toHaveLength(1);
-		expect(listApiTokens(db, grace, grace.id)).toHaveLength(0);
+		expect((await verifyApiToken(db, tokens.accessToken, T0))?.id).toBe(ada.id);
+		expect(await listApiTokens(db, ada, ada.id)).toHaveLength(1);
+		expect(await listApiTokens(db, grace, grace.id)).toHaveLength(0);
 	});
 
-	it('accepts a code right up to its 10 minute expiry', () => {
-		const registered = newClient();
+	it('accepts a code right up to its 10 minute expiry', async () => {
+		const registered = await newClient();
 		const { verifier, challenge } = pkce();
-		const issued = code(registered.client, challenge, T0);
+		const issued = await code(registered.client, challenge, T0);
 
-		const tokens = exchangeCode(
+		const tokens = await exchangeCode(
 			db,
 			{
 				client: registered.client,
@@ -601,12 +623,12 @@ describe('exchangeCode', () => {
 		expect(tokens.accessToken).toMatch(/^wlt_/);
 	});
 
-	it('rejects a code after its 10 minute expiry', () => {
-		const registered = newClient();
+	it('rejects a code after its 10 minute expiry', async () => {
+		const registered = await newClient();
 		const { verifier, challenge } = pkce();
-		const issued = code(registered.client, challenge, T0);
+		const issued = await code(registered.client, challenge, T0);
 
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				exchangeCode(
 					db,
@@ -620,13 +642,13 @@ describe('exchangeCode', () => {
 				),
 			'invalid_grant'
 		);
-		expect(db.select().from(apiTokens).all()).toHaveLength(0);
+		expect(await db.select().from(apiTokens)).toHaveLength(0);
 	});
 
-	it('rejects an unknown code', () => {
-		const registered = newClient();
+	it('rejects an unknown code', async () => {
+		const registered = await newClient();
 
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				exchangeCode(
 					db,
@@ -642,13 +664,13 @@ describe('exchangeCode', () => {
 		);
 	});
 
-	it('rejects a code issued to another client', () => {
-		const owner = newClient('none', 'Owner');
-		const thief = newClient('none', 'Thief');
+	it('rejects a code issued to another client', async () => {
+		const owner = await newClient('none', 'Owner');
+		const thief = await newClient('none', 'Thief');
 		const { verifier, challenge } = pkce();
-		const issued = code(owner.client, challenge);
+		const issued = await code(owner.client, challenge);
 
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				exchangeCode(
 					db,
@@ -657,15 +679,15 @@ describe('exchangeCode', () => {
 				),
 			'invalid_grant'
 		);
-		expect(db.select().from(apiTokens).all()).toHaveLength(0);
+		expect(await db.select().from(apiTokens)).toHaveLength(0);
 	});
 
-	it('rejects a redirect URI that differs from the one the code was issued for', () => {
-		const registered = newClient('none', 'Claude', [URI_A, URI_B]);
+	it('rejects a redirect URI that differs from the one the code was issued for', async () => {
+		const registered = await newClient('none', 'Claude', [URI_A, URI_B]);
 		const { verifier, challenge } = pkce();
-		const issued = code(registered.client, challenge, T0, URI_A);
+		const issued = await code(registered.client, challenge, T0, URI_A);
 
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				exchangeCode(
 					db,
@@ -679,15 +701,15 @@ describe('exchangeCode', () => {
 				),
 			'invalid_grant'
 		);
-		expect(db.select().from(apiTokens).all()).toHaveLength(0);
+		expect(await db.select().from(apiTokens)).toHaveLength(0);
 	});
 
-	it('rejects a verifier that does not hash to the challenge', () => {
-		const registered = newClient();
+	it('rejects a verifier that does not hash to the challenge', async () => {
+		const registered = await newClient();
 		const { challenge } = pkce();
-		const issued = code(registered.client, challenge);
+		const issued = await code(registered.client, challenge);
 
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				exchangeCode(
 					db,
@@ -701,16 +723,16 @@ describe('exchangeCode', () => {
 				),
 			'invalid_grant'
 		);
-		expect(db.select().from(apiTokens).all()).toHaveLength(0);
+		expect(await db.select().from(apiTokens)).toHaveLength(0);
 	});
 
-	it('hashes the verifier as base64url without padding, as S256 says', () => {
+	it('hashes the verifier as base64url without padding, as S256 says', async () => {
 		const verifier = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';
 		const challenge = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM';
-		const registered = newClient();
-		const issued = code(registered.client, challenge);
+		const registered = await newClient();
+		const issued = await code(registered.client, challenge);
 
-		const tokens = exchangeCode(
+		const tokens = await exchangeCode(
 			db,
 			{ client: registered.client, code: issued, redirectUri: URI_A, codeVerifier: verifier },
 			T0
@@ -726,11 +748,11 @@ describe('exchangeCode', () => {
 		['holding a space', `${'a'.repeat(42)} `],
 		['holding a plus', `${'a'.repeat(42)}+`],
 		['holding a slash', `${'a'.repeat(42)}/`]
-	])('rejects a verifier that is %s as an invalid request', (_label, verifier) => {
-		const registered = newClient();
-		const issued = code(registered.client, pkce().challenge);
+	])('rejects a verifier that is %s as an invalid request', async (_label, verifier) => {
+		const registered = await newClient();
+		const issued = await code(registered.client, pkce().challenge);
 
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				exchangeCode(
 					db,
@@ -739,18 +761,18 @@ describe('exchangeCode', () => {
 				),
 			'invalid_request'
 		);
-		expect(db.select().from(apiTokens).all()).toHaveLength(0);
+		expect(await db.select().from(apiTokens)).toHaveLength(0);
 	});
 
 	it.each([
 		['43 characters', 'a'.repeat(43)],
 		['128 characters', 'b'.repeat(128)],
 		['all of the unreserved punctuation', `a.~_-${'c'.repeat(60)}`]
-	])('accepts a verifier that is %s', (_label, verifier) => {
-		const registered = newClient();
-		const issued = code(registered.client, pkce(verifier).challenge);
+	])('accepts a verifier that is %s', async (_label, verifier) => {
+		const registered = await newClient();
+		const issued = await code(registered.client, pkce(verifier).challenge);
 
-		const tokens = exchangeCode(
+		const tokens = await exchangeCode(
 			db,
 			{ client: registered.client, code: issued, redirectUri: URI_A, codeVerifier: verifier },
 			T0
@@ -759,41 +781,43 @@ describe('exchangeCode', () => {
 		expect(tokens.accessToken).toMatch(/^wlt_/);
 	});
 
-	it('refuses a second exchange of the same code', () => {
-		const registered = newClient();
+	it('refuses a second exchange of the same code', async () => {
+		const registered = await newClient();
 		const { verifier, challenge } = pkce();
-		const issued = code(registered.client, challenge);
+		const issued = await code(registered.client, challenge);
 		const input = {
 			client: registered.client,
 			code: issued,
 			redirectUri: URI_A,
 			codeVerifier: verifier
 		};
-		exchangeCode(db, input, T0);
+		await exchangeCode(db, input, T0);
 
-		expectOAuth(() => exchangeCode(db, input, at(T0, 1000)), 'invalid_grant');
-		expect(db.select().from(apiTokens).all()).toHaveLength(1);
+		await expectOAuth(() => exchangeCode(db, input, at(T0, 1000)), 'invalid_grant');
+		expect(await db.select().from(apiTokens)).toHaveLength(1);
 	});
 
-	it('revokes the grant when a used code is presented again', () => {
-		const registered = newClient();
+	it('revokes the grant when a used code is presented again', async () => {
+		const registered = await newClient();
 		const { verifier, challenge } = pkce();
-		const issued = code(registered.client, challenge);
+		const issued = await code(registered.client, challenge);
 		const input = {
 			client: registered.client,
 			code: issued,
 			redirectUri: URI_A,
 			codeVerifier: verifier
 		};
-		const first = exchangeCode(db, input, T0);
-		expect(verifyApiToken(db, first.accessToken, T0)?.id).toBe(grace.id);
+		const first = await exchangeCode(db, input, T0);
+		expect((await verifyApiToken(db, first.accessToken, T0))?.id).toBe(grace.id);
 
-		expectOAuth(() => exchangeCode(db, input, at(T0, 1000)), 'invalid_grant');
+		await expectOAuth(() => exchangeCode(db, input, at(T0, 1000)), 'invalid_grant');
 
-		expect(verifyApiToken(db, first.accessToken, at(T0, 2000))).toBeNull();
-		expect(credentialValid(db, apiTokenCredential(first.accessToken), at(T0, 2000))).toBe(false);
+		expect(await verifyApiToken(db, first.accessToken, at(T0, 2000))).toBeNull();
+		expect(await credentialValid(db, apiTokenCredential(first.accessToken), at(T0, 2000))).toBe(
+			false
+		);
 		expect(heard).toContainEqual(apiTokenCredential(first.accessToken));
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				refreshGrant(
 					db,
@@ -802,34 +826,36 @@ describe('exchangeCode', () => {
 				),
 			'invalid_grant'
 		);
-		expect(listApiTokens(db, grace, grace.id)[0].revokedAt).not.toBeNull();
+		expect((await listApiTokens(db, grace, grace.id))[0].revokedAt).not.toBeNull();
 	});
 
-	it('leaves other connections alone when a used code is replayed', () => {
-		const registered = newClient();
-		const bystander = connect({ client: registered });
+	it('leaves other connections alone when a used code is replayed', async () => {
+		const registered = await newClient();
+		const bystander = await connect({ client: registered });
 		const { verifier, challenge } = pkce();
-		const issued = code(registered.client, challenge);
+		const issued = await code(registered.client, challenge);
 		const input = {
 			client: registered.client,
 			code: issued,
 			redirectUri: URI_A,
 			codeVerifier: verifier
 		};
-		exchangeCode(db, input, T0);
+		await exchangeCode(db, input, T0);
 
-		expectOAuth(() => exchangeCode(db, input, at(T0, 1000)), 'invalid_grant');
+		await expectOAuth(() => exchangeCode(db, input, at(T0, 1000)), 'invalid_grant');
 
-		expect(verifyApiToken(db, bystander.tokens.accessToken, at(T0, 2000))?.id).toBe(grace.id);
+		expect((await verifyApiToken(db, bystander.tokens.accessToken, at(T0, 2000)))?.id).toBe(
+			grace.id
+		);
 	});
 });
 
 describe('refreshGrant', () => {
-	it('returns a new token set and marks the old refresh token used', () => {
-		const first = connect();
+	it('returns a new token set and marks the old refresh token used', async () => {
+		const first = await connect();
 		const later = at(T0, 10 * 60 * 1000);
 
-		const next = refreshGrant(
+		const next = await refreshGrant(
 			db,
 			{ client: first.client, refreshToken: first.tokens.refreshToken },
 			later
@@ -841,7 +867,7 @@ describe('refreshGrant', () => {
 		expect(next.refreshToken).not.toBe(first.tokens.refreshToken);
 		expect(next.expiresIn).toBe(3600);
 		expect(next.scope).toBe('sagas');
-		const rows = db.select().from(oauthRefreshTokens).all();
+		const rows = await db.select().from(oauthRefreshTokens);
 		const old = rows.find((r) => r.tokenHash === hashSecret(first.tokens.refreshToken))!;
 		const fresh = rows.find((r) => r.tokenHash === hashSecret(next.refreshToken))!;
 		expect(old.usedAt).toEqual(later);
@@ -849,57 +875,63 @@ describe('refreshGrant', () => {
 		expect(fresh.expiresAt).toEqual(at(later, REFRESH_TOKEN_TTL_MS));
 	});
 
-	it('replaces the access token in place: same row, new secret, new expiry, still not revoked', () => {
-		const first = connect();
-		const [before] = listApiTokens(db, grace, grace.id);
+	it('replaces the access token in place: same row, new secret, new expiry, still not revoked', async () => {
+		const first = await connect();
+		const [before] = await listApiTokens(db, grace, grace.id);
 		const later = at(T0, 50 * 60 * 1000);
 
-		const next = refreshGrant(
+		const next = await refreshGrant(
 			db,
 			{ client: first.client, refreshToken: first.tokens.refreshToken },
 			later
 		);
 
-		const listed = listApiTokens(db, grace, grace.id);
+		const listed = await listApiTokens(db, grace, grace.id);
 		expect(listed).toHaveLength(1);
 		expect(listed[0].id).toBe(before.id);
 		expect(listed[0].revokedAt).toBeNull();
 		expect(listed[0].oauth).toBe(true);
 		expect(listed[0].expiresAt).toEqual(at(later, ACCESS_TOKEN_TTL_MS));
-		const [row] = db.select().from(apiTokens).all();
+		const [row] = await db.select().from(apiTokens);
 		expect(row.tokenHash).toBe(hashSecret(next.accessToken));
-		expect(grantIdOf(next.accessToken)).toBe(first.grantId);
+		expect(await grantIdOf(next.accessToken)).toBe(first.grantId);
 	});
 
-	it('stops the old access token verifying and starts the new one', () => {
-		const first = connect();
+	it('stops the old access token verifying and starts the new one', async () => {
+		const first = await connect();
 		const later = at(T0, 30 * 60 * 1000);
 
-		const next = refreshGrant(
+		const next = await refreshGrant(
 			db,
 			{ client: first.client, refreshToken: first.tokens.refreshToken },
 			later
 		);
 
-		expect(verifyApiToken(db, first.tokens.accessToken, later)).toBeNull();
-		expect(credentialValid(db, apiTokenCredential(first.tokens.accessToken), later)).toBe(false);
-		expect(verifyApiToken(db, next.accessToken, later)?.id).toBe(grace.id);
-		expect(credentialValid(db, apiTokenCredential(next.accessToken), later)).toBe(true);
+		expect(await verifyApiToken(db, first.tokens.accessToken, later)).toBeNull();
+		expect(await credentialValid(db, apiTokenCredential(first.tokens.accessToken), later)).toBe(
+			false
+		);
+		expect((await verifyApiToken(db, next.accessToken, later))?.id).toBe(grace.id);
+		expect(await credentialValid(db, apiTokenCredential(next.accessToken), later)).toBe(true);
 	});
 
-	it('announces the old access-token hash once, after the transaction has committed', () => {
-		const first = connect();
-		const seen: { credential: Credential; inTransaction: boolean; stillValid: boolean }[] = [];
-		const stop = onRevoked((credential) =>
-			seen.push({
-				credential,
-				inTransaction: db.$client.inTransaction,
-				stillValid: credentialValid(db, credential, at(T0, 1000))
-			})
-		);
+	it('announces the old access-token hash once, after the transaction has committed', async () => {
+		const first = await connect();
+		const seen: Promise<{ credential: Credential; inTransaction: boolean; stillValid: boolean }>[] =
+			[];
+		const stop = onRevoked((credential) => {
+			const inside = inTransaction();
+			seen.push(
+				credentialValid(db, credential, at(T0, 1000)).then((stillValid) => ({
+					credential,
+					inTransaction: inside,
+					stillValid
+				}))
+			);
+		});
 		heard.length = 0;
 
-		refreshGrant(
+		await refreshGrant(
 			db,
 			{ client: first.client, refreshToken: first.tokens.refreshToken },
 			at(T0, 1000)
@@ -907,7 +939,7 @@ describe('refreshGrant', () => {
 		stop();
 
 		expect(heard).toEqual([{ kind: 'api_token', hash: hashSecret(first.tokens.accessToken) }]);
-		expect(seen).toEqual([
+		expect(await Promise.all(seen)).toEqual([
 			{
 				credential: { kind: 'api_token', hash: hashSecret(first.tokens.accessToken) },
 				inTransaction: false,
@@ -916,65 +948,65 @@ describe('refreshGrant', () => {
 		]);
 	});
 
-	it('announces nothing when the refresh fails', () => {
-		const first = connect();
+	it('announces nothing when the refresh fails', async () => {
+		const first = await connect();
 		heard.length = 0;
 
-		expectOAuth(
+		await expectOAuth(
 			() => refreshGrant(db, { client: first.client, refreshToken: 'wlr_unknown' }, at(T0, 1000)),
 			'invalid_grant'
 		);
 
 		expect(heard).toEqual([]);
-		expect(verifyApiToken(db, first.tokens.accessToken, at(T0, 1000))?.id).toBe(grace.id);
+		expect((await verifyApiToken(db, first.tokens.accessToken, at(T0, 1000)))?.id).toBe(grace.id);
 	});
 
-	it('refreshes after the access token has already expired', () => {
-		const first = connect();
+	it('refreshes after the access token has already expired', async () => {
+		const first = await connect();
 		const later = at(T0, 2 * HOUR);
-		expect(verifyApiToken(db, first.tokens.accessToken, later)).toBeNull();
+		expect(await verifyApiToken(db, first.tokens.accessToken, later)).toBeNull();
 
-		const next = refreshGrant(
+		const next = await refreshGrant(
 			db,
 			{ client: first.client, refreshToken: first.tokens.refreshToken },
 			later
 		);
 
-		expect(verifyApiToken(db, next.accessToken, later)?.id).toBe(grace.id);
-		expect(verifyApiToken(db, next.accessToken, at(later, ACCESS_TOKEN_TTL_MS))).toBeNull();
-		expect(verifyApiToken(db, next.accessToken, at(later, ACCESS_TOKEN_TTL_MS - 1))?.id).toBe(
-			grace.id
-		);
+		expect((await verifyApiToken(db, next.accessToken, later))?.id).toBe(grace.id);
+		expect(await verifyApiToken(db, next.accessToken, at(later, ACCESS_TOKEN_TTL_MS))).toBeNull();
+		expect(
+			(await verifyApiToken(db, next.accessToken, at(later, ACCESS_TOKEN_TTL_MS - 1)))?.id
+		).toBe(grace.id);
 	});
 
-	it('rotates on every use: each refresh token works once and its successor keeps the chain alive', () => {
-		const first = connect();
-		const second = refreshGrant(
+	it('rotates on every use: each refresh token works once and its successor keeps the chain alive', async () => {
+		const first = await connect();
+		const second = await refreshGrant(
 			db,
 			{ client: first.client, refreshToken: first.tokens.refreshToken },
 			at(T0, HOUR)
 		);
-		const third = refreshGrant(
+		const third = await refreshGrant(
 			db,
 			{ client: first.client, refreshToken: second.refreshToken },
 			at(T0, 2 * HOUR)
 		);
 
-		expect(verifyApiToken(db, third.accessToken, at(T0, 2 * HOUR))?.id).toBe(grace.id);
-		expect(listApiTokens(db, grace, grace.id)).toHaveLength(1);
+		expect((await verifyApiToken(db, third.accessToken, at(T0, 2 * HOUR)))?.id).toBe(grace.id);
+		expect(await listApiTokens(db, grace, grace.id)).toHaveLength(1);
 	});
 
-	it('accepts a refresh token right up to its 30 day expiry and refuses it after', () => {
-		const first = connect();
-		const second = connect({ client: { client: first.client, clientSecret: null } });
+	it('accepts a refresh token right up to its 30 day expiry and refuses it after', async () => {
+		const first = await connect();
+		const second = await connect({ client: { client: first.client, clientSecret: null } });
 
-		const ok = refreshGrant(
+		const ok = await refreshGrant(
 			db,
 			{ client: first.client, refreshToken: first.tokens.refreshToken },
 			at(T0, REFRESH_TOKEN_TTL_MS - 1000)
 		);
 		expect(ok.accessToken).toMatch(/^wlt_/);
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				refreshGrant(
 					db,
@@ -985,20 +1017,20 @@ describe('refreshGrant', () => {
 		);
 	});
 
-	it('rejects an unknown refresh token', () => {
-		const { client } = newClient();
+	it('rejects an unknown refresh token', async () => {
+		const { client } = await newClient();
 
-		expectOAuth(
+		await expectOAuth(
 			() => refreshGrant(db, { client, refreshToken: 'wlr_unknown' }, T0),
 			'invalid_grant'
 		);
 	});
 
-	it('rejects the refresh token of another client, and does not hand it a token', () => {
-		const first = connect();
-		const other = newClient('none', 'Other');
+	it('rejects the refresh token of another client, and does not hand it a token', async () => {
+		const first = await connect();
+		const other = await newClient('none', 'Other');
 
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				refreshGrant(
 					db,
@@ -1007,14 +1039,14 @@ describe('refreshGrant', () => {
 				),
 			'invalid_grant'
 		);
-		expect(verifyApiToken(db, first.tokens.accessToken, at(T0, 1000))?.id).toBe(grace.id);
+		expect((await verifyApiToken(db, first.tokens.accessToken, at(T0, 1000)))?.id).toBe(grace.id);
 	});
 
-	it('rejects a refresh token whose grant was revoked', () => {
-		const first = connect();
-		revokeGrant(db, first.grantId, at(T0, 1000));
+	it('rejects a refresh token whose grant was revoked', async () => {
+		const first = await connect();
+		await revokeGrant(db, first.grantId, at(T0, 1000));
 
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				refreshGrant(
 					db,
@@ -1023,19 +1055,19 @@ describe('refreshGrant', () => {
 				),
 			'invalid_grant'
 		);
-		expect(db.select().from(apiTokens).all()[0].revokedAt).not.toBeNull();
+		expect((await db.select().from(apiTokens))[0].revokedAt).not.toBeNull();
 	});
 
-	it('treats a rotated refresh token as theft: fails and revokes the whole grant', () => {
-		const first = connect();
-		const next = refreshGrant(
+	it('treats a rotated refresh token as theft: fails and revokes the whole grant', async () => {
+		const first = await connect();
+		const next = await refreshGrant(
 			db,
 			{ client: first.client, refreshToken: first.tokens.refreshToken },
 			at(T0, 1000)
 		);
 		heard.length = 0;
 
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				refreshGrant(
 					db,
@@ -1045,28 +1077,30 @@ describe('refreshGrant', () => {
 			'invalid_grant'
 		);
 
-		expect(verifyApiToken(db, next.accessToken, at(T0, 2000))).toBeNull();
-		expect(credentialValid(db, apiTokenCredential(next.accessToken), at(T0, 2000))).toBe(false);
+		expect(await verifyApiToken(db, next.accessToken, at(T0, 2000))).toBeNull();
+		expect(await credentialValid(db, apiTokenCredential(next.accessToken), at(T0, 2000))).toBe(
+			false
+		);
 		expect(heard).toContainEqual(apiTokenCredential(next.accessToken));
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				refreshGrant(db, { client: first.client, refreshToken: next.refreshToken }, at(T0, 3000)),
 			'invalid_grant'
 		);
-		expect(listApiTokens(db, grace, grace.id)[0].revokedAt).not.toBeNull();
+		expect((await listApiTokens(db, grace, grace.id))[0].revokedAt).not.toBeNull();
 	});
 
-	it('does not revoke other connections when one refresh token is replayed', () => {
-		const registered = newClient();
-		const bystander = connect({ client: registered });
-		const victim = connect({ client: registered });
-		refreshGrant(
+	it('does not revoke other connections when one refresh token is replayed', async () => {
+		const registered = await newClient();
+		const bystander = await connect({ client: registered });
+		const victim = await connect({ client: registered });
+		await refreshGrant(
 			db,
 			{ client: victim.client, refreshToken: victim.tokens.refreshToken },
 			at(T0, 1000)
 		);
 
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				refreshGrant(
 					db,
@@ -1076,24 +1110,26 @@ describe('refreshGrant', () => {
 			'invalid_grant'
 		);
 
-		expect(verifyApiToken(db, bystander.tokens.accessToken, at(T0, 2000))?.id).toBe(grace.id);
+		expect((await verifyApiToken(db, bystander.tokens.accessToken, at(T0, 2000)))?.id).toBe(
+			grace.id
+		);
 	});
 });
 
 describe('revokeGrant', () => {
-	it('kills the access token and the refresh token together', () => {
-		const first = connect();
+	it('kills the access token and the refresh token together', async () => {
+		const first = await connect();
 		heard.length = 0;
 
-		revokeGrant(db, first.grantId, at(T0, 1000));
+		await revokeGrant(db, first.grantId, at(T0, 1000));
 
-		expect(verifyApiToken(db, first.tokens.accessToken, at(T0, 1000))).toBeNull();
-		expect(credentialValid(db, apiTokenCredential(first.tokens.accessToken), at(T0, 1000))).toBe(
-			false
-		);
-		expect(listApiTokens(db, grace, grace.id)[0].revokedAt).toEqual(at(T0, 1000));
+		expect(await verifyApiToken(db, first.tokens.accessToken, at(T0, 1000))).toBeNull();
+		expect(
+			await credentialValid(db, apiTokenCredential(first.tokens.accessToken), at(T0, 1000))
+		).toBe(false);
+		expect((await listApiTokens(db, grace, grace.id))[0].revokedAt).toEqual(at(T0, 1000));
 		expect(heard).toEqual([apiTokenCredential(first.tokens.accessToken)]);
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				refreshGrant(
 					db,
@@ -1104,51 +1140,51 @@ describe('revokeGrant', () => {
 		);
 	});
 
-	it('announces after the transaction has committed', () => {
-		const first = connect();
+	it('announces after the transaction has committed', async () => {
+		const first = await connect();
 		const states: boolean[] = [];
-		const stop = onRevoked(() => states.push(db.$client.inTransaction));
+		const stop = onRevoked(() => states.push(inTransaction()));
 
-		revokeGrant(db, first.grantId, at(T0, 1000));
+		await revokeGrant(db, first.grantId, at(T0, 1000));
 		stop();
 
 		expect(states).toEqual([false]);
 	});
 
-	it('is idempotent: a second call changes nothing and does not throw', () => {
-		const first = connect();
-		revokeGrant(db, first.grantId, at(T0, 1000));
-		const before = listApiTokens(db, grace, grace.id);
+	it('is idempotent: a second call changes nothing and does not throw', async () => {
+		const first = await connect();
+		await revokeGrant(db, first.grantId, at(T0, 1000));
+		const before = await listApiTokens(db, grace, grace.id);
 
-		revokeGrant(db, first.grantId, at(T0, 5000));
+		await revokeGrant(db, first.grantId, at(T0, 5000));
 
-		expect(listApiTokens(db, grace, grace.id)).toEqual(before);
+		expect(await listApiTokens(db, grace, grace.id)).toEqual(before);
 		expect(before[0].revokedAt).toEqual(at(T0, 1000));
-		expect(verifyApiToken(db, first.tokens.accessToken, at(T0, 5000))).toBeNull();
+		expect(await verifyApiToken(db, first.tokens.accessToken, at(T0, 5000))).toBeNull();
 	});
 
-	it('revokes only its own connection', () => {
-		const registered = newClient();
-		const one = connect({ client: registered });
-		const two = connect({ client: registered });
+	it('revokes only its own connection', async () => {
+		const registered = await newClient();
+		const one = await connect({ client: registered });
+		const two = await connect({ client: registered });
 
-		revokeGrant(db, one.grantId, at(T0, 1000));
+		await revokeGrant(db, one.grantId, at(T0, 1000));
 
-		expect(verifyApiToken(db, two.tokens.accessToken, at(T0, 1000))?.id).toBe(grace.id);
+		expect((await verifyApiToken(db, two.tokens.accessToken, at(T0, 1000)))?.id).toBe(grace.id);
 	});
 });
 
 describe('revoking an OAuth access token through the API token path', () => {
-	it('kills the connection: the refresh token stops working', () => {
-		const first = connect();
-		const [info] = listApiTokens(db, grace, grace.id);
+	it('kills the connection: the refresh token stops working', async () => {
+		const first = await connect();
+		const [info] = await listApiTokens(db, grace, grace.id);
 		heard.length = 0;
 
-		revokeApiToken(db, grace, info.id);
+		await revokeApiToken(db, grace, info.id);
 
-		expect(verifyApiToken(db, first.tokens.accessToken, T0)).toBeNull();
+		expect(await verifyApiToken(db, first.tokens.accessToken, T0)).toBeNull();
 		expect(heard).toEqual([apiTokenCredential(first.tokens.accessToken)]);
-		expectOAuth(
+		await expectOAuth(
 			() =>
 				refreshGrant(
 					db,
@@ -1159,59 +1195,66 @@ describe('revoking an OAuth access token through the API token path', () => {
 		);
 	});
 
-	it('does not touch another connection of the same User', () => {
-		const registered = newClient();
-		const one = connect({ client: registered });
-		const two = connect({ client: registered });
-		const tokenId = db
-			.select({ id: apiTokens.id })
-			.from(apiTokens)
-			.where(eq(apiTokens.grantId, one.grantId))
-			.get()!.id;
+	it('does not touch another connection of the same User', async () => {
+		const registered = await newClient();
+		const one = await connect({ client: registered });
+		const two = await connect({ client: registered });
+		const tokenId = (
+			await db
+				.select({ id: apiTokens.id })
+				.from(apiTokens)
+				.where(eq(apiTokens.grantId, one.grantId))
+				.limit(1)
+		)[0]!.id;
 
-		revokeApiToken(db, grace, tokenId);
+		await revokeApiToken(db, grace, tokenId);
 
-		expect(verifyApiToken(db, two.tokens.accessToken, T0)?.id).toBe(grace.id);
+		expect((await verifyApiToken(db, two.tokens.accessToken, T0))?.id).toBe(grace.id);
 		expect(
-			refreshGrant(db, { client: registered.client, refreshToken: two.tokens.refreshToken }, T0)
-				.accessToken
+			(
+				await refreshGrant(
+					db,
+					{ client: registered.client, refreshToken: two.tokens.refreshToken },
+					T0
+				)
+			).accessToken
 		).toMatch(/^wlt_/);
 	});
 
-	it('leaves a hand-made token revoking as before', () => {
-		const { id, token } = createApiToken(db, grace, grace.id, 'laptop');
-		const connection = connect();
+	it('leaves a hand-made token revoking as before', async () => {
+		const { id, token } = await createApiToken(db, grace, grace.id, 'laptop');
+		const connection = await connect();
 
-		revokeApiToken(db, grace, id);
+		await revokeApiToken(db, grace, id);
 
-		expect(verifyApiToken(db, token, T0)).toBeNull();
-		expect(verifyApiToken(db, connection.tokens.accessToken, T0)?.id).toBe(grace.id);
+		expect(await verifyApiToken(db, token, T0)).toBeNull();
+		expect((await verifyApiToken(db, connection.tokens.accessToken, T0))?.id).toBe(grace.id);
 	});
 });
 
 describe('API token expiry', () => {
-	it('lets a hand-made token verify far in the future', () => {
-		const { token } = createApiToken(db, grace, grace.id, 'laptop');
+	it('lets a hand-made token verify far in the future', async () => {
+		const { token } = await createApiToken(db, grace, grace.id, 'laptop');
 		const farFuture = new Date('2126-01-01T00:00:00.000Z');
 
-		expect(verifyApiToken(db, token, farFuture)?.id).toBe(grace.id);
-		expect(credentialValid(db, apiTokenCredential(token), farFuture)).toBe(true);
+		expect((await verifyApiToken(db, token, farFuture))?.id).toBe(grace.id);
+		expect(await credentialValid(db, apiTokenCredential(token), farFuture)).toBe(true);
 	});
 
-	it('lists a hand-made token as never expiring and not OAuth', () => {
-		createApiToken(db, grace, grace.id, 'laptop');
+	it('lists a hand-made token as never expiring and not OAuth', async () => {
+		await createApiToken(db, grace, grace.id, 'laptop');
 
-		const [info] = listApiTokens(db, grace, grace.id);
+		const [info] = await listApiTokens(db, grace, grace.id);
 
 		expect(info.expiresAt).toBeNull();
 		expect(info.oauth).toBe(false);
 	});
 
-	it('lists hand-made and OAuth tokens side by side with their own expiry and flag', () => {
-		const handMade = createApiToken(db, grace, grace.id, 'laptop');
-		connect({ client: newClient('none', 'Claude') });
+	it('lists hand-made and OAuth tokens side by side with their own expiry and flag', async () => {
+		const handMade = await createApiToken(db, grace, grace.id, 'laptop');
+		await connect({ client: await newClient('none', 'Claude') });
 
-		const listed = listApiTokens(db, grace, grace.id);
+		const listed = await listApiTokens(db, grace, grace.id);
 
 		expect(listed.map((t) => [t.id, t.name, t.oauth, t.expiresAt])).toEqual([
 			[handMade.id, 'laptop', false, null],
@@ -1219,154 +1262,150 @@ describe('API token expiry', () => {
 		]);
 	});
 
-	it('stamps last use on a valid OAuth token but not on an expired one', () => {
-		const { tokens } = connect();
-		const [before] = db.select().from(apiTokens).all();
+	it('stamps last use on a valid OAuth token but not on an expired one', async () => {
+		const { tokens } = await connect();
+		const [before] = await db.select().from(apiTokens);
 
-		verifyApiToken(db, tokens.accessToken, at(T0, 2 * HOUR));
+		await verifyApiToken(db, tokens.accessToken, at(T0, 2 * HOUR));
 
-		const [after] = db.select().from(apiTokens).all();
+		const [after] = await db.select().from(apiTokens);
 		expect(after.lastUsedAt).toEqual(before.lastUsedAt);
 	});
 });
 
 describe('pruneOAuth', () => {
-	it('deletes expired codes and keeps live ones', () => {
-		const { client } = newClient();
-		const expired = code(client, pkce().challenge, T0);
-		const live = code(client, pkce().challenge, at(T0, 5 * 60 * 1000));
+	it('deletes expired codes and keeps live ones', async () => {
+		const { client } = await newClient();
+		const expired = await code(client, pkce().challenge, T0);
+		const live = await code(client, pkce().challenge, at(T0, 5 * 60 * 1000));
 
-		pruneOAuth(db, at(T0, AUTHORIZATION_CODE_TTL_MS + 60 * 1000));
+		await pruneOAuth(db, at(T0, AUTHORIZATION_CODE_TTL_MS + 60 * 1000));
 
-		const rows = db.select().from(oauthCodes).all();
+		const rows = await db.select().from(oauthCodes);
 		expect(rows.map((r) => r.codeHash)).toEqual([hashSecret(live)]);
 		expect(rows.map((r) => r.codeHash)).not.toContain(hashSecret(expired));
 	});
 
-	it('keeps a used but unexpired code so replay is still detected', () => {
-		const registered = newClient();
+	it('keeps a used but unexpired code so replay is still detected', async () => {
+		const registered = await newClient();
 		const { verifier, challenge } = pkce();
-		const issued = code(registered.client, challenge);
+		const issued = await code(registered.client, challenge);
 		const input = {
 			client: registered.client,
 			code: issued,
 			redirectUri: URI_A,
 			codeVerifier: verifier
 		};
-		const first = exchangeCode(db, input, T0);
+		const first = await exchangeCode(db, input, T0);
 
-		pruneOAuth(db, at(T0, 60 * 1000));
+		await pruneOAuth(db, at(T0, 60 * 1000));
 
-		expect(db.select().from(oauthCodes).all()).toHaveLength(1);
-		expectOAuth(() => exchangeCode(db, input, at(T0, 2 * 60 * 1000)), 'invalid_grant');
-		expect(verifyApiToken(db, first.accessToken, at(T0, 2 * 60 * 1000))).toBeNull();
+		expect(await db.select().from(oauthCodes)).toHaveLength(1);
+		await expectOAuth(() => exchangeCode(db, input, at(T0, 2 * 60 * 1000)), 'invalid_grant');
+		expect(await verifyApiToken(db, first.accessToken, at(T0, 2 * 60 * 1000))).toBeNull();
 	});
 
-	it('keeps a live connection whole: grant, tokens and a usable refresh token', () => {
-		const first = connect();
+	it('keeps a live connection whole: grant, tokens and a usable refresh token', async () => {
+		const first = await connect();
 
-		pruneOAuth(db, at(T0, 2 * HOUR));
+		await pruneOAuth(db, at(T0, 2 * HOUR));
 
-		expect(db.select().from(oauthGrants).all()).toHaveLength(1);
-		expect(db.select().from(oauthRefreshTokens).all()).toHaveLength(1);
-		expect(db.select().from(oauthClients).all()).toHaveLength(1);
-		const next = refreshGrant(
+		expect(await db.select().from(oauthGrants)).toHaveLength(1);
+		expect(await db.select().from(oauthRefreshTokens)).toHaveLength(1);
+		expect(await db.select().from(oauthClients)).toHaveLength(1);
+		const next = await refreshGrant(
 			db,
 			{ client: first.client, refreshToken: first.tokens.refreshToken },
 			at(T0, 2 * HOUR)
 		);
-		expect(verifyApiToken(db, next.accessToken, at(T0, 2 * HOUR))?.id).toBe(grace.id);
+		expect((await verifyApiToken(db, next.accessToken, at(T0, 2 * HOUR)))?.id).toBe(grace.id);
 	});
 
-	it('keeps a recently rotated refresh token and drops it once used more than a day ago', () => {
-		const first = connect();
+	it('keeps a recently rotated refresh token and drops it once used more than a day ago', async () => {
+		const first = await connect();
 		const rotatedAt = at(T0, HOUR);
-		const next = refreshGrant(
+		const next = await refreshGrant(
 			db,
 			{ client: first.client, refreshToken: first.tokens.refreshToken },
 			rotatedAt
 		);
 
-		pruneOAuth(db, at(rotatedAt, HOUR));
-		expect(db.select().from(oauthRefreshTokens).all()).toHaveLength(2);
+		await pruneOAuth(db, at(rotatedAt, HOUR));
+		expect(await db.select().from(oauthRefreshTokens)).toHaveLength(2);
 
-		pruneOAuth(db, at(rotatedAt, DAY + HOUR));
-		const rows = db.select().from(oauthRefreshTokens).all();
+		await pruneOAuth(db, at(rotatedAt, DAY + HOUR));
+		const rows = await db.select().from(oauthRefreshTokens);
 		expect(rows.map((r) => r.tokenHash)).toEqual([hashSecret(next.refreshToken)]);
-		expect(db.select().from(oauthGrants).all()).toHaveLength(1);
+		expect(await db.select().from(oauthGrants)).toHaveLength(1);
 	});
 
-	it('deletes a revoked grant with its refresh tokens', () => {
-		const first = connect();
-		const keeper = connect({ client: { client: first.client, clientSecret: null } });
-		revokeGrant(db, first.grantId, at(T0, 1000));
+	it('deletes a revoked grant with its refresh tokens', async () => {
+		const first = await connect();
+		const keeper = await connect({ client: { client: first.client, clientSecret: null } });
+		await revokeGrant(db, first.grantId, at(T0, 1000));
 
-		pruneOAuth(db, at(T0, 2000));
+		await pruneOAuth(db, at(T0, 2000));
 
-		expect(
-			db
-				.select()
-				.from(oauthGrants)
-				.all()
-				.map((g) => g.id)
-		).toEqual([keeper.grantId]);
-		expect(
-			db
-				.select()
-				.from(oauthRefreshTokens)
-				.all()
-				.map((r) => r.tokenHash)
-		).toEqual([hashSecret(keeper.tokens.refreshToken)]);
-		expect(verifyApiToken(db, keeper.tokens.accessToken, at(T0, 2000))?.id).toBe(grace.id);
+		expect((await db.select().from(oauthGrants)).map((g) => g.id)).toEqual([keeper.grantId]);
+		expect((await db.select().from(oauthRefreshTokens)).map((r) => r.tokenHash)).toEqual([
+			hashSecret(keeper.tokens.refreshToken)
+		]);
+		expect((await verifyApiToken(db, keeper.tokens.accessToken, at(T0, 2000)))?.id).toBe(grace.id);
 	});
 
-	it('deletes a grant whose newest refresh token has expired', () => {
-		const first = connect();
+	it('deletes a grant whose newest refresh token has expired', async () => {
+		const first = await connect();
 		const rotatedAt = at(T0, 10 * DAY);
-		refreshGrant(db, { client: first.client, refreshToken: first.tokens.refreshToken }, rotatedAt);
+		await refreshGrant(
+			db,
+			{ client: first.client, refreshToken: first.tokens.refreshToken },
+			rotatedAt
+		);
 
-		pruneOAuth(db, at(T0, REFRESH_TOKEN_TTL_MS + DAY));
-		expect(db.select().from(oauthGrants).all()).toHaveLength(1);
+		await pruneOAuth(db, at(T0, REFRESH_TOKEN_TTL_MS + DAY));
+		expect(await db.select().from(oauthGrants)).toHaveLength(1);
 
-		pruneOAuth(db, at(rotatedAt, REFRESH_TOKEN_TTL_MS + HOUR));
-		expect(db.select().from(oauthGrants).all()).toHaveLength(0);
-		expect(db.select().from(oauthRefreshTokens).all()).toHaveLength(0);
+		await pruneOAuth(db, at(rotatedAt, REFRESH_TOKEN_TTL_MS + HOUR));
+		expect(await db.select().from(oauthGrants)).toHaveLength(0);
+		expect(await db.select().from(oauthRefreshTokens)).toHaveLength(0);
 	});
 
-	it('deletes clients older than a day that have no grants, and keeps younger ones', () => {
-		const old = newClient('none', 'Old', [URI_A], T0);
-		const young = newClient('none', 'Young', [URI_A], at(T0, 23 * HOUR));
+	it('deletes clients older than a day that have no grants, and keeps younger ones', async () => {
+		const old = await newClient('none', 'Old', [URI_A], T0);
+		const young = await newClient('none', 'Young', [URI_A], at(T0, 23 * HOUR));
 
-		pruneOAuth(db, at(T0, DAY + 2 * HOUR));
+		await pruneOAuth(db, at(T0, DAY + 2 * HOUR));
 
-		expect(getClient(db, old.client.clientId)).toBeNull();
-		expect(getClient(db, young.client.clientId)?.name).toBe('Young');
+		expect(await getClient(db, old.client.clientId)).toBeNull();
+		expect((await getClient(db, young.client.clientId))?.name).toBe('Young');
 	});
 
-	it('keeps a client older than a day while it still has a grant', () => {
-		const registered = newClient('none', 'Claude', [URI_A], T0);
-		connect({ client: registered });
+	it('keeps a client older than a day while it still has a grant', async () => {
+		const registered = await newClient('none', 'Claude', [URI_A], T0);
+		await connect({ client: registered });
 
-		pruneOAuth(db, at(T0, 2 * DAY));
+		await pruneOAuth(db, at(T0, 2 * DAY));
 
-		expect(getClient(db, registered.client.clientId)?.name).toBe('Claude');
+		expect((await getClient(db, registered.client.clientId))?.name).toBe('Claude');
 	});
 
-	it('leaves hand-made API tokens and their expiry alone', () => {
-		const { token } = createApiToken(db, grace, grace.id, 'laptop');
-		connect();
+	it('leaves hand-made API tokens and their expiry alone', async () => {
+		const { token } = await createApiToken(db, grace, grace.id, 'laptop');
+		await connect();
 
-		pruneOAuth(db, at(T0, 60 * DAY));
+		await pruneOAuth(db, at(T0, 60 * DAY));
 
-		expect(verifyApiToken(db, token, at(T0, 60 * DAY))?.id).toBe(grace.id);
+		expect((await verifyApiToken(db, token, at(T0, 60 * DAY)))?.id).toBe(grace.id);
 	});
 
-	it('is harmless on an empty database and when run twice', () => {
-		pruneOAuth(db, T0);
-		const first = connect();
-		pruneOAuth(db, at(T0, HOUR));
-		pruneOAuth(db, at(T0, HOUR));
+	it('is harmless on an empty database and when run twice', async () => {
+		await pruneOAuth(db, T0);
+		const first = await connect();
+		await pruneOAuth(db, at(T0, HOUR));
+		await pruneOAuth(db, at(T0, HOUR));
 
-		expect(verifyApiToken(db, first.tokens.accessToken, at(T0, HOUR - 1))?.id).toBe(grace.id);
+		expect((await verifyApiToken(db, first.tokens.accessToken, at(T0, HOUR - 1)))?.id).toBe(
+			grace.id
+		);
 	});
 });

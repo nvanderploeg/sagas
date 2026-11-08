@@ -18,7 +18,7 @@ const control = (event: 'ready' | 'reset', seq: number) => ({
 
 test.describe('GET /api/events', () => {
 	test('opens as an event stream with ready carrying the last seq', async ({ apiToken, seed }) => {
-		const last = seed.lastSeq();
+		const last = await seed.lastSeq();
 		const stream = await openStream({ authorization: `Bearer ${apiToken.token}` });
 		try {
 			expect(stream.response.status).toBe(200);
@@ -35,12 +35,12 @@ test.describe('GET /api/events', () => {
 		apiToken,
 		seed
 	}) => {
-		seed.realm();
+		await seed.realm();
 		const stream = await openStream({ authorization: `Bearer ${apiToken.token}` });
 		try {
 			const frames = await stream.until((f) => pings(f) >= 2);
 			expect(frames.filter(isEvent)).toEqual([]);
-			expect(frames.filter((f) => f.event)).toEqual([control('ready', seed.lastSeq())]);
+			expect(frames.filter((f) => f.event)).toEqual([control('ready', await seed.lastSeq())]);
 		} finally {
 			await stream.close();
 		}
@@ -51,9 +51,9 @@ test.describe('GET /api/events', () => {
 		seed,
 		admin
 	}) => {
-		const before = seed.lastSeq();
-		const realm = seed.realm({ key: `R${Date.now().toString(36).slice(-4)}`.toUpperCase() });
-		const labour = seed.labour(realm.id, { title: 'Replayed' });
+		const before = await seed.lastSeq();
+		const realm = await seed.realm({ key: `R${Date.now().toString(36).slice(-4)}`.toUpperCase() });
+		const labour = await seed.labour(realm.id, { title: 'Replayed' });
 
 		const stream = await openStream(
 			{ authorization: `Bearer ${apiToken.token}` },
@@ -95,10 +95,10 @@ test.describe('GET /api/events', () => {
 		seed
 	}) => {
 		const headers = { authorization: `Bearer ${apiToken.token}` };
-		const before = seed.lastSeq();
-		const realm = seed.realm();
-		seed.labour(realm.id, { title: 'one' });
-		seed.labour(realm.id, { title: 'two' });
+		const before = await seed.lastSeq();
+		const realm = await seed.realm();
+		await seed.labour(realm.id, { title: 'one' });
+		await seed.labour(realm.id, { title: 'two' });
 
 		const first = await openStream(headers, `?since=${before}`);
 		const seen = await first.until(eventCount(3));
@@ -125,9 +125,9 @@ test.describe('GET /api/events', () => {
 	});
 
 	test('Last-Event-ID wins over ?since', async ({ apiToken, seed }) => {
-		const before = seed.lastSeq();
-		const realm = seed.realm();
-		seed.labour(realm.id);
+		const before = await seed.lastSeq();
+		const realm = await seed.realm();
+		await seed.labour(realm.id);
 
 		const stream = await openStream(
 			{ authorization: `Bearer ${apiToken.token}`, 'last-event-id': String(before + 1) },
@@ -144,8 +144,8 @@ test.describe('GET /api/events', () => {
 	});
 
 	test('a session cookie replays the same way', async ({ signedInPage: page, seed }) => {
-		const before = seed.lastSeq();
-		seed.realm();
+		const before = await seed.lastSeq();
+		await seed.realm();
 
 		const stream = await openStream(
 			{ cookie: await cookieHeader(page.context()) },
@@ -160,9 +160,9 @@ test.describe('GET /api/events', () => {
 	});
 
 	test('a browser EventSource gets the replay', async ({ signedInPage: page, seed }) => {
-		const before = seed.lastSeq();
-		const realm = seed.realm();
-		seed.labour(realm.id);
+		const before = await seed.lastSeq();
+		const realm = await seed.realm();
+		await seed.labour(realm.id);
 		await page.goto('/');
 
 		const received = await page.evaluate(
@@ -209,8 +209,8 @@ test.describe('GET /api/events', () => {
 		apiToken,
 		seed
 	}) => {
-		seed.realm();
-		const last = seed.lastSeq();
+		await seed.realm();
+		const last = await seed.lastSeq();
 
 		const stream = await openStream(
 			{ authorization: `Bearer ${apiToken.token}` },
@@ -228,8 +228,8 @@ test.describe('GET /api/events', () => {
 	});
 
 	test('goes live after a reset without replaying the log', async ({ apiToken, seed }) => {
-		seed.realm();
-		const last = seed.lastSeq();
+		await seed.realm();
+		const last = await seed.lastSeq();
 
 		const stream = await openStream(
 			{ authorization: `Bearer ${apiToken.token}` },
@@ -266,8 +266,8 @@ test.describe('GET /api/events', () => {
 	});
 
 	test('replays the whole log from zero', async ({ apiToken, seed }) => {
-		seed.realm();
-		const last = seed.lastSeq();
+		await seed.realm();
+		const last = await seed.lastSeq();
 
 		const stream = await openStream({ authorization: `Bearer ${apiToken.token}` }, '?since=0');
 		try {
@@ -289,9 +289,9 @@ test.describe('GET /api/events', () => {
 			apiToken,
 			seed
 		}) => {
-			seed.realm();
-			seed.pruneAllEvents();
-			const last = seed.lastSeq();
+			await seed.realm();
+			await seed.pruneAllEvents();
+			const last = await seed.lastSeq();
 
 			const stream = await openStream({ authorization: `Bearer ${apiToken.token}` }, '?since=0');
 			try {
@@ -309,8 +309,8 @@ test.describe('GET /api/events', () => {
 			apiToken,
 			seed
 		}) => {
-			const last = seed.lastSeq();
-			seed.realm();
+			const last = await seed.lastSeq();
+			await seed.realm();
 
 			const stream = await openStream(
 				{ authorization: `Bearer ${apiToken.token}` },

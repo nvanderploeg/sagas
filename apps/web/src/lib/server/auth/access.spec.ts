@@ -101,57 +101,54 @@ describe('unauthorizedResponse', () => {
 
 describe('authFromRequest', () => {
 	it('resolves a session cookie', async () => {
-		const db = testDb();
+		const db = await testDb();
 		const admin = await createFirstAdmin(db, {
 			username: 'root',
 			displayName: 'Root',
 			password: 'a long enough password'
 		});
-		const { token } = createSession(db, admin.id);
+		const { token } = await createSession(db, admin.id);
 
-		const auth = authFromRequest(db, new Request('http://x/'), token);
+		const auth = await authFromRequest(db, new Request('http://x/'), token);
 
 		expect(auth?.user.id).toBe(admin.id);
 		expect(auth?.credential).toEqual(sessionCredential(token));
-		db.$client.close();
 	});
 
 	it('lets a Bearer header decide alone: a bad or revoked token never falls back to the cookie', async () => {
-		const db = testDb();
+		const db = await testDb();
 		const admin = await createFirstAdmin(db, {
 			username: 'root',
 			displayName: 'Root',
 			password: 'a long enough password'
 		});
-		const { token } = createSession(db, admin.id);
-		const good = createApiToken(db, admin, admin.id, 'cli');
-		const revoked = createApiToken(db, admin, admin.id, 'old');
-		revokeApiToken(db, admin, revoked.id);
+		const { token } = await createSession(db, admin.id);
+		const good = await createApiToken(db, admin, admin.id, 'cli');
+		const revoked = await createApiToken(db, admin, admin.id, 'old');
+		await revokeApiToken(db, admin, revoked.id);
 		const bearer = (value: string) =>
 			new Request('http://x/', { headers: { authorization: value } });
 
-		expect(authFromRequest(db, bearer('Bearer wlt_nope'), token)).toBeNull();
-		expect(authFromRequest(db, bearer(`Bearer ${revoked.token}`), token)).toBeNull();
-		expect(authFromRequest(db, bearer('Bearer'), token)).toBeNull();
-		expect(authFromRequest(db, bearer(`bearer ${good.token}`), undefined)).toEqual({
+		expect(await authFromRequest(db, bearer('Bearer wlt_nope'), token)).toBeNull();
+		expect(await authFromRequest(db, bearer(`Bearer ${revoked.token}`), token)).toBeNull();
+		expect(await authFromRequest(db, bearer('Bearer'), token)).toBeNull();
+		expect(await authFromRequest(db, bearer(`bearer ${good.token}`), undefined)).toEqual({
 			user: expect.objectContaining({ id: admin.id }),
 			credential: apiTokenCredential(good.token)
 		});
-		db.$client.close();
 	});
 
 	it('falls back to the session cookie under any other Authorization scheme', async () => {
-		const db = testDb();
+		const db = await testDb();
 		const admin = await createFirstAdmin(db, {
 			username: 'root',
 			displayName: 'Root',
 			password: 'a long enough password'
 		});
-		const { token } = createSession(db, admin.id);
+		const { token } = await createSession(db, admin.id);
 		const basic = new Request('http://x/', { headers: { authorization: 'Basic cHJveHk6cHc=' } });
 
-		expect(authFromRequest(db, basic, token)?.user.id).toBe(admin.id);
-		expect(authFromRequest(db, basic, undefined)).toBeNull();
-		db.$client.close();
+		expect((await authFromRequest(db, basic, token))?.user.id).toBe(admin.id);
+		expect(await authFromRequest(db, basic, undefined)).toBeNull();
 	});
 });

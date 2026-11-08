@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
@@ -7,12 +7,8 @@ import { seedHuman } from './fixtures.ts';
 
 let db: Db;
 
-beforeEach(() => {
-	db = testDb();
-});
-
-afterEach(() => {
-	db.$client.close();
+beforeEach(async () => {
+	db = await testDb();
 });
 
 const setup = (username = 'root') => ({
@@ -21,10 +17,10 @@ const setup = (username = 'root') => ({
 	password: 'a long enough password'
 });
 
-function expectCode(action: () => unknown, code: DomainError['code']) {
+async function expectCode(action: () => unknown, code: DomainError['code']) {
 	let thrown: unknown;
 	try {
-		action();
+		await action();
 	} catch (error) {
 		thrown = error;
 	}
@@ -34,12 +30,12 @@ function expectCode(action: () => unknown, code: DomainError['code']) {
 
 describe('first-run setup', () => {
 	it('creates the first User as an Admin', async () => {
-		expect(hasUsers(db)).toBe(false);
+		expect(await hasUsers(db)).toBe(false);
 
 		const admin = await createFirstAdmin(db, setup());
 
 		expect(admin).toMatchObject({ kind: 'human', isAdmin: true, username: 'root' });
-		expect(hasUsers(db)).toBe(true);
+		expect(await hasUsers(db)).toBe(true);
 	});
 
 	it('locks after the first User exists', async () => {
@@ -68,19 +64,19 @@ describe('first-run setup', () => {
 		await expect(
 			createFirstAdmin(db, { username: 'root', displayName: 'Root', password: 'short' })
 		).rejects.toMatchObject({ code: 'invalid' });
-		expect(hasUsers(db)).toBe(false);
+		expect(await hasUsers(db)).toBe(false);
 	});
 });
 
 describe('Agent users', () => {
 	it('creates an Agent user without a password, and an Admin only', async () => {
 		const admin = await createFirstAdmin(db, setup());
-		const grace = seedHuman(db, 'grace');
+		const grace = await seedHuman(db, 'grace');
 
-		const bot = createAgentUser(db, admin, { username: 'bot', displayName: 'Bot' });
+		const bot = await createAgentUser(db, admin, { username: 'bot', displayName: 'Bot' });
 
 		expect(bot).toMatchObject({ kind: 'agent', isAdmin: false });
-		expectCode(
+		await expectCode(
 			() => createAgentUser(db, grace, { username: 'other', displayName: 'Other' }),
 			'forbidden'
 		);
@@ -88,7 +84,7 @@ describe('Agent users', () => {
 
 	it('cannot sign in with a password', async () => {
 		const admin = await createFirstAdmin(db, setup());
-		createAgentUser(db, admin, { username: 'bot', displayName: 'Bot' });
+		await createAgentUser(db, admin, { username: 'bot', displayName: 'Bot' });
 
 		expect(await authenticate(db, 'bot', 'a long enough password')).toBeNull();
 	});
@@ -96,7 +92,7 @@ describe('Agent users', () => {
 	it('rejects a username already taken', async () => {
 		const admin = await createFirstAdmin(db, setup());
 
-		expectCode(
+		await expectCode(
 			() => createAgentUser(db, admin, { username: 'ROOT', displayName: 'Dup' }),
 			'conflict'
 		);
@@ -122,10 +118,10 @@ describe('password sign-in', () => {
 describe('listing users', () => {
 	it('lists humans and agents by display name', async () => {
 		const root = await createFirstAdmin(db, setup());
-		createAgentUser(db, root, { username: 'bot', displayName: 'Atlas' });
-		seedHuman(db, 'zed');
+		await createAgentUser(db, root, { username: 'bot', displayName: 'Atlas' });
+		await seedHuman(db, 'zed');
 
-		expect(listUsers(db).map((u) => [u.username, u.kind])).toEqual([
+		expect((await listUsers(db)).map((u) => [u.username, u.kind])).toEqual([
 			['bot', 'agent'],
 			['root', 'human'],
 			['zed', 'human']

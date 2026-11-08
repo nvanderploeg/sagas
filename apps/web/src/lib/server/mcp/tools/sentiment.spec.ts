@@ -25,25 +25,25 @@ let labourId: number;
 const clients: Client[] = [];
 
 beforeEach(async () => {
-	db = testDb();
+	db = await testDb();
 	admin = await createFirstAdmin(db, {
 		username: 'root',
 		displayName: 'Root',
 		password: 'a long enough password'
 	});
-	bob = seedHuman(db, 'bob');
+	bob = await seedHuman(db, 'bob');
 	root = await connect(admin);
 	bobClient = await connect(bob);
 
-	const realm = seedRealm(db, 'AM');
-	define(realm.id, 'perf', 'scale', { min: 0, max: 4 });
-	define(realm.id, 'bugs', 'tags', {
+	const realm = await seedRealm(db, 'AM');
+	await define(realm.id, 'perf', 'scale', { min: 0, max: 4 });
+	await define(realm.id, 'bugs', 'tags', {
 		members: [
 			{ key: 'crash', label: 'Crash' },
 			{ key: 'lag', label: 'Lag' }
 		]
 	});
-	labourId = seedLabour(db, { realmId: realm.id }).id;
+	labourId = (await seedLabour(db, { realmId: realm.id })).id;
 
 	vi.useFakeTimers({ toFake: ['Date'] });
 	vi.setSystemTime(T0);
@@ -52,16 +52,21 @@ beforeEach(async () => {
 afterEach(async () => {
 	vi.useRealTimers();
 	await Promise.all(clients.splice(0).map((client) => client.close()));
-	db.$client.close();
 });
 
-function define(
+async function define(
 	realmId: number,
 	key: string,
 	kind: 'scale' | 'tags',
 	spec: Parameters<typeof defineAttribute>[3]['spec']
 ) {
-	defineAttribute(db, admin, realmId, { key, kind, label: key, rubric: `About ${key}`, spec }, T0);
+	await defineAttribute(
+		db,
+		admin,
+		realmId,
+		{ key, kind, label: key, rubric: `About ${key}`, spec },
+		T0
+	);
 }
 
 async function connect(actor: AuthUser): Promise<Client> {
@@ -96,7 +101,7 @@ const text = (result: CallToolResult) =>
 	result.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 
 const iso = (date: Date) => date.toISOString();
-const rows = () => db.select().from(pulses).all();
+const rows = async () => await db.select().from(pulses);
 
 const pulse = (key: string, extra: Record<string, unknown> = {}) => ({
 	key,
@@ -157,7 +162,7 @@ describe('pulse', () => {
 				{ index: 1, status: 'unfiled', id: expect.any(Number) }
 			]
 		});
-		const [first, second] = rows();
+		const [first, second] = await rows();
 		expect(first).toMatchObject({
 			id: out.pulses[0].id,
 			rawKey: 'perf',
@@ -180,7 +185,7 @@ describe('pulse', () => {
 	it('posts as the User of the token', async () => {
 		await post(bobClient, [pulse('perf')]);
 
-		expect(rows()[0].authorId).toBe(bob.id);
+		expect((await rows())[0].authorId).toBe(bob.id);
 	});
 
 	it('skips an item whose ref the author already used with the key', async () => {
@@ -189,7 +194,7 @@ describe('pulse', () => {
 		const [again] = await post(root, [pulse('perf', { ref: 'r1' })]);
 
 		expect(again).toEqual({ index: 0, status: 'skipped', id: first.id });
-		expect(rows()).toHaveLength(1);
+		expect(await rows()).toHaveLength(1);
 	});
 
 	it('never fades a Pulse posted with half_life_days: null', async () => {
@@ -202,15 +207,15 @@ describe('pulse', () => {
 		const out = await ok(root, 'get_sentiment', { realm: 'AM' });
 
 		const weight = (key: string) => out.keys.find((k: any) => k.key === key).pulses[0].weight;
-		expect(rows().map((row) => row.halfLifeDays)).toEqual([null, 7]);
+		expect((await rows()).map((row) => row.halfLifeDays)).toEqual([null, 7]);
 		expect(weight('perf')).toBe(2);
 		expect(weight('bugs:lag')).toBeCloseTo(2 * 2 ** (-100 / 7), 10);
 	});
 
 	it('names Labours in evidence by key in any case, a former key included', async () => {
-		const other = seedRealm(db, 'BL');
+		const other = await seedRealm(db, 'BL');
 		await post(root, [pulse('perf', { evidence: [{ labour: 'am-1' }] })]);
-		moveLabour(db, admin, labourId, { realmId: other.id });
+		await moveLabour(db, admin, labourId, { realmId: other.id });
 		await post(root, [pulse('bugs:lag', { evidence: [{ labour: 'AM-1' }] })]);
 
 		const out = await ok(root, 'get_sentiment', { realm: 'AM' });
@@ -235,7 +240,7 @@ describe('pulse', () => {
 		});
 
 		expect(code).toBe('invalid');
-		expect(rows()).toEqual([]);
+		expect(await rows()).toEqual([]);
 	});
 
 	it('names the unknown nested argument it refused', async () => {
@@ -263,7 +268,7 @@ describe('pulse', () => {
 		const { code } = await refused(root, 'pulse', { realm: 'AM', pulses: items });
 
 		expect(code).toBe('invalid');
-		expect(rows()).toEqual([]);
+		expect(await rows()).toEqual([]);
 	});
 
 	it('refuses the whole batch when one item is invalid', async () => {
@@ -273,7 +278,7 @@ describe('pulse', () => {
 		});
 
 		expect(code).toBe('invalid');
-		expect(rows()).toEqual([]);
+		expect(await rows()).toEqual([]);
 	});
 
 	it('refuses evidence naming a Labour that does not exist as not_found', async () => {
@@ -283,7 +288,7 @@ describe('pulse', () => {
 		});
 
 		expect(code).toBe('not_found');
-		expect(rows()).toEqual([]);
+		expect(await rows()).toEqual([]);
 	});
 
 	it('refuses an unknown Realm as not_found', async () => {
@@ -298,11 +303,11 @@ describe('pulse', () => {
 	});
 
 	it('records no Event', async () => {
-		const before = db.select().from(events).all();
+		const before = await db.select().from(events);
 
 		await post(root, [pulse('perf'), pulse('ghost')]);
 
-		expect(db.select().from(events).all()).toEqual(before);
+		expect(await db.select().from(events)).toEqual(before);
 	});
 });
 
@@ -394,24 +399,24 @@ describe('get_sentiment', () => {
 	});
 
 	it('shows evidence naming a Labour by its current key after the Labour moves', async () => {
-		const other = seedRealm(db, 'BL');
+		const other = await seedRealm(db, 'BL');
 		await post(root, [pulse('perf', { evidence: [{ labour: 'AM-1' }] })]);
 
-		moveLabour(db, admin, labourId, { realmId: other.id });
+		await moveLabour(db, admin, labourId, { realmId: other.id });
 
 		const out = await ok(root, 'get_sentiment', { realm: 'AM' });
 		expect(out.keys[0].pulses[0].evidence).toEqual([{ labour: 'BL-1' }]);
 	});
 
 	it('leaves out evidence naming a deleted Labour', async () => {
-		const gone = seedLabour(db, { realmId: seedRealm(db, 'BL').id });
+		const gone = await seedLabour(db, { realmId: (await seedRealm(db, 'BL')).id });
 		await post(root, [
 			pulse('perf', {
 				evidence: [{ labour: 'BL-1' }, { href: 'https://a.test' }, { labour: 'AM-1' }]
 			})
 		]);
 
-		deleteLabour(db, admin, gone.id);
+		await deleteLabour(db, admin, gone.id);
 
 		const out = await ok(root, 'get_sentiment', { realm: 'AM' });
 		expect(out.keys[0].pulses[0].evidence).toEqual([
@@ -461,7 +466,7 @@ describe('file_pulses', () => {
 				'invalid'
 			);
 		}
-		expect(rows()[0].attributeId).toBeNull();
+		expect((await rows())[0].attributeId).toBeNull();
 	});
 
 	it('refuses an unknown argument, a camelCase one and a missing one', async () => {
@@ -489,7 +494,7 @@ describe('delete_pulse', () => {
 		const out = await ok(bobClient, 'delete_pulse', { pulse: mine.id });
 
 		expect(out).toEqual({ deleted: { id: mine.id } });
-		expect(rows().map((row) => row.id)).toEqual([theirs.id]);
+		expect((await rows()).map((row) => row.id)).toEqual([theirs.id]);
 		const view = await ok(root, 'get_sentiment', { realm: 'AM' });
 		expect(view.keys[0].pulses.map((p: any) => p.id)).toEqual([theirs.id]);
 	});
@@ -505,13 +510,13 @@ describe('delete_pulse', () => {
 		expect((await refused(root, 'delete_pulse', { pulse: made.id, bogus: 1 })).code).toBe(
 			'invalid'
 		);
-		expect(rows()).toHaveLength(1);
+		expect(await rows()).toHaveLength(1);
 	});
 });
 
 describe('survey', () => {
-	beforeEach(() => {
-		setValues(db, admin, labourId, { perf: 4 }, T0);
+	beforeEach(async () => {
+		await setValues(db, admin, labourId, { perf: 4 }, T0);
 	});
 
 	it('shows the keys behind the sentiment features, authors by username and no weight', async () => {
@@ -570,9 +575,9 @@ describe('survey', () => {
 	});
 
 	it('shows evidence by the current key of a Labour that moved', async () => {
-		const evidence = seedLabour(db, { realmId: seedRealm(db, 'ZZ').id });
+		const evidence = await seedLabour(db, { realmId: (await seedRealm(db, 'ZZ')).id });
 		await post(root, [pulse('perf', { evidence: [{ labour: 'ZZ-1' }] })]);
-		moveLabour(db, admin, evidence.id, { realmId: seedRealm(db, 'BL').id });
+		await moveLabour(db, admin, evidence.id, { realmId: (await seedRealm(db, 'BL')).id });
 
 		const out = await ok(root, 'survey', { realm: 'AM', weights: { sentiment: 1 } });
 

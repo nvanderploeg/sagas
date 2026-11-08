@@ -29,15 +29,15 @@ export function toLabourView(row: {
 	};
 }
 
-export function readLabour(db: Handle, labourId: number): LabourView {
-	const row = selectLabourViews(db).where(eq(labours.id, labourId)).get();
+export async function readLabour(db: Handle, labourId: number): Promise<LabourView> {
+	const row = (await selectLabourViews(db).where(eq(labours.id, labourId)).limit(1))[0];
 	if (row === undefined) throw new DomainError('not_found', 'Labour not found');
 	return toLabourView(row);
 }
 
-export function labourName(db: Handle): (id: number) => string {
-	return (id) => {
-		const row = selectLabourViews(db).where(eq(labours.id, id)).get();
+export function labourName(db: Handle): (id: number) => Promise<string> {
+	return async (id) => {
+		const row = (await selectLabourViews(db).where(eq(labours.id, id)).limit(1))[0];
 		return row === undefined ? `Labour ${id}` : toLabourView(row).key;
 	};
 }

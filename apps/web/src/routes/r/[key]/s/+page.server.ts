@@ -7,14 +7,14 @@ import { scrollActions } from '#lib/server/ui/scroll-actions.ts';
 import { readScrollIndex } from '#lib/server/ui/scroll-reads.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ params, locals, url }) => {
+export const load: PageServerLoad = async ({ params, locals, url }) => {
 	const viewer = signedIn(locals);
 	const db = getDb();
-	const realm = findRealmByKey(db, params.key, viewer);
+	const realm = await findRealmByKey(db, params.key, viewer);
 	if (!realm) error(404, 'No Realm has that key');
 	if (realm.key !== params.key) redirect(307, `/r/${realm.key}/s${url.search}`);
 	const query = url.searchParams.get('q') ?? '';
-	const { seq, value } = readAtSeq(db, (tx) => readScrollIndex(tx, viewer, realm.id, query));
+	const { seq, value } = await readAtSeq(db, (tx) => readScrollIndex(tx, viewer, realm.id, query));
 	return { seq, page: toJson(value) };
 };
 

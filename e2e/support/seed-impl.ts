@@ -1,19 +1,19 @@
-import { openDatabase, type Db } from '../../apps/web/src/lib/server/db/client.ts';
+import { createPool, openDatabase, type Db } from '../../apps/web/src/lib/server/db/client.ts';
 import { createInvite } from '../../apps/web/src/lib/server/auth/invites.ts';
 import { createApiToken, revokeApiToken } from '../../apps/web/src/lib/server/auth/tokens.ts';
 import { findUser } from '../../apps/web/src/lib/server/auth/users.ts';
 import { createRealm } from '../../apps/web/src/lib/server/domain/realms.ts';
 import { createLabour } from '../../apps/web/src/lib/server/domain/labours.ts';
 import { eventWindow, pruneEvents } from '../../apps/web/src/lib/server/events/log.ts';
-import { databasePath } from './env.ts';
+import { databaseUrl } from './env.ts';
 
 export type { Db };
 
 export function openRunDb(): Db {
-	return openDatabase(databasePath);
+	return openDatabase(createPool(databaseUrl, { max: 3 }));
 }
 
-export type IssuedToken = { id: number; token: string; revoke: () => void };
+export type IssuedToken = { id: number; token: string; revoke: () => Promise<void> };
 
 const TODO = { key: 'todo', label: 'To do', color: '#111111', icon: 'circle' };
 
@@ -26,8 +26,8 @@ function randomKey(): string {
 
 // Writes go straight to the run's DB file with the admin as actor. The server's event bus is
 // in-process, so a seeded write reaches a Stream only by replay, never live.
-export function createSeed(db: Db, adminId: number) {
-	const admin = findUser(db, adminId);
+export async function createSeed(db: Db, adminId: number) {
+	const admin = await findUser(db, adminId);
 	if (!admin) throw new Error(`no user ${adminId} in the run database`);
 
 	return {
@@ -48,24 +48,24 @@ export function createSeed(db: Db, adminId: number) {
 			});
 		},
 
-		invite(): { id: number; token: string } {
+		async invite(): Promise<{ id: number; token: string }> {
 			return createInvite(db, admin);
 		},
 
-		apiToken(userId: number = admin.id, name = 'e2e'): IssuedToken {
-			const { id, token } = createApiToken(db, admin, userId, name);
+		async apiToken(userId: number = admin.id, name = 'e2e'): Promise<IssuedToken> {
+			const { id, token } = await createApiToken(db, admin, userId, name);
 			return { id, token, revoke: () => revokeApiToken(db, admin, id) };
 		},
 
-		lastSeq(): number {
-			return eventWindow(db).last;
+		async lastSeq(): Promise<number> {
+			return (await eventWindow(db)).last;
 		},
 
 		// Drops every retained Event, so any earlier seq becomes unreplayable.
-		pruneAllEvents(): void {
-			pruneEvents(db, 1, Date.now() + 24 * 60 * 60 * 1000);
+		async pruneAllEvents(): Promise<void> {
+			await pruneEvents(db, 1, Date.now() + 24 * 60 * 60 * 1000);
 		}
 	};
 }
 
-export type Seed = ReturnType<typeof createSeed>;
+export type Seed = Awaited<ReturnType<typeof createSeed>>;

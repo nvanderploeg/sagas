@@ -1,3 +1,4 @@
+import { mapSeq } from '#lib/server/async.ts';
 import { asc, eq, inArray } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
 import { labours, stateFlows } from '../db/schema.ts';
@@ -6,15 +7,15 @@ import { getRealm, getState } from './lookup.ts';
 import { listStates, listSubstates } from './states.ts';
 import { selectLabourViews, toLabourView, type LabourView } from './labour-view.ts';
 
-export type RealmView = ReturnType<typeof readRealm>;
+export type RealmView = Awaited<ReturnType<typeof readRealm>>;
 
 export type BoardView = { realm: RealmView; labours: LabourView[] };
 
 // Never include labourCounter: every Labour created moves it, and no Realm Event announces that.
-export function readRealm(db: Handle, realmId: number) {
-	const { id, name, key, initialStateId } = getRealm(db, realmId);
-	const rows = listStates(db, realmId);
-	const flows = db
+export async function readRealm(db: Handle, realmId: number) {
+	const { id, name, key, initialStateId } = await getRealm(db, realmId);
+	const rows = await listStates(db, realmId);
+	const flows = await db
 		.select()
 		.from(stateFlows)
 		.where(
@@ -22,59 +23,58 @@ export function readRealm(db: Handle, realmId: number) {
 				stateFlows.fromStateId,
 				rows.map((s) => s.id)
 			)
-		)
-		.all();
+		);
 	const targets = new Map<number, Set<number>>();
 	for (const f of flows) {
 		targets.set(f.fromStateId, (targets.get(f.fromStateId) ?? new Set()).add(f.toStateId));
 	}
-	const states = rows.map((state) => ({
+	const states = await mapSeq(rows, async (state) => ({
 		...state,
-		substates: listSubstates(db, state.id),
+		substates: await listSubstates(db, state.id),
 		next: rows.filter((to) => targets.get(state.id)?.has(to.id)).map((to) => to.id)
 	}));
 	return { id, name, key, initialStateId, states };
 }
 
 // Labours come grouped by State and in Rank order within each.
-export function readBoard(db: Handle, realmId: number): BoardView {
+export async function readBoard(db: Handle, realmId: number): Promise<BoardView> {
 	return {
-		realm: readRealm(db, realmId),
-		labours: selectLabourViews(db)
-			.where(eq(labours.realmId, realmId))
-			.orderBy(asc(labours.stateId), asc(labours.rank))
-			.all()
-			.map(toLabourView)
+		realm: await readRealm(db, realmId),
+		labours: (
+			await selectLabourViews(db)
+				.where(eq(labours.realmId, realmId))
+				.orderBy(asc(labours.stateId), asc(labours.rank))
+		).map(toLabourView)
 	};
 }
 
-export function realmEvent(
+export async function realmEvent(
 	db: Handle,
 	type: 'realm.created' | 'realm.updated',
 	realmId: number
-): EventSpec {
-	return { type, data: { realm: readRealm(db, realmId) } };
+): Promise<EventSpec> {
+	return { type, data: { realm: await readRealm(db, realmId) } };
 }
 
-export function stateEvent(
+export async function stateEvent(
 	db: Handle,
 	type: 'state.created' | 'state.updated' | 'state.deleted',
 	realmId: number,
 	stateId: number
-): EventSpec {
-	return { type, data: { realm: readRealm(db, realmId), stateId } };
+): Promise<EventSpec> {
+	return { type, data: { realm: await readRealm(db, realmId), stateId } };
 }
 
-export function substateEvent(
+export async function substateEvent(
 	db: Handle,
 	type: 'substate.created' | 'substate.updated' | 'substate.deleted',
 	substate: { id: number; stateId: number }
-): EventSpec {
-	const { realmId } = getState(db, substate.stateId);
+): Promise<EventSpec> {
+	const { realmId } = await getState(db, substate.stateId);
 	return {
 		type,
 		data: {
-			realm: readRealm(db, realmId),
+			realm: await readRealm(db, realmId),
 			stateId: substate.stateId,
 			substateId: substate.id
 		}

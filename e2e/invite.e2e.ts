@@ -8,7 +8,7 @@ test.describe('invite', () => {
 		page,
 		seed
 	}) => {
-		const { token } = seed.invite();
+		const { token } = await seed.invite();
 		const username = uniqueName('joiner');
 
 		await page.goto(`/invite/${token}`);
@@ -31,7 +31,7 @@ test.describe('invite', () => {
 		seed
 	}) => {
 		const username = uniqueName('again');
-		const { token } = seed.invite();
+		const { token } = await seed.invite();
 		const joined = await postForm(page.request, `/invite/${token}`, {
 			username,
 			displayName: 'Again',
@@ -49,7 +49,7 @@ test.describe('invite', () => {
 	});
 
 	test('a used invite refuses a second POST', async ({ request, seed }) => {
-		const { token } = seed.invite();
+		const { token } = await seed.invite();
 		const first = await postForm(request, `/invite/${token}`, {
 			username: uniqueName('first'),
 			displayName: 'First',
@@ -80,7 +80,7 @@ test.describe('invite', () => {
 	});
 
 	test('a taken username is refused and leaves the invite open', async ({ page, admin, seed }) => {
-		const { token } = seed.invite();
+		const { token } = await seed.invite();
 		await page.goto(`/invite/${token}`);
 		await page.getByLabel('Username').fill(admin.username);
 		await page.getByLabel('Display name').fill('Impostor');
@@ -97,7 +97,7 @@ test.describe('invite', () => {
 	});
 
 	test('a malformed username is refused', async ({ request, seed }) => {
-		const { token } = seed.invite();
+		const { token } = await seed.invite();
 		const response = await postForm(request, `/invite/${token}`, {
 			username: '1 bad name',
 			displayName: 'Bad',
@@ -118,7 +118,7 @@ test.describe('invite', () => {
 				request,
 				seed
 			}) => {
-				const { token } = seed.invite();
+				const { token } = await seed.invite();
 				const response = await postForm(request, `/invite/${token}`, {
 					username: uniqueName('len'),
 					displayName: 'Length',

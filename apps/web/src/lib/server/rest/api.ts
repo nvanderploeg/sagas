@@ -13,6 +13,7 @@ import { listRealms } from '../domain/realms.ts';
 import { readLinks } from '../agent/links.ts';
 import { Presenter } from '../mcp/present.ts';
 import * as refs from '../mcp/refs.ts';
+import { filterAsync } from '#lib/server/async.ts';
 
 export type RestAuth = { user: AuthUser; credential: Credential };
 
@@ -69,9 +70,9 @@ async function parse<S extends z.ZodType>(schema: S, req: RestRequest): Promise<
 }
 
 // A reference inside a request body that names nothing is a bad request, not a missing route.
-function inBody<T>(resolve: () => T): T {
+async function inBody<T>(resolve: () => T | Promise<T>): Promise<T> {
 	try {
-		return resolve();
+		return await resolve();
 	} catch (error) {
 		if (error instanceof DomainError && error.code === 'not_found') {
 			throw new DomainError('invalid', error.message);
@@ -81,9 +82,9 @@ function inBody<T>(resolve: () => T): T {
 }
 
 // A path or query reference that names nothing, or is not shaped like a key, is not found.
-function inPath<T>(resolve: () => T): T {
+async function inPath<T>(resolve: () => T | Promise<T>): Promise<T> {
 	try {
-		return resolve();
+		return await resolve();
 	} catch (error) {
 		if (error instanceof DomainError && error.code === 'invalid') {
 			throw new DomainError('not_found', 'Not found');
@@ -92,8 +93,8 @@ function inPath<T>(resolve: () => T): T {
 	}
 }
 
-function realmJson(present: Presenter, realmId: number) {
-	const realm = present.realm(realmId);
+async function realmJson(present: Presenter, realmId: number) {
+	const realm = await present.realm(realmId);
 	return {
 		id: realm.id,
 		key: realm.key,
@@ -110,8 +111,8 @@ function realmJson(present: Presenter, realmId: number) {
 	};
 }
 
-function labourJson(present: Presenter, view: ReturnType<typeof readLabour>) {
-	const summary = present.labour(view);
+async function labourJson(present: Presenter, view: Awaited<ReturnType<typeof readLabour>>) {
+	const summary = await present.labour(view);
 	return {
 		id: summary.id,
 		key: summary.key,
@@ -131,19 +132,25 @@ function labourJson(present: Presenter, view: ReturnType<typeof readLabour>) {
 	};
 }
 
-function labourDetailJson(db: Db, user: AuthUser, present: Presenter, labourId: number) {
-	const view = readLabour(db, labourId);
-	const detail = present.detail(view);
-	const links = readLinks(db, labourId)
-		.filter((link) => canSeeLabour(db, user, link.from) && canSeeLabour(db, user, link.to))
-		.map((link) => ({
+async function labourDetailJson(db: Db, user: AuthUser, present: Presenter, labourId: number) {
+	const view = await readLabour(db, labourId);
+	const detail = await present.detail(view);
+	const links = await Promise.all(
+		(
+			await filterAsync(
+				await readLinks(db, labourId),
+				async (link) =>
+					(await canSeeLabour(db, user, link.from)) && (await canSeeLabour(db, user, link.to))
+			)
+		).map(async (link) => ({
 			type: link.type,
-			from: refs.labourKey(db, link.from),
-			to: refs.labourKey(db, link.to),
+			from: await refs.labourKey(db, link.from),
+			to: await refs.labourKey(db, link.to),
 			note: link.note
-		}));
+		}))
+	);
 	return {
-		...labourJson(present, view),
+		...(await labourJson(present, view)),
 		description: detail.description,
 		aliases: detail.aliases,
 		createdAt: detail.createdAt,
@@ -164,29 +171,29 @@ function pageParams(query: URLSearchParams): { limit: number; offset: number } {
 	return { limit, offset: Number(rawCursor) };
 }
 
-function listLabours(db: Db, user: AuthUser, present: Presenter, query: URLSearchParams) {
+async function listLabours(db: Db, user: AuthUser, present: Presenter, query: URLSearchParams) {
 	const page = pageParams(query);
 	const realm = query.get('realm');
-	const realmId = realm === null ? undefined : inPath(() => refs.realmId(db, realm, user));
+	const realmId = realm === null ? undefined : await inPath(() => refs.realmId(db, realm, user));
 	const state = query.get('state');
 	if (state !== null && realmId === undefined) {
 		throw new DomainError('invalid', 'state needs realm');
 	}
-	const stateId = state === null ? undefined : inPath(() => refs.stateId(db, realmId, state));
+	const stateId = state === null ? undefined : await inPath(() => refs.stateId(db, realmId, state));
 	const parent = query.get('parent');
-	const result = queryLabours(
+	const result = await queryLabours(
 		db,
 		{
-			realms: visibleRealmIds(db, user) ?? undefined,
+			realms: (await visibleRealmIds(db, user)) ?? undefined,
 			realmId,
 			stateId,
-			parentId: parent === null ? undefined : inPath(() => refs.labourId(db, parent, user))
+			parentId: parent === null ? undefined : await inPath(() => refs.labourId(db, parent, user))
 		},
 		page
 	);
 	const end = page.offset + result.labours.length;
 	return {
-		labours: result.labours.map((view) => labourJson(present, view)),
+		labours: await Promise.all(result.labours.map((view) => labourJson(present, view))),
 		total: result.total,
 		nextCursor: end < result.total ? String(end) : null
 	};
@@ -200,23 +207,23 @@ async function patchLabour(
 	req: RestRequest
 ) {
 	const body = await parse(patchBody, req);
-	const current = getLabour(db, id);
+	const current = await getLabour(db, id);
 	const stateId =
 		body.state === undefined
 			? undefined
-			: inBody(() => refs.stateId(db, current.realmId, body.state!));
-	updateLabour(db, user, id, {
+			: await inBody(() => refs.stateId(db, current.realmId, body.state!));
+	await updateLabour(db, user, id, {
 		title: body.title,
 		description: body.description,
 		assigneeId:
 			body.assignee == null
 				? (body.assignee as null | undefined)
-				: inBody(() => refs.userId(db, body.assignee!, user)),
+				: await inBody(() => refs.userId(db, body.assignee!, user)),
 		stateId,
 		substateId:
 			body.substate == null
 				? (body.substate as null | undefined)
-				: inBody(() => refs.substateId(db, stateId ?? current.stateId, body.substate!)),
+				: await inBody(() => refs.substateId(db, stateId ?? current.stateId, body.substate!)),
 		labels: body.labels
 	});
 	return labourDetailJson(db, user, present, id);
@@ -233,29 +240,29 @@ async function route(db: Db, auth: RestAuth, req: RestRequest): Promise<Response
 	if (resource === 'realms' && sub === undefined) {
 		if (req.method !== 'GET') return methodNotAllowed();
 		if (key === undefined) {
-			const visible = visibleRealmIds(db, user);
+			const visible = await visibleRealmIds(db, user);
 			return ok({
-				realms: listRealms(db)
-					.filter((realm) => visible === null || visible.includes(realm.id))
-					.map((realm) => realmJson(present, realm.id))
+				realms: await Promise.all(
+					(await listRealms(db))
+						.filter((realm) => visible === null || visible.includes(realm.id))
+						.map((realm) => realmJson(present, realm.id))
+				)
 			});
 		}
 		return ok({
-			realm: realmJson(
-				present,
-				inPath(() => refs.realmId(db, key, user))
-			)
+			realm: await realmJson(present, await inPath(() => refs.realmId(db, key, user)))
 		});
 	}
 
 	if (resource === 'labours') {
 		if (key === undefined) {
 			if (req.method !== 'GET') return methodNotAllowed();
-			return ok(listLabours(db, user, present, req.query));
+			return ok(await listLabours(db, user, present, req.query));
 		}
-		const id = inPath(() => refs.labourId(db, key, user));
+		const id = await inPath(() => refs.labourId(db, key, user));
 		if (sub === undefined) {
-			if (req.method === 'GET') return ok({ labour: labourDetailJson(db, user, present, id) });
+			if (req.method === 'GET')
+				return ok({ labour: await labourDetailJson(db, user, present, id) });
 			if (req.method === 'PATCH') {
 				return ok({ labour: await patchLabour(db, user, present, id, req) });
 			}
@@ -263,11 +270,13 @@ async function route(db: Db, auth: RestAuth, req: RestRequest): Promise<Response
 		}
 		if (sub === 'comments') {
 			if (req.method === 'GET') {
-				return ok({ comments: listComments(db, id).map((c) => present.comment(c)) });
+				return ok({
+					comments: await Promise.all((await listComments(db, id)).map((c) => present.comment(c)))
+				});
 			}
 			if (req.method === 'POST') {
 				const { body } = await parse(commentBody, req);
-				return ok({ comment: present.comment(addComment(db, user, id, body)) }, 201);
+				return ok({ comment: await present.comment(await addComment(db, user, id, body)) }, 201);
 			}
 			return methodNotAllowed();
 		}

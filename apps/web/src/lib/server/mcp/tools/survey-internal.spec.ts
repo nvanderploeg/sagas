@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { seedHuman } from '#lib/server/auth/fixtures.ts';
 import type { AuthUser } from '#lib/server/auth/users.ts';
 import type { Db } from '#lib/server/db/client.ts';
@@ -13,15 +13,11 @@ let db: Db;
 let registry: Registry;
 let user: AuthUser;
 
-beforeEach(() => {
-	db = testDb();
-	user = seedHuman(db, 'ada');
+beforeEach(async () => {
+	db = await testDb();
+	user = await seedHuman(db, 'ada');
 	registry = toolRegistry(db, user, 'http://sagas.test');
 	registerSurveyTools(registry.tools);
-});
-
-afterEach(() => {
-	db.$client.close();
 });
 
 async function call(args: Record<string, unknown>) {
@@ -41,10 +37,10 @@ describe('survey tool', () => {
 	});
 
 	it('resolves refs, scores, and answers with keys and usernames', async () => {
-		const am = seedRealm(db, 'AM');
-		const bm = seedRealm(db, 'BM');
-		const first = seedLabour(db, { realmId: am.id, title: 'First', assigneeId: user.id });
-		seedLabour(db, { realmId: bm.id, title: 'Second' });
+		const am = await seedRealm(db, 'AM');
+		const bm = await seedRealm(db, 'BM');
+		const first = await seedLabour(db, { realmId: am.id, title: 'First', assigneeId: user.id });
+		await seedLabour(db, { realmId: bm.id, title: 'Second' });
 
 		const result = await call({
 			realm: ['am', bm.id],
@@ -76,14 +72,16 @@ describe('survey tool', () => {
 				values: {}
 			}
 		]);
-		const stored = db.select().from(surveys).where(eq(surveys.id, result.data.survey)).get()!;
+		const stored = (
+			await db.select().from(surveys).where(eq(surveys.id, result.data.survey)).limit(1)
+		)[0]!;
 		expect(stored.actorId).toBe(user.id);
 		expect(stored.forId).toBe(user.id);
 	});
 
 	it('maps include_closed and null assignee, and refuses unknown arguments', async () => {
-		const am = seedRealm(db, 'AM');
-		seedLabour(db, { realmId: am.id });
+		const am = await seedRealm(db, 'AM');
+		await seedLabour(db, { realmId: am.id });
 		const ok = await call({
 			weights: { age: 1 },
 			filter: { include_closed: { within_days: 5 }, assignee: [null], quest: 99 }
@@ -109,7 +107,7 @@ describe('survey tool', () => {
 	});
 
 	it('refuses lists past their caps as invalid before resolving any ref', async () => {
-		seedLabour(db, { realmId: seedRealm(db, 'AM').id });
+		await seedLabour(db, { realmId: (await seedRealm(db, 'AM')).id });
 		const many = (size: number, item: (i: number) => unknown) =>
 			Array.from({ length: size }, (_, i) => item(i));
 		for (const args of [

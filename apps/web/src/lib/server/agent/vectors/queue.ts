@@ -2,6 +2,7 @@ import type { Db, Handle } from '../../db/client.ts';
 import { MODEL_ID, type Embedder } from './embedder.ts';
 import { refreshEmbeddingInput } from './input.ts';
 import { scanCurrent, statusAmong, writeVector } from './vectors.ts';
+import { transact } from '#lib/server/db/tx.ts';
 
 export type EmbeddingQueue = {
 	enqueue(labourId: number): void;
@@ -43,15 +44,15 @@ export function createEmbeddingQueue(
 
 	// Resolves true when it stored a vector.
 	async function embedOne(labourId: number): Promise<boolean> {
-		const job = db.transaction((tx) => {
-			const refreshed = refreshEmbeddingInput(tx, labourId);
+		const job = await transact(db, async (tx) => {
+			const refreshed = await refreshEmbeddingInput(tx, labourId);
 			if (refreshed === undefined) return undefined;
-			const status = statusAmong(tx, JSON.stringify([labourId]), embedder.model);
+			const status = await statusAmong(tx, [labourId], embedder.model);
 			return status.get(labourId) === 'current' ? undefined : refreshed;
 		});
 		if (job === undefined) return false;
 		const vector = await embedder.embedDocument(job.input);
-		writeVector(db, labourId, embedder.model, job.hash, vector);
+		await writeVector(db, labourId, embedder.model, job.hash, vector);
 		return true;
 	}
 
@@ -130,7 +131,7 @@ export async function enqueueStale(db: Handle, queue: EmbeddingQueue): Promise<n
 	let count = 0;
 	let after = 0;
 	for (;;) {
-		const rows = scanCurrent(db, model, after, SCAN_CHUNK);
+		const rows = await scanCurrent(db, model, after, SCAN_CHUNK);
 		if (rows.length === 0) return count;
 		for (const row of rows) {
 			if (row.current) continue;

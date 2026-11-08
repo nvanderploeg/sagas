@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import pg from 'pg';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { appraise } from '#lib/server/agent/appraisals.ts';
 import { survey } from '#lib/server/agent/survey/index.ts';
 import { FEATURES } from '#lib/server/agent/survey/features/index.ts';
@@ -12,13 +13,9 @@ import { seedActor, seedLabour, seedRealm } from '#lib/server/test/fixtures.ts';
 let db: Db;
 let actor: Actor;
 
-beforeEach(() => {
-	db = testDb();
-	actor = seedActor(db);
-});
-
-afterEach(() => {
-	db.$client.close();
+beforeEach(async () => {
+	db = await testDb();
+	actor = await seedActor(db);
 });
 
 const NOW = new Date('2026-03-01T12:00:00.000Z');
@@ -26,75 +23,55 @@ const NOW = new Date('2026-03-01T12:00:00.000Z');
 // A loader reads only rows tied to the candidates: a scan of one of these reads every row.
 const GUARDED = ['mentions', 'comments', 'links', 'quest_labours'];
 
-type Captured = { source: string; args: unknown[] };
+type Captured = { source: string };
 
-function capture(run: () => void): Captured[] {
-	const client = db.$client;
-	const prepare = client.prepare.bind(client);
-	const seen: Captured[] = [];
-	client.prepare = ((source: string) => {
-		const statement = prepare(source);
-		return new Proxy(statement, {
-			get(target, key) {
-				const value = Reflect.get(target, key, target);
-				if (typeof value !== 'function') return value;
-				const bound = value.bind(target);
-				if (key !== 'all' && key !== 'get' && key !== 'run' && key !== 'iterate') return bound;
-				return (...args: unknown[]) => {
-					seen.push({ source, args });
-					return bound(...args);
-				};
-			}
-		});
-	}) as typeof client.prepare;
+// The SELECTs the pool's clients send while `run` runs.
+async function capture(run: () => Promise<unknown>): Promise<Captured[]> {
+	const spy = vi.spyOn(pg.Client.prototype, 'query');
 	try {
-		run();
+		await run();
+		return spy.mock.calls.flatMap(([first]) => {
+			const source = typeof first === 'string' ? first : (first as { text?: string })?.text;
+			return source !== undefined && /^\s*(select|with)\b/i.test(source) ? [{ source }] : [];
+		});
 	} finally {
-		client.prepare = prepare;
+		spy.mockRestore();
 	}
-	return seen;
 }
 
-const SQL_WORDS = new Set([
-	'on',
-	'where',
-	'join',
-	'cross',
-	'left',
-	'inner',
-	'group',
-	'order',
-	'limit',
-	'using'
-]);
+type PlanNode = { 'Node Type': string; 'Relation Name'?: string; Plans?: PlanNode[] };
 
-// Alias to table for every table a statement names, so `SCAN m` reads as `mentions`.
-function tablesOf(source: string): Map<string, string> {
-	const tables = new Map<string, string>();
-	for (const m of source.matchAll(/\b(?:from|join)\s+"?(\w+)"?(?:\s+(?:as\s+)?"?(\w+)"?)?/gi)) {
-		tables.set(m[1], m[1]);
-		if (m[2] && !SQL_WORDS.has(m[2].toLowerCase())) tables.set(m[2], m[1]);
+function seqScans(node: PlanNode): string[] {
+	const own =
+		node['Node Type'] === 'Seq Scan' && node['Relation Name'] !== undefined
+			? [node['Relation Name']]
+			: [];
+	return [...own, ...(node.Plans ?? []).flatMap(seqScans)];
+}
+
+// With sequential scans priced out, one left in the generic plan has no index to use.
+async function scans({ source }: Captured): Promise<string[]> {
+	const client = await db.$client.connect();
+	try {
+		await client.query('BEGIN');
+		await client.query('SET LOCAL enable_seqscan = off');
+		const { rows } = await client.query<{ 'QUERY PLAN': { Plan: PlanNode }[] }>(
+			`EXPLAIN (GENERIC_PLAN, FORMAT JSON) ${source}`
+		);
+		return seqScans(rows[0]['QUERY PLAN'][0].Plan).filter((table) => GUARDED.includes(table));
+	} finally {
+		await client.query('ROLLBACK');
+		client.release();
 	}
-	return tables;
 }
 
-function scans({ source, args }: Captured): string[] {
-	const tables = tablesOf(source);
-	const plan = db.$client.prepare(`EXPLAIN QUERY PLAN ${source}`).all(...args) as {
-		detail: string;
-	}[];
-	return plan
-		.map((row) => /^SCAN "?(\w+)"?/.exec(row.detail)?.[1])
-		.filter((name): name is string => name !== undefined)
-		.map((name) => tables.get(name) ?? name)
-		.filter((table) => GUARDED.includes(table));
-}
-
-function seed() {
-	const realm = seedRealm(db, 'AM');
-	const labours = [1, 2, 3].map((n) => seedLabour(db, { realmId: realm.id, title: `Labour ${n}` }));
+async function seed() {
+	const realm = await seedRealm(db, 'AM');
+	const labours = await Promise.all(
+		[1, 2, 3].map((n) => seedLabour(db, { realmId: realm.id, title: `Labour ${n}` }))
+	);
 	const [a, b, c] = labours;
-	appraise(db, actor, [
+	await appraise(db, actor, [
 		{
 			labourId: a.id,
 			links: [
@@ -103,25 +80,25 @@ function seed() {
 			]
 		}
 	]);
-	addComment(db, actor, b.id, `see ${a.key}`);
-	const quest = createQuest(db, actor, { realmId: realm.id, name: 'Q', ownerId: actor.id });
-	addQuestLabours(db, actor, quest.id, [a.id, b.id, c.id]);
+	await addComment(db, actor, b.id, `see ${a.key}`);
+	const quest = await createQuest(db, actor, { realmId: realm.id, name: 'Q', ownerId: actor.id });
+	await addQuestLabours(db, actor, quest.id, [a.id, b.id, c.id]);
 }
 
 describe('Survey loaders', () => {
 	it.each(Object.values(FEATURES).map((feature) => [feature.name, feature.needsQuery ?? false]))(
 		'%s reads no whole table',
-		(name, needsQuery) => {
-			seed();
-			const statements = capture(() => {
-				survey(
+		async (name, needsQuery) => {
+			await seed();
+			const statements = await capture(async () => {
+				await survey(
 					db,
 					actor,
 					{ weights: { [name as string]: 1 }, query: needsQuery ? 'labour' : undefined },
 					{ now: NOW }
 				);
 			});
-			expect(statements.flatMap(scans)).toEqual([]);
+			expect((await Promise.all(statements.map(scans))).flat()).toEqual([]);
 		}
 	);
 });

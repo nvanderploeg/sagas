@@ -18,6 +18,7 @@ import {
 	generateSecret,
 	hashSecret
 } from './secrets.ts';
+import { transact } from '#lib/server/db/tx.ts';
 
 export const OAUTH_REDIRECT_URIS = [
 	'https://claude.ai/api/mcp/auth_callback',
@@ -84,11 +85,11 @@ function toClient(row: ClientRow): OAuthClient {
 	};
 }
 
-export function registerClient(
+export async function registerClient(
 	db: Db,
 	input: { name?: unknown; redirectUris: unknown; authMethod?: unknown },
 	now = new Date()
-): { client: OAuthClient; clientSecret: string | null } {
+): Promise<{ client: OAuthClient; clientSecret: string | null }> {
 	const { redirectUris } = input;
 	if (
 		!Array.isArray(redirectUris) ||
@@ -123,36 +124,37 @@ export function registerClient(
 	const method = authMethod as ClientAuthMethod;
 
 	const clientSecret = method === 'none' ? null : generateSecret(OAUTH_CLIENT_SECRET_PREFIX);
-	const row = db
-		.insert(oauthClients)
-		.values({
-			id: generateSecret(OAUTH_CLIENT_PREFIX),
-			name,
-			redirectUris: JSON.stringify([...new Set(redirectUris as string[])]),
-			authMethod: method,
-			secretHash: clientSecret === null ? null : hashSecret(clientSecret),
-			createdAt: now
-		})
-		.returning()
-		.get();
+	const row = (
+		await db
+			.insert(oauthClients)
+			.values({
+				id: generateSecret(OAUTH_CLIENT_PREFIX),
+				name,
+				redirectUris: JSON.stringify([...new Set(redirectUris as string[])]),
+				authMethod: method,
+				secretHash: clientSecret === null ? null : hashSecret(clientSecret),
+				createdAt: now
+			})
+			.returning()
+	)[0];
 	return { client: toClient(row), clientSecret };
 }
 
-function findClientRow(db: Handle, clientId: string): ClientRow | undefined {
-	return db.select().from(oauthClients).where(eq(oauthClients.id, clientId)).get();
+async function findClientRow(db: Handle, clientId: string): Promise<ClientRow | undefined> {
+	return (await db.select().from(oauthClients).where(eq(oauthClients.id, clientId)).limit(1))[0];
 }
 
-export function getClient(db: Handle, clientId: string): OAuthClient | null {
-	const row = findClientRow(db, clientId);
+export async function getClient(db: Handle, clientId: string): Promise<OAuthClient | null> {
+	const row = await findClientRow(db, clientId);
 	return row ? toClient(row) : null;
 }
 
-export function authenticateClient(
+export async function authenticateClient(
 	db: Handle,
 	clientId: string,
 	secret: string | null
-): OAuthClient {
-	const row = findClientRow(db, clientId);
+): Promise<OAuthClient> {
+	const row = await findClientRow(db, clientId);
 	if (!row) throw new OAuthError('invalid_client', 'Unknown client');
 	if (row.authMethod !== 'none') {
 		if (secret === null || row.secretHash !== hashSecret(secret)) {
@@ -162,7 +164,7 @@ export function authenticateClient(
 	return toClient(row);
 }
 
-export function issueCode(
+export async function issueCode(
 	db: Db,
 	input: {
 		clientId: string;
@@ -172,8 +174,8 @@ export function issueCode(
 		codeChallengeMethod: string;
 	},
 	now = new Date()
-): string {
-	const client = getClient(db, input.clientId);
+): Promise<string> {
+	const client = await getClient(db, input.clientId);
 	if (!client) throw new OAuthError('invalid_client', 'Unknown client');
 	if (!client.redirectUris.includes(input.redirectUri)) {
 		throw new OAuthError('invalid_redirect_uri', 'redirect_uri is not registered for this client');
@@ -185,17 +187,15 @@ export function issueCode(
 		throw new OAuthError('invalid_request', 'code_challenge is not a valid S256 challenge');
 	}
 	const code = generateSecret(OAUTH_CODE_PREFIX);
-	db.insert(oauthCodes)
-		.values({
-			codeHash: hashSecret(code),
-			clientId: client.clientId,
-			userId: input.userId,
-			redirectUri: input.redirectUri,
-			codeChallenge: input.codeChallenge,
-			createdAt: now,
-			expiresAt: new Date(now.getTime() + AUTHORIZATION_CODE_TTL_MS)
-		})
-		.run();
+	await db.insert(oauthCodes).values({
+		codeHash: hashSecret(code),
+		clientId: client.clientId,
+		userId: input.userId,
+		redirectUri: input.redirectUri,
+		codeChallenge: input.codeChallenge,
+		createdAt: now,
+		expiresAt: new Date(now.getTime() + AUTHORIZATION_CODE_TTL_MS)
+	});
 	return code;
 }
 
@@ -208,32 +208,36 @@ function tokenSet(accessToken: string, refreshToken: string): TokenSet {
 	};
 }
 
-function insertRefreshToken(db: Handle, grantId: number, now: Date): string {
+async function insertRefreshToken(db: Handle, grantId: number, now: Date): Promise<string> {
 	const token = generateSecret(OAUTH_REFRESH_PREFIX);
-	db.insert(oauthRefreshTokens)
-		.values({
-			tokenHash: hashSecret(token),
-			grantId,
-			createdAt: now,
-			expiresAt: new Date(now.getTime() + REFRESH_TOKEN_TTL_MS)
-		})
-		.run();
+	await db.insert(oauthRefreshTokens).values({
+		tokenHash: hashSecret(token),
+		grantId,
+		createdAt: now,
+		expiresAt: new Date(now.getTime() + REFRESH_TOKEN_TTL_MS)
+	});
 	return token;
 }
 
 // Returns the access-token hash it ended, or null when that token was already dead.
-export function revokeGrantRows(db: Handle, grantId: number, now: Date): string | null {
-	db.update(oauthGrants)
+export async function revokeGrantRows(
+	db: Handle,
+	grantId: number,
+	now: Date
+): Promise<string | null> {
+	await db
+		.update(oauthGrants)
 		.set({ revokedAt: now })
-		.where(and(eq(oauthGrants.id, grantId), isNull(oauthGrants.revokedAt)))
-		.run();
-	const token = db
-		.select({ id: apiTokens.id, tokenHash: apiTokens.tokenHash })
-		.from(apiTokens)
-		.where(and(eq(apiTokens.grantId, grantId), isNull(apiTokens.revokedAt)))
-		.get();
+		.where(and(eq(oauthGrants.id, grantId), isNull(oauthGrants.revokedAt)));
+	const token = (
+		await db
+			.select({ id: apiTokens.id, tokenHash: apiTokens.tokenHash })
+			.from(apiTokens)
+			.where(and(eq(apiTokens.grantId, grantId), isNull(apiTokens.revokedAt)))
+			.limit(1)
+	)[0];
 	if (!token) return null;
-	db.update(apiTokens).set({ revokedAt: now }).where(eq(apiTokens.id, token.id)).run();
+	await db.update(apiTokens).set({ revokedAt: now }).where(eq(apiTokens.id, token.id));
 	return token.tokenHash;
 }
 
@@ -256,27 +260,30 @@ function settle(outcome: Exchange): TokenSet {
 	throw outcome.error;
 }
 
-export function exchangeCode(
+export async function exchangeCode(
 	db: Db,
 	input: { client: OAuthClient; code: string; redirectUri: string; codeVerifier: string },
 	now = new Date()
-): TokenSet {
+): Promise<TokenSet> {
 	if (!/^[A-Za-z0-9._~-]{43,128}$/.test(input.codeVerifier)) {
 		throw new OAuthError('invalid_request', 'code_verifier is not a valid PKCE verifier');
 	}
 
 	return settle(
-		db.transaction((tx): Exchange => {
-			const code = tx
-				.select()
-				.from(oauthCodes)
-				.where(eq(oauthCodes.codeHash, hashSecret(input.code)))
-				.get();
+		await transact(db, async (tx): Promise<Exchange> => {
+			const code = (
+				await tx
+					.select()
+					.from(oauthCodes)
+					.where(eq(oauthCodes.codeHash, hashSecret(input.code)))
+					.limit(1)
+			)[0];
 			if (!code || code.clientId !== input.client.clientId) {
 				return invalidGrant('Authorization code is invalid');
 			}
 			if (code.usedAt !== null) {
-				const revokedHash = code.grantId === null ? null : revokeGrantRows(tx, code.grantId, now);
+				const revokedHash =
+					code.grantId === null ? null : await revokeGrantRows(tx, code.grantId, now);
 				return { ...invalidGrant('Authorization code was already used'), revokedHash };
 			}
 			if (code.expiresAt.getTime() <= now.getTime()) {
@@ -290,82 +297,88 @@ export function exchangeCode(
 				return invalidGrant('code_verifier does not match the code_challenge');
 			}
 
-			const grant = tx
-				.insert(oauthGrants)
-				.values({ clientId: code.clientId, userId: code.userId, createdAt: now })
-				.returning({ id: oauthGrants.id })
-				.get();
-			tx.update(oauthClients)
+			const grant = (
+				await tx
+					.insert(oauthGrants)
+					.values({ clientId: code.clientId, userId: code.userId, createdAt: now })
+					.returning({ id: oauthGrants.id })
+			)[0];
+			await tx
+				.update(oauthClients)
 				.set({ grantedAt: now })
-				.where(and(eq(oauthClients.id, code.clientId), isNull(oauthClients.grantedAt)))
-				.run();
-			tx.update(oauthCodes)
+				.where(and(eq(oauthClients.id, code.clientId), isNull(oauthClients.grantedAt)));
+			await tx
+				.update(oauthCodes)
 				.set({ usedAt: now, grantId: grant.id })
-				.where(eq(oauthCodes.codeHash, code.codeHash))
-				.run();
+				.where(eq(oauthCodes.codeHash, code.codeHash));
 			const accessToken = generateSecret(API_TOKEN_PREFIX);
-			tx.insert(apiTokens)
-				.values({
-					userId: code.userId,
-					name: `${input.client.name} (OAuth)`,
-					tokenHash: hashSecret(accessToken),
-					createdAt: now,
-					expiresAt: new Date(now.getTime() + ACCESS_TOKEN_TTL_MS),
-					grantId: grant.id
-				})
-				.run();
-			return { ok: true, tokens: tokenSet(accessToken, insertRefreshToken(tx, grant.id, now)) };
+			await tx.insert(apiTokens).values({
+				userId: code.userId,
+				name: `${input.client.name} (OAuth)`,
+				tokenHash: hashSecret(accessToken),
+				createdAt: now,
+				expiresAt: new Date(now.getTime() + ACCESS_TOKEN_TTL_MS),
+				grantId: grant.id
+			});
+			return {
+				ok: true,
+				tokens: tokenSet(accessToken, await insertRefreshToken(tx, grant.id, now))
+			};
 		})
 	);
 }
 
-export function refreshGrant(
+export async function refreshGrant(
 	db: Db,
 	input: { client: OAuthClient; refreshToken: string },
 	now = new Date()
-): TokenSet {
+): Promise<TokenSet> {
 	let replaced: string | null = null;
 
 	const tokens = settle(
-		db.transaction((tx): Exchange => {
-			const row = tx
-				.select({ refresh: oauthRefreshTokens, grant: oauthGrants })
-				.from(oauthRefreshTokens)
-				.innerJoin(oauthGrants, eq(oauthGrants.id, oauthRefreshTokens.grantId))
-				.where(eq(oauthRefreshTokens.tokenHash, hashSecret(input.refreshToken)))
-				.get();
+		await transact(db, async (tx): Promise<Exchange> => {
+			const row = (
+				await tx
+					.select({ refresh: oauthRefreshTokens, grant: oauthGrants })
+					.from(oauthRefreshTokens)
+					.innerJoin(oauthGrants, eq(oauthGrants.id, oauthRefreshTokens.grantId))
+					.where(eq(oauthRefreshTokens.tokenHash, hashSecret(input.refreshToken)))
+					.limit(1)
+			)[0];
 			if (!row || row.grant.clientId !== input.client.clientId) {
 				return invalidGrant('Refresh token is invalid');
 			}
 			if (row.grant.revokedAt !== null) return invalidGrant('Refresh token was revoked');
 			if (row.refresh.usedAt !== null) {
-				const revokedHash = revokeGrantRows(tx, row.grant.id, now);
+				const revokedHash = await revokeGrantRows(tx, row.grant.id, now);
 				return { ...invalidGrant('Refresh token was already used'), revokedHash };
 			}
 			if (row.refresh.expiresAt.getTime() <= now.getTime()) {
 				return invalidGrant('Refresh token has expired');
 			}
 
-			const access = tx
-				.select({ id: apiTokens.id, tokenHash: apiTokens.tokenHash })
-				.from(apiTokens)
-				.where(eq(apiTokens.grantId, row.grant.id))
-				.get();
+			const access = (
+				await tx
+					.select({ id: apiTokens.id, tokenHash: apiTokens.tokenHash })
+					.from(apiTokens)
+					.where(eq(apiTokens.grantId, row.grant.id))
+					.limit(1)
+			)[0];
 			if (!access) return invalidGrant('Refresh token is invalid');
 
-			tx.update(oauthRefreshTokens)
+			await tx
+				.update(oauthRefreshTokens)
 				.set({ usedAt: now })
-				.where(eq(oauthRefreshTokens.tokenHash, row.refresh.tokenHash))
-				.run();
-			const refreshToken = insertRefreshToken(tx, row.grant.id, now);
+				.where(eq(oauthRefreshTokens.tokenHash, row.refresh.tokenHash));
+			const refreshToken = await insertRefreshToken(tx, row.grant.id, now);
 			const accessToken = generateSecret(API_TOKEN_PREFIX);
-			tx.update(apiTokens)
+			await tx
+				.update(apiTokens)
 				.set({
 					tokenHash: hashSecret(accessToken),
 					expiresAt: new Date(now.getTime() + ACCESS_TOKEN_TTL_MS)
 				})
-				.where(eq(apiTokens.id, access.id))
-				.run();
+				.where(eq(apiTokens.id, access.id));
 			replaced = access.tokenHash;
 			return { ok: true, tokens: tokenSet(accessToken, refreshToken) };
 		})
@@ -374,51 +387,49 @@ export function refreshGrant(
 	return tokens;
 }
 
-export function revokeGrant(db: Db, grantId: number, now = new Date()): void {
-	announceAccessToken(db.transaction((tx) => revokeGrantRows(tx, grantId, now)));
+export async function revokeGrant(db: Db, grantId: number, now = new Date()): Promise<void> {
+	announceAccessToken(await transact(db, (tx) => revokeGrantRows(tx, grantId, now)));
 }
 
-export function pruneOAuth(db: Db, now = new Date()): void {
+export async function pruneOAuth(db: Db, now = new Date()): Promise<void> {
 	const at = now.getTime();
 	const dayAgo = new Date(at - DAY_MS);
-	db.transaction((tx) => {
-		tx.delete(oauthCodes).where(lte(oauthCodes.expiresAt, now)).run();
+	await transact(db, async (tx) => {
+		await tx.delete(oauthCodes).where(lte(oauthCodes.expiresAt, now));
 		// Keep before the refresh-token delete: the expiry test reads those rows.
-		tx.delete(oauthGrants)
-			.where(
-				or(
-					sql`${oauthGrants.revokedAt} IS NOT NULL`,
-					sql`NOT EXISTS (
+		await tx.delete(oauthGrants).where(
+			or(
+				sql`${oauthGrants.revokedAt} IS NOT NULL`,
+				sql`NOT EXISTS (
 						SELECT 1 FROM oauth_refresh_tokens r
 						WHERE r.grant_id = oauth_grants.id AND r.expires_at > ${at}
 					)`
-				)
 			)
-			.run();
-		tx.delete(oauthRefreshTokens)
-			.where(or(lte(oauthRefreshTokens.expiresAt, now), lt(oauthRefreshTokens.usedAt, dayAgo)))
-			.run();
-		tx.delete(oauthClients)
+		);
+		await tx
+			.delete(oauthRefreshTokens)
+			.where(or(lte(oauthRefreshTokens.expiresAt, now), lt(oauthRefreshTokens.usedAt, dayAgo)));
+		await tx
+			.delete(oauthClients)
 			.where(
 				and(
 					lt(oauthClients.createdAt, dayAgo),
 					isNull(oauthClients.grantedAt),
 					sql`NOT EXISTS (SELECT 1 FROM oauth_grants g WHERE g.client_id = oauth_clients.id)`
 				)
-			)
-			.run();
+			);
 	});
 }
 
-export function scheduleOAuthPruning(db: Db, everyMs = 60 * 60 * 1000): () => void {
-	const prune = () => {
+export async function scheduleOAuthPruning(db: Db, everyMs = 60 * 60 * 1000): Promise<() => void> {
+	const prune = async () => {
 		try {
-			pruneOAuth(db);
+			await pruneOAuth(db);
 		} catch (error) {
 			console.error('sagas OAuth pruning failed', error);
 		}
 	};
-	prune();
+	await prune();
 	const timer = setInterval(prune, everyMs);
 	timer.unref();
 	return () => clearInterval(timer);

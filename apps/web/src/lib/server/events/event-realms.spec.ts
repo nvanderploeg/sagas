@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { eventRealms } from '#lib/server/db/schema.ts';
 import { addQuestLabour, createQuest } from '#lib/server/domain/quests.ts';
@@ -11,17 +11,13 @@ import { eventRealmIds, eventsSince, pruneEvents } from './log.ts';
 
 let db: Db;
 
-beforeEach(() => {
-	db = testDb();
+beforeEach(async () => {
+	db = await testDb();
 });
 
-afterEach(() => {
-	db.$client.close();
-});
-
-function record(spec: EventSpec): number[] {
-	write(db, seedActor(db), () => ({ value: null, events: [spec] }));
-	return eventRealmIds(db, eventsSince(db, 0).at(-1)!.seq);
+async function record(spec: EventSpec): Promise<number[]> {
+	await write(db, await seedActor(db), () => ({ value: null, events: [spec] }));
+	return eventRealmIds(db, (await eventsSince(db, 0)).at(-1)!.seq);
 }
 
 // Only the fields the rules read are filled in.
@@ -30,10 +26,10 @@ function spec<K extends EventType>(type: K, data: unknown, realms?: number[]): E
 }
 
 describe('Realms an Event touches', () => {
-	it('covers every Event type', () => {
-		const a = seedRealm(db, 'AM').id;
-		const b = seedRealm(db, 'BM').id;
-		const labour = seedLabour(db, { realmId: a });
+	it('covers every Event type', async () => {
+		const a = (await seedRealm(db, 'AM')).id;
+		const b = (await seedRealm(db, 'BM')).id;
+		const labour = await seedLabour(db, { realmId: a });
 		const scrollView = { realmId: b };
 		const cases: Record<EventType, [EventSpec, number[]]> = {
 			'realm.created': [spec('realm.created', { realm: { id: a } }), [a]],
@@ -81,63 +77,62 @@ describe('Realms an Event touches', () => {
 
 		expect(Object.keys(cases).sort()).toEqual([...EVENT_TYPES].sort());
 		for (const [type, [event, realms]] of Object.entries(cases)) {
-			expect([type, record(event)]).toEqual([type, realms]);
+			expect([type, await record(event)]).toEqual([type, realms]);
 		}
 	});
 
-	it('uses an explicit realms list in place of the derived one', () => {
-		const a = seedRealm(db, 'AM').id;
-		const b = seedRealm(db, 'BM').id;
+	it('uses an explicit realms list in place of the derived one', async () => {
+		const a = (await seedRealm(db, 'AM')).id;
+		const b = (await seedRealm(db, 'BM')).id;
 
-		expect(record(spec('quest.labours_removed', { quest: {}, labourIds: [999] }, [b, a]))).toEqual([
-			a,
-			b
-		]);
+		expect(
+			await record(spec('quest.labours_removed', { quest: {}, labourIds: [999] }, [b, a]))
+		).toEqual([a, b]);
 	});
 
-	it('records a moved Labour in both Realms', () => {
-		const a = seedRealm(db, 'AM').id;
-		const b = seedRealm(db, 'BM').id;
-		const labour = seedLabour(db, { realmId: a });
+	it('records a moved Labour in both Realms', async () => {
+		const a = (await seedRealm(db, 'AM')).id;
+		const b = (await seedRealm(db, 'BM')).id;
+		const labour = await seedLabour(db, { realmId: a });
 
-		moveLabour(db, seedActor(db), labour.id, { realmId: b });
+		await moveLabour(db, await seedActor(db), labour.id, { realmId: b });
 
-		const moved = eventsSince(db, 0).find((e) => e.type === 'labour.moved')!;
-		expect(eventRealmIds(db, moved.seq)).toEqual([a, b]);
+		const moved = (await eventsSince(db, 0)).find((e) => e.type === 'labour.moved')!;
+		expect(await eventRealmIds(db, moved.seq)).toEqual([a, b]);
 	});
 
-	it('records the Realm of a Labour deleted in the same write', () => {
-		const a = seedRealm(db, 'AM').id;
-		const b = seedRealm(db, 'BM').id;
-		const actor = seedActor(db);
-		const quest = createQuest(db, actor, { realmId: a, name: 'Q', ownerId: actor.id });
-		const labour = seedLabour(db, { realmId: b });
-		addQuestLabour(db, actor, quest.id, labour.id);
+	it('records the Realm of a Labour deleted in the same write', async () => {
+		const a = (await seedRealm(db, 'AM')).id;
+		const b = (await seedRealm(db, 'BM')).id;
+		const actor = await seedActor(db);
+		const quest = await createQuest(db, actor, { realmId: a, name: 'Q', ownerId: actor.id });
+		const labour = await seedLabour(db, { realmId: b });
+		await addQuestLabour(db, actor, quest.id, labour.id);
 
-		deleteLabour(db, actor, labour.id);
+		await deleteLabour(db, actor, labour.id);
 
-		const removed = eventsSince(db, 0).find((e) => e.type === 'quest.labours_removed')!;
-		expect(eventRealmIds(db, removed.seq)).toEqual([b]);
-		const deleted = eventsSince(db, 0).find((e) => e.type === 'labour.deleted')!;
-		expect(eventRealmIds(db, deleted.seq)).toEqual([b]);
+		const removed = (await eventsSince(db, 0)).find((e) => e.type === 'quest.labours_removed')!;
+		expect(await eventRealmIds(db, removed.seq)).toEqual([b]);
+		const deleted = (await eventsSince(db, 0)).find((e) => e.type === 'labour.deleted')!;
+		expect(await eventRealmIds(db, deleted.seq)).toEqual([b]);
 	});
 
-	it('keeps a deleted Realm id after its Events are recorded', () => {
-		const a = seedRealm(db, 'AM').id;
-		const realmCreated = eventsSince(db, 0)[0];
-		db.$client.prepare('DELETE FROM realms WHERE id = ?').run(a);
+	it('keeps a deleted Realm id after its Events are recorded', async () => {
+		const a = (await seedRealm(db, 'AM')).id;
+		const realmCreated = (await eventsSince(db, 0))[0];
+		await db.$client.query('DELETE FROM realms WHERE id = $1', [a]);
 
-		expect(eventRealmIds(db, realmCreated.seq)).toEqual([a]);
+		expect(await eventRealmIds(db, realmCreated.seq)).toEqual([a]);
 	});
 
-	it('removes rows with their pruned Events', () => {
-		seedUser(db);
-		const a = seedRealm(db, 'AM').id;
-		seedLabour(db, { realmId: a });
-		expect(db.select().from(eventRealms).all().length).toBeGreaterThan(0);
+	it('removes rows with their pruned Events', async () => {
+		await seedUser(db);
+		const a = (await seedRealm(db, 'AM')).id;
+		await seedLabour(db, { realmId: a });
+		expect((await db.select().from(eventRealms)).length).toBeGreaterThan(0);
 
-		pruneEvents(db, 1, Date.now() + 24 * 60 * 60 * 1000);
+		await pruneEvents(db, 1, Date.now() + 24 * 60 * 60 * 1000);
 
-		expect(db.select().from(eventRealms).all()).toEqual([]);
+		expect(await db.select().from(eventRealms)).toEqual([]);
 	});
 });

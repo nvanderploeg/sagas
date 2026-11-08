@@ -1,9 +1,10 @@
+import { mapSeq } from '#lib/server/async.ts';
 import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { generateNKeysBetween } from 'fractional-indexing';
 import type { Db, Handle } from '../db/client.ts';
-import { scrollPaths, scrollRefs, scrolls, users } from '../db/schema.ts';
+import { scrollPaths, scrollRefs, scrolls, scrollText, users } from '../db/schema.ts';
 import { mentionTargets } from '../agent/mentions.ts';
-import { matchExpression } from '../agent/search.ts';
+import { tsQuery } from '../agent/search.ts';
 import type { EventSpec } from '../events/types.ts';
 import { DEPTH_MAX, SLUG, normalizePath, slugify } from '../../ui/scroll-path.ts';
 import { scrollLinks } from '../../ui/markdown.ts';
@@ -80,22 +81,22 @@ function checkBody(body: string): string {
 	return body;
 }
 
-function editable(tx: Handle, actor: Actor, scrollId: number): Scroll {
-	const scroll = getScroll(tx, scrollId);
-	requireRealmRole(tx, actor, scroll.realmId, 'editor');
+async function editable(tx: Handle, actor: Actor, scrollId: number): Promise<Scroll> {
+	const scroll = await getScroll(tx, scrollId);
+	await requireRealmRole(tx, actor, scroll.realmId, 'editor');
 	return scroll;
 }
 
-function parentIn(tx: Handle, realmId: number, parentId: number): Scroll {
-	const parent = getScroll(tx, parentId);
+async function parentIn(tx: Handle, realmId: number, parentId: number): Promise<Scroll> {
+	const parent = await getScroll(tx, parentId);
 	if (parent.realmId !== realmId) {
 		throw new DomainError('invalid', 'The parent Scroll is in another Realm');
 	}
 	return parent;
 }
 
-function siblings(tx: Handle, realmId: number, parentId: number | null) {
-	return tx
+async function siblings(tx: Handle, realmId: number, parentId: number | null) {
+	return await tx
 		.select({ id: scrolls.id, rank: scrolls.rank, slug: scrolls.slug, path: scrolls.path })
 		.from(scrolls)
 		.where(
@@ -104,33 +105,41 @@ function siblings(tx: Handle, realmId: number, parentId: number | null) {
 				parentId === null ? isNull(scrolls.parentId) : eq(scrolls.parentId, parentId)
 			)
 		)
-		.orderBy(asc(scrolls.rank))
-		.all();
+		.orderBy(asc(scrolls.rank));
 }
 
 // The Scroll and everything under it, the Scroll first.
-function subtree(tx: Handle, rootId: number): { id: number; path: string }[] {
-	return tx.all<{ id: number; path: string }>(sql`
+async function subtree(tx: Handle, rootId: number): Promise<{ id: number; path: string }[]> {
+	return (
+		await tx.execute<{ id: number; path: string }>(sql`
 		WITH RECURSIVE t(id) AS (
-			SELECT ${rootId} UNION ALL SELECT s.id FROM scrolls s JOIN t ON s.parent_id = t.id
+			SELECT ${rootId}::int UNION ALL SELECT s.id FROM scrolls s JOIN t ON s.parent_id = t.id
 		)
 		SELECT scrolls.id AS id, scrolls.path AS path FROM t JOIN scrolls ON scrolls.id = t.id
 		ORDER BY length(scrolls.path), scrolls.path
-	`);
+	`)
+	).rows;
 }
 
-function requireFreePath(tx: Handle, realmId: number, path: string, self: number | null): void {
-	const taken = tx
-		.select({ id: scrolls.id })
-		.from(scrolls)
-		.where(
-			and(
-				eq(scrolls.realmId, realmId),
-				eq(scrolls.path, path),
-				self === null ? undefined : ne(scrolls.id, self)
+async function requireFreePath(
+	tx: Handle,
+	realmId: number,
+	path: string,
+	self: number | null
+): Promise<void> {
+	const taken = (
+		await tx
+			.select({ id: scrolls.id })
+			.from(scrolls)
+			.where(
+				and(
+					eq(scrolls.realmId, realmId),
+					eq(scrolls.path, path),
+					self === null ? undefined : ne(scrolls.id, self)
+				)
 			)
-		)
-		.get();
+			.limit(1)
+	)[0];
 	if (taken !== undefined)
 		throw new DomainError('conflict', `A Scroll already has the Path ${path}`);
 }
@@ -142,23 +151,21 @@ function requireDepth(path: string, below = 0): void {
 }
 
 // Placement anchors must be siblings; checked here so rankAt never words them as Labours.
-function siblingRank(
+async function siblingRank(
 	tx: Handle,
 	column: { id: number; rank: string; path: string }[],
 	subject: { id: number | null; rank?: string },
 	placement: Placement
-): string {
+): Promise<string> {
 	if (typeof placement === 'object') {
 		const anchor = 'before' in placement ? placement.before : placement.after;
 		if (anchor === subject.id) {
 			throw new DomainError('invalid', 'A Scroll cannot be placed relative to itself');
 		}
 		if (!column.some((entry) => entry.id === anchor)) {
-			const path = tx
-				.select({ path: scrolls.path })
-				.from(scrolls)
-				.where(eq(scrolls.id, anchor))
-				.get();
+			const path = (
+				await tx.select({ path: scrolls.path }).from(scrolls).where(eq(scrolls.id, anchor)).limit(1)
+			)[0];
 			throw new DomainError(
 				'invalid',
 				`${path ? `Scroll ${path.path}` : `Scroll ${anchor}`} is not a sibling`
@@ -168,19 +175,29 @@ function siblingRank(
 	return rankAt(column, subject, placement, 'Scroll');
 }
 
-function holdPath(tx: Handle, realmId: number, path: string, scrollId: number): void {
-	tx.insert(scrollPaths)
+async function holdPath(
+	tx: Handle,
+	realmId: number,
+	path: string,
+	scrollId: number
+): Promise<void> {
+	await tx
+		.insert(scrollPaths)
 		.values({ realmId, path, scrollId })
 		.onConflictDoUpdate({
 			target: [scrollPaths.realmId, scrollPaths.path],
 			set: { scrollId, createdAt: new Date() }
-		})
-		.run();
+		});
 }
 
 // Rewrites the Path of the root and everything under it; old Paths stay with their Scrolls.
-function repath(tx: Handle, realmId: number, rootId: number, rootPath: string): PathChange[] {
-	const rows = subtree(tx, rootId);
+async function repath(
+	tx: Handle,
+	realmId: number,
+	rootId: number,
+	rootPath: string
+): Promise<PathChange[]> {
+	const rows = await subtree(tx, rootId);
 	const oldRoot = rows[0].path;
 	if (oldRoot === rootPath) return [];
 	const changes = rows.map((row) => ({
@@ -189,120 +206,122 @@ function repath(tx: Handle, realmId: number, rootId: number, rootPath: string): 
 		path: rootPath + row.path.slice(oldRoot.length)
 	}));
 	for (const change of changes) {
-		tx.update(scrolls).set({ path: change.path }).where(eq(scrolls.id, change.id)).run();
-		holdPath(tx, realmId, change.path, change.id);
+		await tx.update(scrolls).set({ path: change.path }).where(eq(scrolls.id, change.id));
+		await holdPath(tx, realmId, change.path, change.id);
 	}
 	return changes;
 }
 
-function deepestBelow(tx: Handle, rootId: number): number {
-	const rows = subtree(tx, rootId);
+async function deepestBelow(tx: Handle, rootId: number): Promise<number> {
+	const rows = await subtree(tx, rootId);
 	const base = depthOf(rows[0].path);
 	return Math.max(...rows.map((row) => depthOf(row.path) - base));
 }
 
-function refreshText(tx: Handle, scroll: { id: number; title: string; body: string }): void {
-	tx.run(sql`INSERT OR REPLACE INTO scroll_text(rowid, title, body)
-		VALUES (${scroll.id}, ${scroll.title}, ${scroll.body})`);
-}
-
-export function removeScrollText(tx: Handle, ids: number[]): void {
-	if (ids.length === 0) return;
-	tx.run(
-		sql`DELETE FROM scroll_text WHERE rowid IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`
-	);
+async function refreshText(
+	tx: Handle,
+	scroll: { id: number; title: string; body: string }
+): Promise<void> {
+	const row = { title: scroll.title, body: scroll.body };
+	await tx
+		.insert(scrollText)
+		.values({ scrollId: scroll.id, ...row })
+		.onConflictDoUpdate({ target: scrollText.scrollId, set: row });
 }
 
 type RefKey = { targetPath: string | null; labourId: number | null; userId: number | null };
 const refKey = (ref: RefKey) => `${ref.targetPath ?? ''}|${ref.labourId ?? 0}|${ref.userId ?? 0}`;
 
 // Kept rows keep their firstSeenAt.
-function refreshRefs(tx: Handle, scrollId: number, body: string, now: Date): void {
-	const named = mentionTargets(tx, body);
+async function refreshRefs(tx: Handle, scrollId: number, body: string, now: Date): Promise<void> {
+	const named = await mentionTargets(tx, body);
 	const wanted: RefKey[] = [
 		...scrollLinks(body).map((link) => ({ targetPath: link.target, labourId: null, userId: null })),
 		...[...named.labourIds].map((labourId) => ({ targetPath: null, labourId, userId: null })),
 		...[...named.userIds].map((userId) => ({ targetPath: null, labourId: null, userId }))
 	];
 	const wantedKeys = new Set(wanted.map(refKey));
-	const held = tx.select().from(scrollRefs).where(eq(scrollRefs.scrollId, scrollId)).all();
+	const held = await tx.select().from(scrollRefs).where(eq(scrollRefs.scrollId, scrollId));
 	const heldKeys = new Set(held.map(refKey));
 	const gone = held.filter((row) => !wantedKeys.has(refKey(row))).map((row) => row.id);
-	if (gone.length > 0) tx.delete(scrollRefs).where(inArray(scrollRefs.id, gone)).run();
+	if (gone.length > 0) await tx.delete(scrollRefs).where(inArray(scrollRefs.id, gone));
 	const fresh = wanted.filter((ref) => !heldKeys.has(refKey(ref)));
 	if (fresh.length > 0) {
-		tx.insert(scrollRefs)
-			.values(fresh.map((ref) => ({ ...ref, scrollId, firstSeenAt: now })))
-			.run();
+		await tx
+			.insert(scrollRefs)
+			.values(fresh.map((ref) => ({ ...ref, scrollId, firstSeenAt: now })));
 	}
 }
 
-export function createScroll(db: Db, actor: Actor, input: ScrollSpec): ScrollView {
+export async function createScroll(db: Db, actor: Actor, input: ScrollSpec): Promise<ScrollView> {
 	const title = requireText(input.title, 'Scroll title', TITLE_MAX);
 	const slug = checkSlug(input.slug?.trim() || slugify(title));
 	const body = checkBody(input.body ?? '');
-	return write(db, actor, (tx) => {
-		getRealm(tx, input.realmId);
-		requireRealmRole(tx, actor, input.realmId, 'editor');
+	return write(db, actor, async (tx) => {
+		await getRealm(tx, input.realmId);
+		await requireRealmRole(tx, actor, input.realmId, 'editor');
 		const parentId = input.parentId ?? null;
-		const parent = parentId === null ? null : parentIn(tx, input.realmId, parentId);
+		const parent = parentId === null ? null : await parentIn(tx, input.realmId, parentId);
 		const path = join(parent?.path ?? null, slug);
 		requireDepth(path);
-		requireFreePath(tx, input.realmId, path, null);
-		const rank = siblingRank(
+		await requireFreePath(tx, input.realmId, path, null);
+		const rank = await siblingRank(
 			tx,
-			siblings(tx, input.realmId, parentId),
+			await siblings(tx, input.realmId, parentId),
 			{ id: null },
 			input.placement ?? 'bottom'
 		);
 		const now = new Date();
-		const { id } = tx
-			.insert(scrolls)
-			.values({
-				realmId: input.realmId,
-				parentId,
-				slug,
-				path,
-				title,
-				body,
-				rank,
-				createdById: actor.id,
-				updatedById: actor.id,
-				createdAt: now,
-				updatedAt: now
-			})
-			.returning({ id: scrolls.id })
-			.get();
-		holdPath(tx, input.realmId, path, id);
-		refreshText(tx, { id, title, body });
-		refreshRefs(tx, id, body, now);
-		const scroll = readScroll(tx, id);
+		const { id } = (
+			await tx
+				.insert(scrolls)
+				.values({
+					realmId: input.realmId,
+					parentId,
+					slug,
+					path,
+					title,
+					body,
+					rank,
+					createdById: actor.id,
+					updatedById: actor.id,
+					createdAt: now,
+					updatedAt: now
+				})
+				.returning({ id: scrolls.id })
+		)[0];
+		await holdPath(tx, input.realmId, path, id);
+		await refreshText(tx, { id, title, body });
+		await refreshRefs(tx, id, body, now);
+		const scroll = await readScroll(tx, id);
 		return { value: scroll, events: [{ type: 'scroll.created', data: { scroll } }] };
 	});
 }
 
-function staleVersion(tx: Handle, scroll: Scroll, version: number): DomainError {
-	const by = tx
-		.select({ username: users.username })
-		.from(users)
-		.where(eq(users.id, scroll.updatedById))
-		.get();
+async function staleVersion(tx: Handle, scroll: Scroll, version: number): Promise<DomainError> {
+	const by = (
+		await tx
+			.select({ username: users.username })
+			.from(users)
+			.where(eq(users.id, scroll.updatedById))
+			.limit(1)
+	)[0];
 	return new DomainError(
 		'conflict',
 		`This Scroll changed after version ${version}: it is at version ${scroll.version}, saved by ${by?.username ?? 'someone'}`
 	);
 }
 
-export function updateScroll(
+export async function updateScroll(
 	db: Db,
 	actor: Actor,
 	scrollId: number,
 	patch: ScrollPatch
-): ScrollView {
-	return write(db, actor, (tx) => {
-		const scroll = editable(tx, actor, scrollId);
+): Promise<ScrollView> {
+	return write(db, actor, async (tx) => {
+		const scroll = await editable(tx, actor, scrollId);
 		if (patch.version !== undefined && patch.version !== scroll.version) {
-			throw staleVersion(tx, scroll, patch.version);
+			throw await staleVersion(tx, scroll, patch.version);
 		}
 		const title =
 			patch.title === undefined
@@ -316,20 +335,21 @@ export function updateScroll(
 		const now = new Date();
 		let paths: PathChange[] = [];
 		if (slug !== scroll.slug) {
-			const parentPath = scroll.parentId === null ? null : getScroll(tx, scroll.parentId).path;
+			const parentPath =
+				scroll.parentId === null ? null : (await getScroll(tx, scroll.parentId)).path;
 			const path = join(parentPath, slug);
-			requireFreePath(tx, scroll.realmId, path, scroll.id);
-			tx.update(scrolls).set({ slug }).where(eq(scrolls.id, scrollId)).run();
-			paths = repath(tx, scroll.realmId, scrollId, path);
+			await requireFreePath(tx, scroll.realmId, path, scroll.id);
+			await tx.update(scrolls).set({ slug }).where(eq(scrolls.id, scrollId));
+			paths = await repath(tx, scroll.realmId, scrollId, path);
 		}
-		tx.update(scrolls)
+		await tx
+			.update(scrolls)
 			.set({ title, body, version: scroll.version + 1, updatedById: actor.id, updatedAt: now })
-			.where(eq(scrolls.id, scrollId))
-			.run();
-		if (textChanged) refreshText(tx, { id: scrollId, title, body });
-		if (body !== scroll.body) refreshRefs(tx, scrollId, body, now);
+			.where(eq(scrolls.id, scrollId));
+		if (textChanged) await refreshText(tx, { id: scrollId, title, body });
+		if (body !== scroll.body) await refreshRefs(tx, scrollId, body, now);
 
-		const view = readScroll(tx, scrollId);
+		const view = await readScroll(tx, scrollId);
 		const events: EventSpec[] = [];
 		if (textChanged) events.push({ type: 'scroll.updated', data: { scroll: view } });
 		if (paths.length > 0) events.push({ type: 'scroll.moved', data: { scroll: view, paths } });
@@ -337,53 +357,63 @@ export function updateScroll(
 	});
 }
 
-export function moveScroll(db: Db, actor: Actor, scrollId: number, move: ScrollMove): ScrollView {
+export async function moveScroll(
+	db: Db,
+	actor: Actor,
+	scrollId: number,
+	move: ScrollMove
+): Promise<ScrollView> {
 	if (move.parentId === undefined && move.placement === undefined) {
 		throw new DomainError('invalid', 'Give a parent or a placement');
 	}
-	return write(db, actor, (tx) => {
-		const scroll = editable(tx, actor, scrollId);
+	return write(db, actor, async (tx) => {
+		const scroll = await editable(tx, actor, scrollId);
 		const parentId = move.parentId === undefined ? scroll.parentId : move.parentId;
 		const placement = move.placement ?? 'bottom';
 
 		if (parentId === scroll.parentId) {
-			const rank = siblingRank(tx, siblings(tx, scroll.realmId, parentId), scroll, placement);
+			const rank = await siblingRank(
+				tx,
+				await siblings(tx, scroll.realmId, parentId),
+				scroll,
+				placement
+			);
 			if (rank === scroll.rank) return { value: scroll, events: [] };
-			tx.update(scrolls).set({ rank }).where(eq(scrolls.id, scrollId)).run();
-			const view = readScroll(tx, scrollId);
+			await tx.update(scrolls).set({ rank }).where(eq(scrolls.id, scrollId));
+			const view = await readScroll(tx, scrollId);
 			return { value: view, events: [{ type: 'scroll.moved', data: { scroll: view, paths: [] } }] };
 		}
 
-		const parent = parentId === null ? null : parentIn(tx, scroll.realmId, parentId);
-		if (parent !== null && subtree(tx, scrollId).some((row) => row.id === parent.id)) {
+		const parent = parentId === null ? null : await parentIn(tx, scroll.realmId, parentId);
+		if (parent !== null && (await subtree(tx, scrollId)).some((row) => row.id === parent.id)) {
 			throw new DomainError('invalid', 'A Scroll cannot move under itself or a Scroll beneath it');
 		}
 		const path = join(parent?.path ?? null, scroll.slug);
-		requireDepth(path, deepestBelow(tx, scrollId));
-		requireFreePath(tx, scroll.realmId, path, scroll.id);
-		const rank = siblingRank(
+		requireDepth(path, await deepestBelow(tx, scrollId));
+		await requireFreePath(tx, scroll.realmId, path, scroll.id);
+		const rank = await siblingRank(
 			tx,
-			siblings(tx, scroll.realmId, parentId),
+			await siblings(tx, scroll.realmId, parentId),
 			{ id: scroll.id },
 			placement
 		);
-		tx.update(scrolls).set({ parentId, rank }).where(eq(scrolls.id, scrollId)).run();
-		const paths = repath(tx, scroll.realmId, scrollId, path);
-		const view = readScroll(tx, scrollId);
+		await tx.update(scrolls).set({ parentId, rank }).where(eq(scrolls.id, scrollId));
+		const paths = await repath(tx, scroll.realmId, scrollId, path);
+		const view = await readScroll(tx, scrollId);
 		return { value: view, events: [{ type: 'scroll.moved', data: { scroll: view, paths } }] };
 	});
 }
 
 // Every direct child needs a choice, per docs/scrolls.md.
-export function deleteScroll(
+export async function deleteScroll(
 	db: Db,
 	actor: Actor,
 	scrollId: number,
 	choices: Map<number, ChildChoice> = new Map()
-): ScrollDeletion {
-	return write(db, actor, (tx) => {
-		const scroll = editable(tx, actor, scrollId);
-		const children = siblings(tx, scroll.realmId, scroll.id);
+): Promise<ScrollDeletion> {
+	return write(db, actor, async (tx) => {
+		const scroll = await editable(tx, actor, scrollId);
+		const children = await siblings(tx, scroll.realmId, scroll.id);
 		const childIds = new Set(children.map((child) => child.id));
 		for (const id of choices.keys()) {
 			if (!childIds.has(id)) {
@@ -399,8 +429,9 @@ export function deleteScroll(
 		}
 
 		const movers = children.filter((child) => choices.get(child.id) === 'move');
-		const level = siblings(tx, scroll.realmId, scroll.parentId);
-		const parentPath = scroll.parentId === null ? null : getScroll(tx, scroll.parentId).path;
+		const level = await siblings(tx, scroll.realmId, scroll.parentId);
+		const parentPath =
+			scroll.parentId === null ? null : (await getScroll(tx, scroll.parentId)).path;
 		for (const mover of movers) {
 			const clash = level.find((s) => s.id !== scroll.id && s.slug === mover.slug);
 			if (clash) {
@@ -411,36 +442,34 @@ export function deleteScroll(
 			}
 		}
 
-		const doomed = [
-			{ id: scroll.id, path: scroll.path },
-			...children
-				.filter((child) => choices.get(child.id) === 'delete')
-				.flatMap((child) => subtree(tx, child.id))
-		];
+		const doomed = [{ id: scroll.id, path: scroll.path }];
+		for (const child of children) {
+			if (choices.get(child.id) === 'delete') doomed.push(...(await subtree(tx, child.id)));
+		}
 
 		const moved: ScrollDeletion['moved'] = [];
 		if (movers.length > 0) {
 			// Ranks after the deleted Scroll's and before its next sibling take its place once it goes.
 			const at = level.findIndex((s) => s.id === scroll.id);
 			const ranks = generateNKeysBetween(scroll.rank, level[at + 1]?.rank ?? null, movers.length);
-			movers.forEach((mover, i) => {
-				tx.update(scrolls)
+			for (const [i, mover] of movers.entries()) {
+				await tx
+					.update(scrolls)
 					.set({ parentId: scroll.parentId, rank: ranks[i] })
-					.where(eq(scrolls.id, mover.id))
-					.run();
-				const changes = repath(tx, scroll.realmId, mover.id, join(parentPath, mover.slug));
+					.where(eq(scrolls.id, mover.id));
+				const changes = await repath(tx, scroll.realmId, mover.id, join(parentPath, mover.slug));
 				for (const change of changes) {
 					moved.push({
 						...change,
-						parentId: change.id === mover.id ? scroll.parentId : getScroll(tx, change.id).parentId
+						parentId:
+							change.id === mover.id ? scroll.parentId : (await getScroll(tx, change.id)).parentId
 					});
 				}
-			});
+			}
 		}
 
 		const ids = doomed.map((row) => row.id);
-		removeScrollText(tx, ids);
-		tx.delete(scrolls).where(inArray(scrolls.id, ids)).run();
+		await tx.delete(scrolls).where(inArray(scrolls.id, ids));
 		return {
 			value: { deleted: doomed, moved },
 			events: [
@@ -454,8 +483,8 @@ export function deleteScroll(
 }
 
 // Depth first, siblings in rank order.
-export function listScrollTree(db: Handle, realmId: number): ScrollNode[] {
-	const rows = db
+export async function listScrollTree(db: Handle, realmId: number): Promise<ScrollNode[]> {
+	const rows = await db
 		.select({
 			id: scrolls.id,
 			parentId: scrolls.parentId,
@@ -466,8 +495,7 @@ export function listScrollTree(db: Handle, realmId: number): ScrollNode[] {
 		})
 		.from(scrolls)
 		.where(eq(scrolls.realmId, realmId))
-		.orderBy(asc(scrolls.rank))
-		.all();
+		.orderBy(asc(scrolls.rank));
 	const byParent = new Map<number | null, typeof rows>();
 	for (const row of rows) byParent.set(row.parentId, [...(byParent.get(row.parentId) ?? []), row]);
 	const out: ScrollNode[] = [];
@@ -481,55 +509,65 @@ export function listScrollTree(db: Handle, realmId: number): ScrollNode[] {
 	return out;
 }
 
-export function listScrollChildren(db: Handle, scrollId: number): ScrollNode[] {
-	const scroll = getScroll(db, scrollId);
+export async function listScrollChildren(db: Handle, scrollId: number): Promise<ScrollNode[]> {
+	const scroll = await getScroll(db, scrollId);
 	const depth = depthOf(scroll.path);
-	return db
-		.select({
-			id: scrolls.id,
-			parentId: scrolls.parentId,
-			slug: scrolls.slug,
-			path: scrolls.path,
-			title: scrolls.title,
-			rank: scrolls.rank
-		})
-		.from(scrolls)
-		.where(eq(scrolls.parentId, scrollId))
-		.orderBy(asc(scrolls.rank))
-		.all()
-		.map((row) => ({ ...row, depth }));
+	return (
+		await db
+			.select({
+				id: scrolls.id,
+				parentId: scrolls.parentId,
+				slug: scrolls.slug,
+				path: scrolls.path,
+				title: scrolls.title,
+				rank: scrolls.rank
+			})
+			.from(scrolls)
+			.where(eq(scrolls.parentId, scrollId))
+			.orderBy(asc(scrolls.rank))
+	).map((row) => ({ ...row, depth }));
 }
 
-export function countDescendants(db: Handle, scrollIds: number[]): Map<number, number> {
-	return new Map(scrollIds.map((id) => [id, subtree(db, id).length - 1]));
+export async function countDescendants(
+	db: Handle,
+	scrollIds: number[]
+): Promise<Map<number, number>> {
+	return new Map(
+		await mapSeq(scrollIds, async (id): Promise<[number, number]> => [
+			id,
+			(await subtree(db, id)).length - 1
+		])
+	);
 }
 
 // `current` is false when the Path is one the Scroll held before.
-export function resolveScrollPath(
+export async function resolveScrollPath(
 	db: Handle,
 	realmId: number,
 	raw: string
-): { scroll: Scroll; current: boolean } | null {
+): Promise<{ scroll: Scroll; current: boolean } | null> {
 	const path = normalizePath(raw);
 	if (path === null) return null;
-	const row = db
-		.select({ scrollId: scrollPaths.scrollId })
-		.from(scrollPaths)
-		.where(and(eq(scrollPaths.realmId, realmId), eq(scrollPaths.path, path)))
-		.get();
+	const row = (
+		await db
+			.select({ scrollId: scrollPaths.scrollId })
+			.from(scrollPaths)
+			.where(and(eq(scrollPaths.realmId, realmId), eq(scrollPaths.path, path)))
+			.limit(1)
+	)[0];
 	if (row === undefined) return null;
-	const scroll = getScroll(db, row.scrollId);
+	const scroll = await getScroll(db, row.scrollId);
 	return { scroll, current: scroll.path === path };
 }
 
 // The Scroll each normalized target resolves to, old Paths included; missing targets are absent.
-export function resolveScrollLinks(
+export async function resolveScrollLinks(
 	db: Handle,
 	realmId: number,
 	targets: string[]
-): Map<string, ScrollLinkTarget> {
+): Promise<Map<string, ScrollLinkTarget>> {
 	if (targets.length === 0) return new Map();
-	const rows = db
+	const rows = await db
 		.select({
 			target: scrollPaths.path,
 			id: scrolls.id,
@@ -538,31 +576,32 @@ export function resolveScrollLinks(
 		})
 		.from(scrollPaths)
 		.innerJoin(scrolls, eq(scrolls.id, scrollPaths.scrollId))
-		.where(and(eq(scrollPaths.realmId, realmId), inArray(scrollPaths.path, targets)))
-		.all();
+		.where(and(eq(scrollPaths.realmId, realmId), inArray(scrollPaths.path, targets)));
 	return new Map(rows.map(({ target, ...scroll }) => [target, scroll]));
 }
 
 // Scrolls of the same Realm whose links name any Path this Scroll holds, by Path.
-export function listBacklinks(db: Handle, scrollId: number): ScrollLinkTarget[] {
-	const scroll = getScroll(db, scrollId);
-	return db.all<ScrollLinkTarget>(sql`
+export async function listBacklinks(db: Handle, scrollId: number): Promise<ScrollLinkTarget[]> {
+	const scroll = await getScroll(db, scrollId);
+	return (
+		await db.execute<ScrollLinkTarget>(sql`
 		SELECT DISTINCT src.id AS id, src.path AS path, src.title AS title
 		FROM scroll_refs r
 		JOIN scrolls src ON src.id = r.scroll_id
 		WHERE src.realm_id = ${scroll.realmId} AND src.id <> ${scroll.id}
 			AND r.target_path IN (SELECT path FROM scroll_paths WHERE scroll_id = ${scroll.id})
 		ORDER BY src.path
-	`);
+	`)
+	).rows;
 }
 
 // Scrolls whose body names the Labour, in the given Realms (all when null), by Realm then Path.
-export function listLabourScrolls(
+export async function listLabourScrolls(
 	db: Handle,
 	labourId: number,
 	realmIds: number[] | null
-): (ScrollLinkTarget & { realmId: number })[] {
-	return db
+): Promise<(ScrollLinkTarget & { realmId: number })[]> {
+	return await db
 		.selectDistinct({
 			id: scrolls.id,
 			realmId: scrolls.realmId,
@@ -577,22 +616,29 @@ export function listLabourScrolls(
 				realmIds === null ? undefined : inArray(scrolls.realmId, realmIds)
 			)
 		)
-		.orderBy(asc(scrolls.realmId), asc(scrolls.path))
-		.all();
+		.orderBy(asc(scrolls.realmId), asc(scrolls.path));
 }
 
 export type ScrollHit = ScrollLinkTarget & { snippet: string };
 
-export function searchScrolls(db: Handle, realmId: number, query: string, limit = 20): ScrollHit[] {
-	const expression = matchExpression(query);
+export async function searchScrolls(
+	db: Handle,
+	realmId: number,
+	query: string,
+	limit = 20
+): Promise<ScrollHit[]> {
+	const expression = tsQuery(query);
 	if (expression === null) return [];
-	return db.all<ScrollHit>(sql`
+	return (
+		await db.execute<ScrollHit>(sql`
 		SELECT s.id AS id, s.path AS path, s.title AS title,
-			snippet(scroll_text, 1, '', '', '…', 16) AS snippet
-		FROM scroll_text
-		JOIN scrolls s ON s.id = scroll_text.rowid
-		WHERE scroll_text MATCH ${expression} AND s.realm_id = ${realmId}
-		ORDER BY bm25(scroll_text, 4, 1), s.path
+			ts_headline('sagas_english', t.body, q,
+				'StartSel=, StopSel=, MaxWords=16, MinWords=8, ShortWord=0, FragmentDelimiter=…') AS snippet
+		FROM scroll_text t
+		JOIN scrolls s ON s.id = t.scroll_id, to_tsquery('sagas_english', ${expression}) q
+		WHERE t.search @@ q AND s.realm_id = ${realmId}
+		ORDER BY ts_rank_cd('{0.1, 0.1, 0.25, 1.0}'::float4[], t.search, q, 1) DESC, s.path
 		LIMIT ${limit}
-	`);
+	`)
+	).rows;
 }

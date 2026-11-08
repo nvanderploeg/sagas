@@ -21,18 +21,17 @@ let actor: Actor;
 const clients: Client[] = [];
 
 beforeEach(async () => {
-	db = testDb();
+	db = await testDb();
 	admin = await createFirstAdmin(db, {
 		username: 'root',
 		displayName: 'Root',
 		password: 'a long enough password'
 	});
-	actor = seedActor(db);
+	actor = await seedActor(db);
 });
 
 afterEach(async () => {
 	await Promise.all(clients.splice(0).map((client) => client.close()));
-	db.$client.close();
 });
 
 async function connect(user: AuthUser = admin): Promise<Client> {
@@ -63,28 +62,28 @@ async function fail(client: Client, name: string, args: Record<string, unknown>)
 	return (result.structuredContent as any).error as { code: string; message: string };
 }
 
-const storedOutcomes = () => db.select().from(outcomes).all();
-const allPulses = () => db.select().from(pulses).orderBy(asc(pulses.id)).all();
+const storedOutcomes = async () => await db.select().from(outcomes);
+const allPulses = async () => await db.select().from(pulses).orderBy(asc(pulses.id));
 const NEUTRAL = { evidence: 1 };
 
 // AM-1 holds impact 3 of 0-4 (x 0.75), effort 2 of 1-5 (x 0.25), area audio and ui; AM-2 holds impact 4.
-function world() {
-	const am = seedRealm(db, 'AM');
-	defineAttribute(db, actor, am.id, {
+async function world() {
+	const am = await seedRealm(db, 'AM');
+	await defineAttribute(db, actor, am.id, {
 		key: 'impact',
 		kind: 'scale',
 		label: 'Impact',
 		rubric: 'rubric',
 		spec: { min: 0, max: 4 }
 	});
-	defineAttribute(db, actor, am.id, {
+	await defineAttribute(db, actor, am.id, {
 		key: 'effort',
 		kind: 'scale',
 		label: 'Effort',
 		rubric: 'rubric',
 		spec: { min: 1, max: 5 }
 	});
-	defineAttribute(db, actor, am.id, {
+	await defineAttribute(db, actor, am.id, {
 		key: 'area',
 		kind: 'tags',
 		label: 'Area',
@@ -96,11 +95,11 @@ function world() {
 			]
 		}
 	});
-	const rich = seedLabour(db, { realmId: am.id, title: 'Rich' });
-	const high = seedLabour(db, { realmId: am.id, title: 'High' });
-	setValues(db, actor, rich.id, { impact: 3, effort: 2, area: ['audio', 'ui'] });
-	setValues(db, actor, high.id, { impact: 4 });
-	return { am, rich, high, bob: seedHuman(db, 'bob'), carol: seedHuman(db, 'carol') };
+	const rich = await seedLabour(db, { realmId: am.id, title: 'Rich' });
+	const high = await seedLabour(db, { realmId: am.id, title: 'High' });
+	await setValues(db, actor, rich.id, { impact: 3, effort: 2, area: ['audio', 'ui'] });
+	await setValues(db, actor, high.id, { impact: 4 });
+	return { am, rich, high, bob: await seedHuman(db, 'bob'), carol: await seedHuman(db, 'carol') };
 }
 
 async function surveyFor(client: Client, user: string, extra: Record<string, unknown> = {}) {
@@ -134,7 +133,7 @@ describe('the report_outcomes tool', () => {
 	});
 
 	it('records Outcomes for a Survey from the tool, answering with current Labour keys', async () => {
-		const { rich, high, bob, carol } = world();
+		const { rich, high, bob, carol } = await world();
 		const survey = await surveyFor(await connect(), 'bob');
 
 		const answered = await ok(await connect(carol), 'report_outcomes', {
@@ -152,16 +151,14 @@ describe('the report_outcomes tool', () => {
 			]
 		});
 		expect(
-			storedOutcomes()
-				.map((o) => [o.surveyId, o.labourId, o.verdict, o.authorId])
-				.sort()
+			(await storedOutcomes()).map((o) => [o.surveyId, o.labourId, o.verdict, o.authorId]).sort()
 		).toEqual(
 			[
 				[survey, rich.id, 'picked', carol.id],
 				[survey, high.id, 'skipped', carol.id]
 			].sort()
 		);
-		const posted = allPulses();
+		const posted = await allPulses();
 		expect(posted).toHaveLength(5);
 		expect(posted.every((p) => p.userId === bob.id && p.realmId === null)).toBe(true);
 		expect(posted.every((p) => p.authorId === carol.id)).toBe(true);
@@ -170,14 +167,14 @@ describe('the report_outcomes tool', () => {
 	});
 
 	it('answers recorded false for a repeat and stores nothing more', async () => {
-		const { bob } = world();
+		const { bob } = await world();
 		const client = await connect(bob);
 		const survey = await surveyFor(client, 'me');
 		await ok(client, 'report_outcomes', {
 			survey,
 			outcomes: [{ labour: 'AM-1', verdict: 'picked' }]
 		});
-		const pulsesBefore = allPulses();
+		const pulsesBefore = await allPulses();
 
 		const again = await ok(client, 'report_outcomes', {
 			survey,
@@ -188,15 +185,15 @@ describe('the report_outcomes tool', () => {
 		});
 
 		expect(again.outcomes.map((o: { recorded: boolean }) => o.recorded)).toEqual([false, true]);
-		expect(storedOutcomes()).toHaveLength(2);
-		expect(allPulses().slice(0, pulsesBefore.length)).toEqual(pulsesBefore);
-		expect(allPulses()).toHaveLength(pulsesBefore.length * 2);
+		expect(await storedOutcomes()).toHaveLength(2);
+		expect((await allPulses()).slice(0, pulsesBefore.length)).toEqual(pulsesBefore);
+		expect(await allPulses()).toHaveLength(pulsesBefore.length * 2);
 	});
 
 	it('resolves a former Labour key and answers with the current one', async () => {
-		const { am, carol } = world();
+		const { am, carol } = await world();
 		const survey = await surveyFor(await connect(), 'bob');
-		renameRealmKey(db, actor, am.id, 'ZZ');
+		await renameRealmKey(db, actor, am.id, 'ZZ');
 
 		const answered = await ok(await connect(carol), 'report_outcomes', {
 			survey,
@@ -204,11 +201,11 @@ describe('the report_outcomes tool', () => {
 		});
 
 		expect(answered.outcomes).toEqual([{ labour: 'ZZ-1', verdict: 'done', recorded: true }]);
-		expect(allPulses()[0].note).toBe(`done ZZ-1 in Survey ${survey}`);
+		expect((await allPulses())[0].note).toBe(`done ZZ-1 in Survey ${survey}`);
 	});
 
 	it('answers not_found for an unknown Survey', async () => {
-		world();
+		await world();
 
 		const error = await fail(await connect(), 'report_outcomes', {
 			survey: 9999,
@@ -219,7 +216,7 @@ describe('the report_outcomes tool', () => {
 	});
 
 	it('answers invalid for a Labour the Survey did not return, recording nothing from the call', async () => {
-		world();
+		await world();
 		const client = await connect();
 		const survey = await surveyFor(client, 'bob', { limit: 1 });
 
@@ -232,12 +229,12 @@ describe('the report_outcomes tool', () => {
 		});
 
 		expect(error.code).toBe('invalid');
-		expect(storedOutcomes()).toEqual([]);
-		expect(allPulses()).toEqual([]);
+		expect(await storedOutcomes()).toEqual([]);
+		expect(await allPulses()).toEqual([]);
 	});
 
 	it('answers invalid for a verdict that is not picked, skipped or done', async () => {
-		world();
+		await world();
 		const client = await connect();
 		const survey = await surveyFor(client, 'bob');
 
@@ -247,11 +244,11 @@ describe('the report_outcomes tool', () => {
 		});
 
 		expect(error.code).toBe('invalid');
-		expect(storedOutcomes()).toEqual([]);
+		expect(await storedOutcomes()).toEqual([]);
 	});
 
 	it('answers invalid for no outcomes and for 51', async () => {
-		world();
+		await world();
 		const client = await connect();
 		const survey = await surveyFor(client, 'bob');
 		const item = { labour: 'AM-1', verdict: 'picked' };
@@ -260,11 +257,11 @@ describe('the report_outcomes tool', () => {
 		expect(
 			(await fail(client, 'report_outcomes', { survey, outcomes: Array(51).fill(item) })).code
 		).toBe('invalid');
-		expect(storedOutcomes()).toEqual([]);
+		expect(await storedOutcomes()).toEqual([]);
 	});
 
 	it('refuses an unknown argument at the top and inside an item', async () => {
-		world();
+		await world();
 		const client = await connect();
 		const survey = await surveyFor(client, 'bob');
 		const item = { labour: 'AM-1', verdict: 'picked' };
@@ -279,11 +276,11 @@ describe('the report_outcomes tool', () => {
 		expect(top.message).toContain('verbose');
 		expect(nested.code).toBe('invalid');
 		expect(nested.message).toContain('note');
-		expect(storedOutcomes()).toEqual([]);
+		expect(await storedOutcomes()).toEqual([]);
 	});
 
 	it('refuses a digit string where a Labour is named', async () => {
-		const { rich } = world();
+		const { rich } = await world();
 		const client = await connect();
 		const survey = await surveyFor(client, 'bob');
 
@@ -299,10 +296,10 @@ describe('the report_outcomes tool', () => {
 describe('get_sentiment for a user', () => {
 	// carol reports picked then done on AM-1 for bob, just now.
 	async function learnedWithSurvey() {
-		const fixture = world();
+		const fixture = await world();
 		const survey = await surveyFor(await connect(), 'bob');
 		for (const verdict of ['picked', 'done'] as Verdict[]) {
-			reportOutcomes(
+			await reportOutcomes(
 				db,
 				fixture.carol,
 				survey,
@@ -390,7 +387,7 @@ describe('get_sentiment for a user', () => {
 	});
 
 	it('answers empty keys and unfiled for a User with no Pulses', async () => {
-		world();
+		await world();
 
 		const view = await ok(await connect(), 'get_sentiment', { user: 'carol' });
 
@@ -399,7 +396,7 @@ describe('get_sentiment for a user', () => {
 	});
 
 	it('answers not_found for an unknown User', async () => {
-		world();
+		await world();
 		const client = await connect();
 
 		expect((await fail(client, 'get_sentiment', { user: 'nobody' })).code).toBe('not_found');
@@ -407,7 +404,7 @@ describe('get_sentiment for a user', () => {
 	});
 
 	it('refuses a digit string where a User is named', async () => {
-		const { bob } = world();
+		const { bob } = await world();
 
 		const error = await fail(await connect(), 'get_sentiment', { user: String(bob.id) });
 
@@ -415,7 +412,7 @@ describe('get_sentiment for a user', () => {
 	});
 
 	it('refuses giving both realm and user', async () => {
-		world();
+		await world();
 
 		const error = await fail(await connect(), 'get_sentiment', { realm: 'AM', user: 'bob' });
 
@@ -423,7 +420,7 @@ describe('get_sentiment for a user', () => {
 	});
 
 	it('refuses giving neither realm nor user, with or without a limit', async () => {
-		world();
+		await world();
 		const client = await connect();
 
 		expect((await fail(client, 'get_sentiment', {})).code).toBe('invalid');
@@ -431,7 +428,7 @@ describe('get_sentiment for a user', () => {
 	});
 
 	it('refuses an unknown argument', async () => {
-		world();
+		await world();
 
 		const error = await fail(await connect(), 'get_sentiment', { user: 'bob', verbose: true });
 

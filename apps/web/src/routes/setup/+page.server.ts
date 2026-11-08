@@ -10,8 +10,9 @@ import type { PageServerLoad } from './$types';
 
 // Redirect GETs only: the action's response renders this page, with the new token, after the
 // Admin exists.
-export const load: PageServerLoad = ({ locals, request }) => {
-	if (request.method === 'GET' && hasUsers(getDb())) redirect(303, locals.user ? '/' : '/login');
+export const load: PageServerLoad = async ({ locals, request }) => {
+	if (request.method === 'GET' && (await hasUsers(getDb())))
+		redirect(303, locals.user ? '/' : '/login');
 	return {};
 };
 
@@ -27,7 +28,7 @@ export const actions: Actions = {
 				displayName,
 				password: field(form, 'password')
 			});
-			const session = createSession(db, admin.id);
+			const session = await createSession(db, admin.id);
 			setSessionCookie(cookies, url, session.token, session.expiresAt);
 			return { token };
 		} catch (error) {

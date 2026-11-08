@@ -7,31 +7,60 @@ import type { Actor } from '#lib/server/domain/write.ts';
 
 export const TODO = { key: 'todo', label: 'To do', color: '#111111', icon: 'circle' };
 
-export function seedUser(db: Db, username = 'ada'): number {
-	return db
-		.insert(users)
-		.values({ kind: 'human', username, displayName: username, passwordHash: 'hash' })
-		.returning({ id: users.id })
-		.get().id;
+// Seeds run one at a time, in call order, however a spec starts them.
+let seeding: Promise<unknown> = Promise.resolve();
+function inOrder<T>(task: () => Promise<T>): Promise<T> {
+	const result = seeding.then(task, task);
+	seeding = result.catch(() => undefined);
+	return result;
 }
 
-export function seedActor(db: Db): Actor {
-	const row = db.select({ id: users.id }).from(users).where(eq(users.username, 'actor')).get();
-	return row ?? { id: seedUser(db, 'actor') };
+async function insertUser(db: Db, username: string): Promise<number> {
+	return (
+		await db
+			.insert(users)
+			.values({ kind: 'human', username, displayName: username, passwordHash: 'hash' })
+			.returning({ id: users.id })
+	)[0].id;
+}
+
+async function findOrInsertActor(db: Db): Promise<Actor> {
+	const row = (
+		await db.select({ id: users.id }).from(users).where(eq(users.username, 'actor')).limit(1)
+	)[0];
+	return row ?? { id: await insertUser(db, 'actor') };
+}
+
+export function seedUser(db: Db, username = 'ada'): Promise<number> {
+	return inOrder(() => insertUser(db, username));
+}
+
+export function seedActor(db: Db): Promise<Actor> {
+	return inOrder(() => findOrInsertActor(db));
 }
 
 export function seedRealm(db: Db, key = 'AM') {
-	return createRealm(db, seedActor(db), { name: `Realm ${key}`, key, initialState: TODO });
+	return inOrder(async () =>
+		createRealm(db, await findOrInsertActor(db), {
+			name: `Realm ${key}`,
+			key,
+			initialState: TODO
+		})
+	);
 }
 
 export function seedLabour(db: Db, spec: Partial<LabourSpec> & { realmId: number }) {
-	const ownerId = spec.ownerId ?? seedUser(db, `owner${Math.random().toString(36).slice(2, 8)}`);
-	return createLabour(db, seedActor(db), { title: 'Labour', ownerId, ...spec });
+	return inOrder(async () => {
+		const ownerId =
+			spec.ownerId ?? (await insertUser(db, `owner${Math.random().toString(36).slice(2, 8)}`));
+		return createLabour(db, await findOrInsertActor(db), { title: 'Labour', ownerId, ...spec });
+	});
 }
 
 // A Realm for a Quest a spec does not care about: the first one, or a new one.
-export function anyRealmId(db: Db): number {
+export async function anyRealmId(db: Db): Promise<number> {
 	return (
-		db.select({ id: realms.id }).from(realms).orderBy(realms.id).get()?.id ?? seedRealm(db, 'QR').id
+		(await db.select({ id: realms.id }).from(realms).orderBy(realms.id).limit(1))[0]?.id ??
+		(await seedRealm(db, 'QR')).id
 	);
 }

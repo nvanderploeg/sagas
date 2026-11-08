@@ -15,30 +15,35 @@ export type CommentView = typeof comments.$inferSelect;
 export const COMMENT_MAX = 20_000;
 
 // Oldest first.
-export function listComments(db: Handle, labourId: number): CommentView[] {
-	return db
+export async function listComments(db: Handle, labourId: number): Promise<CommentView[]> {
+	return await db
 		.select()
 		.from(comments)
 		.where(eq(comments.labourId, labourId))
-		.orderBy(asc(comments.id))
-		.all();
+		.orderBy(asc(comments.id));
 }
 
-export function addComment(db: Db, actor: Actor, labourId: number, body: string): CommentView {
-	return write(db, actor, (tx) => {
-		requireRealmRole(tx, actor, getLabour(tx, labourId).realmId, 'editor');
-		const comment = tx
-			.insert(comments)
-			.values({
-				labourId,
-				authorId: actor.id,
-				via: currentVia(),
-				body: requireText(body, 'Comment', COMMENT_MAX)
-			})
-			.returning()
-			.get();
-		refreshLabourText(tx, labourId);
-		refreshMentions(tx, {
+export async function addComment(
+	db: Db,
+	actor: Actor,
+	labourId: number,
+	body: string
+): Promise<CommentView> {
+	return write(db, actor, async (tx) => {
+		await requireRealmRole(tx, actor, (await getLabour(tx, labourId)).realmId, 'editor');
+		const comment = (
+			await tx
+				.insert(comments)
+				.values({
+					labourId,
+					authorId: actor.id,
+					via: currentVia(),
+					body: requireText(body, 'Comment', COMMENT_MAX)
+				})
+				.returning()
+		)[0];
+		await refreshLabourText(tx, labourId);
+		await refreshMentions(tx, {
 			sourceLabourId: labourId,
 			commentId: comment.id,
 			text: comment.body,
@@ -50,29 +55,35 @@ export function addComment(db: Db, actor: Actor, labourId: number, body: string)
 }
 
 // Only the author changes a Comment.
-function ownComment(tx: Handle, actor: Actor, id: number): CommentView {
-	const row = tx.select().from(comments).where(eq(comments.id, id)).get();
+async function ownComment(tx: Handle, actor: Actor, id: number): Promise<CommentView> {
+	const row = (await tx.select().from(comments).where(eq(comments.id, id)).limit(1))[0];
 	if (row === undefined) throw new DomainError('not_found', 'Comment not found');
-	requireRealmRole(tx, actor, getLabour(tx, row.labourId).realmId, 'editor');
+	await requireRealmRole(tx, actor, (await getLabour(tx, row.labourId)).realmId, 'editor');
 	if (row.authorId !== actor.id) {
 		throw new DomainError('forbidden', "Only a Comment's author can change it");
 	}
 	return row;
 }
 
-export function editComment(db: Db, actor: Actor, id: number, body: string): CommentView {
-	return write(db, actor, (tx) => {
-		const current = ownComment(tx, actor, id);
+export async function editComment(
+	db: Db,
+	actor: Actor,
+	id: number,
+	body: string
+): Promise<CommentView> {
+	return write(db, actor, async (tx) => {
+		const current = await ownComment(tx, actor, id);
 		const next = requireText(body, 'Comment', COMMENT_MAX);
 		if (next === current.body) return { value: current, events: [] };
-		const comment = tx
-			.update(comments)
-			.set({ body: next, updatedAt: new Date() })
-			.where(eq(comments.id, id))
-			.returning()
-			.get();
-		refreshLabourText(tx, comment.labourId);
-		refreshMentions(tx, {
+		const comment = (
+			await tx
+				.update(comments)
+				.set({ body: next, updatedAt: new Date() })
+				.where(eq(comments.id, id))
+				.returning()
+		)[0];
+		await refreshLabourText(tx, comment.labourId);
+		await refreshMentions(tx, {
 			sourceLabourId: comment.labourId,
 			commentId: comment.id,
 			text: comment.body,
@@ -83,11 +94,11 @@ export function editComment(db: Db, actor: Actor, id: number, body: string): Com
 	});
 }
 
-export function deleteComment(db: Db, actor: Actor, id: number): CommentView {
-	return write(db, actor, (tx) => {
-		const comment = ownComment(tx, actor, id);
-		tx.delete(comments).where(eq(comments.id, id)).run();
-		refreshLabourText(tx, comment.labourId);
+export async function deleteComment(db: Db, actor: Actor, id: number): Promise<CommentView> {
+	return write(db, actor, async (tx) => {
+		const comment = await ownComment(tx, actor, id);
+		await tx.delete(comments).where(eq(comments.id, id));
+		await refreshLabourText(tx, comment.labourId);
 		return {
 			value: comment,
 			events: [{ type: 'labour.comment_deleted', data: { id, labourId: comment.labourId } }]

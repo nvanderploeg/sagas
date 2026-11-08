@@ -25,8 +25,8 @@ export function registerSkillTools({ db, actor, define }: Tools): void {
 					.describe('Markdown on what the levels 1 to 5 mean, up to 4,000 characters; "" clears')
 			}
 		},
-		(args) => {
-			const { key, label, rubric } = defineSkill(db, actor, args);
+		async (args) => {
+			const { key, label, rubric } = await defineSkill(db, actor, args);
 			return reply({ skill: { key, label, rubric } }, `Skill ${key}: ${label}`);
 		}
 	);
@@ -38,8 +38,8 @@ export function registerSkillTools({ db, actor, define }: Tools): void {
 			description: 'List every Skill by key, with how many Users hold it.',
 			input: {}
 		},
-		() => {
-			const skills = listSkills(db).map(({ key, label, rubric, holders }) => ({
+		async () => {
+			const skills = (await listSkills(db)).map(({ key, label, rubric, holders }) => ({
 				key,
 				label,
 				rubric,
@@ -60,10 +60,10 @@ export function registerSkillTools({ db, actor, define }: Tools): void {
 				"Set the levels a User holds in Skills, 1 to 5, or clear them with null; Skills you leave out stay. Any User may set any User's Skills. All or nothing. Returns the User's whole set.",
 			input: { user: userRef, skills: levelsShape }
 		},
-		(args, present) => {
-			const userId = refs.userId(db, args.user, actor);
-			const held = setSkills(db, actor, userId, args.skills);
-			const user = present.username(userId);
+		async (args, present) => {
+			const userId = await refs.userId(db, args.user, actor);
+			const held = await setSkills(db, actor, userId, args.skills);
+			const user = await present.username(userId);
 			return reply(
 				{ user, skills: held },
 				`${user} holds ${count(Object.keys(held).length, 'Skill')}`

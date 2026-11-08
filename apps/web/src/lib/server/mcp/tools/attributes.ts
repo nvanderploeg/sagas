@@ -51,8 +51,8 @@ const specShape = z.strictObject({
 });
 
 export function registerAttributeTools({ db, actor, define }: Tools): void {
-	const settings = (realmId: number) => {
-		const { version, notes, halfLifeDays, loudness } = readRealmAgent(db, realmId);
+	const settings = async (realmId: number) => {
+		const { version, notes, halfLifeDays, loudness } = await readRealmAgent(db, realmId);
 		return { version, notes, settings: { halfLifeDays, loudness } };
 	};
 
@@ -67,17 +67,17 @@ export function registerAttributeTools({ db, actor, define }: Tools): void {
 				since: z.number().int().min(0).optional().describe('The version you last saw')
 			}
 		},
-		(args) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			const { key } = getRealm(db, realmId);
-			const agent = settings(realmId);
+		async (args) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			const { key } = await getRealm(db, realmId);
+			const agent = await settings(realmId);
 			if (args.since === agent.version) {
 				return reply(
 					{ realm: key, version: agent.version },
 					`${key} is at version ${agent.version}`
 				);
 			}
-			const found = readAttributes(db, realmId).map(attributeDto);
+			const found = (await readAttributes(db, realmId)).map(attributeDto);
 			return reply(
 				{ realm: key, ...agent, attributes: found },
 				`${key} version ${agent.version}: ${count(found.length, 'Attribute')}`
@@ -110,9 +110,9 @@ export function registerAttributeTools({ db, actor, define }: Tools): void {
 				index: indexField.optional().describe("0-based index among the Realm's Attributes")
 			}
 		},
-		(args) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			const { version, attribute } = defineAttribute(db, actor, realmId, {
+		async (args) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			const { version, attribute } = await defineAttribute(db, actor, realmId, {
 				key: args.key,
 				kind: args.kind,
 				label: args.label,
@@ -134,9 +134,9 @@ export function registerAttributeTools({ db, actor, define }: Tools): void {
 			description: "Delete an Attribute of a Realm with every Labour's value of it.",
 			input: { realm: realmRef, key: keyField }
 		},
-		(args) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			const { version } = deleteAttribute(db, actor, realmId, args.key);
+		async (args) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			const { version } = await deleteAttribute(db, actor, realmId, args.key);
 			return reply({ version, deleted: { key: args.key } }, `Deleted Attribute ${args.key}`);
 		}
 	);
@@ -154,15 +154,15 @@ export function registerAttributeTools({ db, actor, define }: Tools): void {
 				loudness: z.number().optional().describe('More than 0, at most 1,000')
 			}
 		},
-		(args) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			tuneRealm(db, actor, realmId, {
+		async (args) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			await tuneRealm(db, actor, realmId, {
 				notes: args.notes,
 				halfLifeDays: args.half_life_days,
 				loudness: args.loudness
 			});
-			const { key } = getRealm(db, realmId);
-			const agent = settings(realmId);
+			const { key } = await getRealm(db, realmId);
+			const agent = await settings(realmId);
 			return reply({ realm: key, ...agent }, `${key} settings at version ${agent.version}`);
 		}
 	);

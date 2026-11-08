@@ -1,40 +1,41 @@
 import { sql } from 'drizzle-orm';
 import {
-	blob,
+	boolean,
 	check,
+	doublePrecision,
 	foreignKey,
 	index,
 	integer,
+	json,
+	jsonb,
+	pgTable,
 	primaryKey,
-	real,
-	sqliteTable,
 	text,
 	uniqueIndex,
-	type AnySQLiteColumn
-} from 'drizzle-orm/sqlite-core';
+	type AnyPgColumn
+} from 'drizzle-orm/pg-core';
+import { bytea, epoch, tsvector } from './types.ts';
 import { EVENT_TYPES } from '../events/types.ts';
 
-const id = () => integer('id').primaryKey({ autoIncrement: true });
+const id = () => integer('id').primaryKey().generatedByDefaultAsIdentity();
 
 const now = (name = 'created_at') =>
-	integer(name, { mode: 'timestamp_ms' })
+	epoch(name)
 		.notNull()
 		.$defaultFn(() => new Date());
 
-const timestamp = (name: string) => integer(name, { mode: 'timestamp_ms' });
+const timestamp = (name: string) => epoch(name);
 
-export const users = sqliteTable(
+export const users = pgTable(
 	'users',
 	{
 		id: id(),
 		kind: text('kind', { enum: ['human', 'agent'] }).notNull(),
-		isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
+		isAdmin: boolean('is_admin').notNull().default(false),
 		username: text('username').notNull().unique(),
 		displayName: text('display_name').notNull(),
 		passwordHash: text('password_hash'),
-		mustChangePassword: integer('must_change_password', { mode: 'boolean' })
-			.notNull()
-			.default(false),
+		mustChangePassword: boolean('must_change_password').notNull().default(false),
 		createdAt: now()
 	},
 	() => [
@@ -44,11 +45,11 @@ export const users = sqliteTable(
 			'users_password_iff_human',
 			sql.raw(`("kind" = 'human') = ("password_hash" IS NOT NULL)`)
 		),
-		check('users_admin_is_human', sql.raw(`"is_admin" = 0 OR "kind" = 'human'`))
+		check('users_admin_is_human', sql.raw(`NOT "is_admin" OR "kind" = 'human'`))
 	]
 );
 
-export const sessions = sqliteTable(
+export const sessions = pgTable(
 	'sessions',
 	{
 		id: text('id').primaryKey(),
@@ -61,7 +62,7 @@ export const sessions = sqliteTable(
 	(t) => [index('sessions_user_idx').on(t.userId)]
 );
 
-export const invites = sqliteTable(
+export const invites = pgTable(
 	'invites',
 	{
 		id: id(),
@@ -76,7 +77,7 @@ export const invites = sqliteTable(
 	() => [check('invites_used_pair', sql.raw(`("used_at" IS NULL) = ("used_by_user_id" IS NULL)`))]
 );
 
-export const apiTokens = sqliteTable(
+export const apiTokens = pgTable(
 	'api_tokens',
 	{
 		id: id(),
@@ -96,7 +97,7 @@ export const apiTokens = sqliteTable(
 	(t) => [index('api_tokens_user_idx').on(t.userId)]
 );
 
-export const oauthClients = sqliteTable(
+export const oauthClients = pgTable(
 	'oauth_clients',
 	{
 		id: text('id').primaryKey(),
@@ -119,11 +120,11 @@ export const oauthClients = sqliteTable(
 			'oauth_clients_secret_iff_confidential',
 			sql.raw(`("auth_method" = 'none') = ("secret_hash" IS NULL)`)
 		),
-		check('oauth_clients_redirect_uris_json', sql.raw(`json_valid("redirect_uris")`))
+		check('oauth_clients_redirect_uris_json', sql.raw(`"redirect_uris"::json IS NOT NULL`))
 	]
 );
 
-export const oauthGrants = sqliteTable(
+export const oauthGrants = pgTable(
 	'oauth_grants',
 	{
 		id: id(),
@@ -142,7 +143,7 @@ export const oauthGrants = sqliteTable(
 	]
 );
 
-export const oauthCodes = sqliteTable(
+export const oauthCodes = pgTable(
 	'oauth_codes',
 	{
 		codeHash: text('code_hash').primaryKey(),
@@ -165,7 +166,7 @@ export const oauthCodes = sqliteTable(
 	]
 );
 
-export const oauthRefreshTokens = sqliteTable(
+export const oauthRefreshTokens = pgTable(
 	'oauth_refresh_tokens',
 	{
 		tokenHash: text('token_hash').primaryKey(),
@@ -179,7 +180,7 @@ export const oauthRefreshTokens = sqliteTable(
 	(t) => [index('oauth_refresh_tokens_grant_idx').on(t.grantId)]
 );
 
-export const realms = sqliteTable(
+export const realms = pgTable(
 	'realms',
 	{
 		id: id(),
@@ -189,22 +190,17 @@ export const realms = sqliteTable(
 		initialStateId: integer('initial_state_id')
 	},
 	(t) => [
-		check(
-			'realms_key_format',
-			sql.raw(
-				`"key" GLOB '[A-Z]*' AND "key" NOT GLOB '*[^A-Z0-9]*' AND length("key") BETWEEN 2 AND 6`
-			)
-		),
+		check('realms_key_format', sql.raw(`"key" ~ '^[A-Z][A-Z0-9]{1,5}$'`)),
 		check('realms_counter_non_negative', sql.raw(`"labour_counter" >= 0`)),
-		foreignKey(() => ({
+		foreignKey({
 			columns: [t.id, t.initialStateId],
 			foreignColumns: [states.realmId, states.id]
-		}))
+		})
 	]
 );
 
 // One User's role in one Realm, per the product/realm-access Scroll. `pending` is an Offer: it grants nothing.
-export const realmMembers = sqliteTable(
+export const realmMembers = pgTable(
 	'realm_members',
 	{
 		realmId: integer('realm_id')
@@ -229,70 +225,62 @@ export const realmMembers = sqliteTable(
 );
 
 // Every key a Realm has held, its current one included.
-export const realmKeys = sqliteTable(
+export const realmKeys = pgTable(
 	'realm_keys',
 	{
 		key: text('key').primaryKey(),
 		realmId: integer('realm_id')
 			.notNull()
-			.references((): AnySQLiteColumn => realms.id, { onDelete: 'cascade' }),
+			.references((): AnyPgColumn => realms.id, { onDelete: 'cascade' }),
 		createdAt: now()
 	},
 	(t) => [
 		index('realm_keys_realm_idx').on(t.realmId),
-		check(
-			'realm_keys_format',
-			sql.raw(
-				`"key" GLOB '[A-Z]*' AND "key" NOT GLOB '*[^A-Z0-9]*' AND length("key") BETWEEN 2 AND 6`
-			)
-		)
+		check('realm_keys_format', sql.raw(`"key" ~ '^[A-Z][A-Z0-9]{1,5}$'`))
 	]
 );
 
-export const states = sqliteTable(
+export const states = pgTable(
 	'states',
 	{
 		id: id(),
 		realmId: integer('realm_id')
 			.notNull()
-			.references((): AnySQLiteColumn => realms.id, { onDelete: 'cascade' }),
+			.references((): AnyPgColumn => realms.id, { onDelete: 'cascade' }),
 		key: text('key').notNull(),
 		label: text('label').notNull(),
 		color: text('color').notNull(),
 		icon: text('icon').notNull(),
 		position: integer('position').notNull(),
-		isClosed: integer('is_closed', { mode: 'boolean' }).notNull().default(false),
-		isOpen: integer('is_open', { mode: 'boolean' }).notNull().default(true),
-		defaultSubstateId: integer('default_substate_id').references(
-			(): AnySQLiteColumn => substates.id,
-			{
-				onDelete: 'set null'
-			}
-		)
+		isClosed: boolean('is_closed').notNull().default(false),
+		isOpen: boolean('is_open').notNull().default(true),
+		defaultSubstateId: integer('default_substate_id').references((): AnyPgColumn => substates.id, {
+			onDelete: 'set null'
+		})
 	},
 	(t) => [
 		uniqueIndex('states_realm_key_uq').on(t.realmId, t.key),
 		uniqueIndex('states_realm_position_uq').on(t.realmId, t.position),
 		uniqueIndex('states_realm_id_uq').on(t.realmId, t.id),
-		uniqueIndex('states_one_closed_uq').on(t.realmId).where(sql.raw(`"is_closed" = 1`)),
+		uniqueIndex('states_one_closed_uq').on(t.realmId).where(sql.raw(`"is_closed"`)),
 		// The column FK clears the default with its Substate; this one keeps it within the State.
-		foreignKey(() => ({
+		foreignKey({
 			columns: [t.id, t.defaultSubstateId],
 			foreignColumns: [substates.stateId, substates.id]
-		}))
+		})
 	]
 );
 
 // A hint that a Labour in `fromStateId` usually moves next to `toStateId`; moves are never restricted.
-export const stateFlows = sqliteTable(
+export const stateFlows = pgTable(
 	'state_flows',
 	{
 		fromStateId: integer('from_state_id')
 			.notNull()
-			.references((): AnySQLiteColumn => states.id, { onDelete: 'cascade' }),
+			.references((): AnyPgColumn => states.id, { onDelete: 'cascade' }),
 		toStateId: integer('to_state_id')
 			.notNull()
-			.references((): AnySQLiteColumn => states.id, { onDelete: 'cascade' })
+			.references((): AnyPgColumn => states.id, { onDelete: 'cascade' })
 	},
 	(t) => [
 		primaryKey({ columns: [t.fromStateId, t.toStateId] }),
@@ -300,13 +288,13 @@ export const stateFlows = sqliteTable(
 	]
 );
 
-export const substates = sqliteTable(
+export const substates = pgTable(
 	'substates',
 	{
 		id: id(),
 		stateId: integer('state_id')
 			.notNull()
-			.references((): AnySQLiteColumn => states.id, { onDelete: 'cascade' }),
+			.references((): AnyPgColumn => states.id, { onDelete: 'cascade' }),
 		key: text('key').notNull(),
 		label: text('label').notNull(),
 		color: text('color').notNull(),
@@ -320,13 +308,13 @@ export const substates = sqliteTable(
 	]
 );
 
-export const labours = sqliteTable(
+export const labours = pgTable(
 	'labours',
 	{
 		id: id(),
 		realmId: integer('realm_id')
 			.notNull()
-			.references((): AnySQLiteColumn => realms.id, { onDelete: 'cascade' }),
+			.references((): AnyPgColumn => realms.id, { onDelete: 'cascade' }),
 		number: integer('number').notNull(),
 		title: text('title').notNull(),
 		description: text('description').notNull().default(''),
@@ -336,18 +324,18 @@ export const labours = sqliteTable(
 		assigneeId: integer('assignee_id').references(() => users.id),
 		stateId: integer('state_id').notNull(),
 		substateId: integer('substate_id'),
-		parentId: integer('parent_id').references((): AnySQLiteColumn => labours.id, {
+		parentId: integer('parent_id').references((): AnyPgColumn => labours.id, {
 			onDelete: 'set null'
 		}),
-		// A fractional index ordering the State's column; keep the default BINARY collation.
+		// A fractional index ordering the State's column; keep COLLATE "C".
 		rank: text('rank').notNull(),
 		// Sorted and deduplicated; the format is LABEL in domain/labels.ts.
-		labels: text('labels', { mode: 'json' })
+		labels: jsonb('labels')
 			.notNull()
 			.$type<string[]>()
-			.default(sql`'[]'`),
+			.default(sql`'[]'::jsonb`),
 		// The Recurrence that created this Labour.
-		recurrenceId: integer('recurrence_id').references((): AnySQLiteColumn => recurrences.id, {
+		recurrenceId: integer('recurrence_id').references((): AnyPgColumn => recurrences.id, {
 			onDelete: 'set null'
 		}),
 		createdAt: now(),
@@ -359,20 +347,20 @@ export const labours = sqliteTable(
 		uniqueIndex('labours_realm_id_uq').on(t.realmId, t.id),
 		index('labours_parent_idx').on(t.parentId),
 		uniqueIndex('labours_state_rank_uq').on(t.stateId, t.rank),
-		foreignKey(() => ({
+		foreignKey({
 			columns: [t.realmId, t.stateId],
 			foreignColumns: [states.realmId, states.id]
-		})),
-		foreignKey(() => ({
+		}),
+		foreignKey({
 			columns: [t.stateId, t.substateId],
 			foreignColumns: [substates.stateId, substates.id]
-		})),
+		}),
 		check('labours_number_positive', sql.raw(`"number" >= 1`))
 	]
 );
 
 // Every key a Labour has held, its current one included.
-export const labourKeys = sqliteTable(
+export const labourKeys = pgTable(
 	'labour_keys',
 	{
 		key: text('key').primaryKey(),
@@ -383,16 +371,11 @@ export const labourKeys = sqliteTable(
 	},
 	(t) => [
 		index('labour_keys_labour_idx').on(t.labourId),
-		check(
-			'labour_keys_format',
-			sql.raw(
-				`"key" GLOB '[A-Z]*-[1-9]*' AND "key" NOT GLOB '*[^A-Z0-9-]*' AND "key" NOT GLOB '*-*[^0-9]*'`
-			)
-		)
+		check('labour_keys_format', sql.raw(`"key" ~ '^[A-Z][A-Z0-9]*-[1-9][0-9]*$'`))
 	]
 );
 
-export const comments = sqliteTable(
+export const comments = pgTable(
 	'comments',
 	{
 		id: id(),
@@ -414,7 +397,7 @@ export const comments = sqliteTable(
 
 // A Quest belongs to one Realm, which decides who may see and edit it. Its Labours may be in any
 // Realm.
-export const quests = sqliteTable(
+export const quests = pgTable(
 	'quests',
 	{
 		id: id(),
@@ -432,7 +415,7 @@ export const quests = sqliteTable(
 	(t) => [index('quests_realm_idx').on(t.realmId)]
 );
 
-export const questLabours = sqliteTable(
+export const questLabours = pgTable(
 	'quest_labours',
 	{
 		questId: integer('quest_id')
@@ -441,7 +424,7 @@ export const questLabours = sqliteTable(
 		labourId: integer('labour_id')
 			.notNull()
 			.references(() => labours.id, { onDelete: 'cascade' }),
-		// A fractional index ordering the Quest; keep the default BINARY collation.
+		// A fractional index ordering the Quest; keep COLLATE "C".
 		rank: text('rank').notNull(),
 		addedAt: now('added_at')
 	},
@@ -454,7 +437,7 @@ export const questLabours = sqliteTable(
 
 // A schedule that creates a Labour in its Realm each time the last one is finished and the next
 // occurrence comes round.
-export const recurrences = sqliteTable(
+export const recurrences = pgTable(
 	'recurrences',
 	{
 		id: id(),
@@ -467,19 +450,19 @@ export const recurrences = sqliteTable(
 			.notNull()
 			.references(() => users.id),
 		assigneeId: integer('assignee_id').references(() => users.id),
-		labels: text('labels', { mode: 'json' })
+		labels: jsonb('labels')
 			.notNull()
 			.$type<string[]>()
-			.default(sql`'[]'`),
+			.default(sql`'[]'::jsonb`),
 		unit: text('unit', { enum: ['day', 'week', 'month', 'year'] }).notNull(),
 		every: integer('every').notNull(),
 		// The first occurrence, a local calendar date YYYY-MM-DD in `timezone`.
 		startsOn: text('starts_on').notNull(),
 		// An IANA zone name.
 		timezone: text('timezone').notNull().default('UTC'),
-		paused: integer('paused', { mode: 'boolean' }).notNull().default(false),
+		paused: boolean('paused').notNull().default(false),
 		// The Labour created last. Null before the first, and after it is deleted.
-		labourId: integer('labour_id').references((): AnySQLiteColumn => labours.id, {
+		labourId: integer('labour_id').references((): AnyPgColumn => labours.id, {
 			onDelete: 'set null'
 		}),
 		// When the next Labour is due. Null while the last one is unfinished.
@@ -495,7 +478,7 @@ export const recurrences = sqliteTable(
 );
 
 // The Quests each new Labour of a Recurrence is added to.
-export const recurrenceQuests = sqliteTable(
+export const recurrenceQuests = pgTable(
 	'recurrence_quests',
 	{
 		recurrenceId: integer('recurrence_id')
@@ -509,14 +492,14 @@ export const recurrenceQuests = sqliteTable(
 );
 
 // A page of a Realm's wiki, per docs/scrolls.md.
-export const scrolls = sqliteTable(
+export const scrolls = pgTable(
 	'scrolls',
 	{
 		id: id(),
 		realmId: integer('realm_id')
 			.notNull()
 			.references(() => realms.id, { onDelete: 'cascade' }),
-		parentId: integer('parent_id').references((): AnySQLiteColumn => scrolls.id, {
+		parentId: integer('parent_id').references((): AnyPgColumn => scrolls.id, {
 			onDelete: 'cascade'
 		}),
 		slug: text('slug').notNull(),
@@ -524,7 +507,7 @@ export const scrolls = sqliteTable(
 		path: text('path').notNull(),
 		title: text('title').notNull(),
 		body: text('body').notNull().default(''),
-		// A fractional index ordering the siblings; keep the default BINARY collation.
+		// A fractional index ordering the siblings; keep COLLATE "C".
 		rank: text('rank').notNull(),
 		version: integer('version').notNull().default(1),
 		createdById: integer('created_by_id')
@@ -538,24 +521,18 @@ export const scrolls = sqliteTable(
 	},
 	(t) => [
 		uniqueIndex('scrolls_realm_path_uq').on(t.realmId, t.path),
-		uniqueIndex('scrolls_sibling_rank_uq').on(
-			t.realmId,
-			sql`(CASE WHEN ${t.parentId} IS NULL THEN 0 ELSE ${t.parentId} END)`,
-			t.rank
-		),
+		uniqueIndex('scrolls_sibling_rank_uq').on(t.realmId, sql`coalesce(${t.parentId}, 0)`, t.rank),
 		index('scrolls_parent_idx').on(t.parentId),
 		check(
 			'scrolls_slug_format',
-			sql.raw(
-				`length("slug") BETWEEN 1 AND 64 AND "slug" NOT GLOB '*[^a-z0-9-]*' AND "slug" GLOB '[a-z0-9]*' AND "slug" GLOB '*[a-z0-9]'`
-			)
+			sql.raw(`length("slug") BETWEEN 1 AND 64 AND "slug" ~ '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'`)
 		),
 		check('scrolls_version_positive', sql.raw(`"version" >= 1`))
 	]
 );
 
 // Every Path a Scroll has held, its current one included.
-export const scrollPaths = sqliteTable(
+export const scrollPaths = pgTable(
 	'scroll_paths',
 	{
 		realmId: integer('realm_id')
@@ -574,7 +551,7 @@ export const scrollPaths = sqliteTable(
 );
 
 // What a Scroll's body names, per docs/scrolls.md: one of a Scroll link's target, a Labour or a User.
-export const scrollRefs = sqliteTable(
+export const scrollRefs = pgTable(
 	'scroll_refs',
 	{
 		id: id(),
@@ -585,31 +562,31 @@ export const scrollRefs = sqliteTable(
 		targetPath: text('target_path'),
 		labourId: integer('labour_id').references(() => labours.id, { onDelete: 'cascade' }),
 		userId: integer('user_id').references(() => users.id, { onDelete: 'cascade' }),
-		firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull()
+		firstSeenAt: epoch('first_seen_at').notNull()
 	},
 	(t) => [
 		uniqueIndex('scroll_refs_target_uq').on(
 			t.scrollId,
-			sql`(CASE WHEN ${t.targetPath} IS NULL THEN '' ELSE ${t.targetPath} END)`,
-			sql`(CASE WHEN ${t.labourId} IS NULL THEN 0 ELSE ${t.labourId} END)`,
-			sql`(CASE WHEN ${t.userId} IS NULL THEN 0 ELSE ${t.userId} END)`
+			sql`coalesce(${t.targetPath}, '')`,
+			sql`coalesce(${t.labourId}, 0)`,
+			sql`coalesce(${t.userId}, 0)`
 		),
 		index('scroll_refs_path_idx').on(t.targetPath),
 		index('scroll_refs_labour_idx').on(t.labourId),
 		check(
 			'scroll_refs_one_target',
 			sql.raw(
-				`("target_path" IS NOT NULL) + ("labour_id" IS NOT NULL) + ("user_id" IS NOT NULL) = 1`
+				`("target_path" IS NOT NULL)::int + ("labour_id" IS NOT NULL)::int + ("user_id" IS NOT NULL)::int = 1`
 			)
 		)
 	]
 );
 
-export const events = sqliteTable(
+export const events = pgTable(
 	'events',
 	{
-		// AUTOINCREMENT keeps seq rising even after pruning empties the table.
-		seq: integer('seq').primaryKey({ autoIncrement: true }),
+		// Allocated from event_counter inside the writing transaction.
+		seq: integer('seq').primaryKey(),
 		type: text('type', { enum: EVENT_TYPES }).notNull(),
 		actorId: integer('actor_id')
 			.notNull()
@@ -620,14 +597,24 @@ export const events = sqliteTable(
 		tokenName: text('token_name'),
 		createdAt: now(),
 		// The type's payload in docs/events.md.
-		data: text('data', { mode: 'json' }).notNull().$type<unknown>()
+		data: json('data').notNull().$type<unknown>()
 	},
 	(t) => [index('events_created_idx').on(t.createdAt)]
 );
 
+// The newest seq ever assigned, pruned Events included. One row.
+export const eventCounter = pgTable(
+	'event_counter',
+	{
+		id: integer('id').primaryKey().default(1),
+		last: integer('last').notNull().default(0)
+	},
+	() => [check('event_counter_single', sql.raw(`"id" = 1`))]
+);
+
 // The Realms an Event touches, per docs/webhooks.md. realmId has no foreign key: a deleted
 // Realm's id stays for the Events that touched it.
-export const eventRealms = sqliteTable(
+export const eventRealms = pgTable(
 	'event_realms',
 	{
 		seq: integer('seq')
@@ -642,7 +629,7 @@ export const eventRealms = sqliteTable(
 );
 
 // A Realm's settings for agents, per docs/agent-layer-data.md. No row reads as version 0.
-export const realmAgent = sqliteTable(
+export const realmAgent = pgTable(
 	'realm_agent',
 	{
 		realmId: integer('realm_id')
@@ -650,8 +637,8 @@ export const realmAgent = sqliteTable(
 			.references(() => realms.id, { onDelete: 'cascade' }),
 		version: integer('version').notNull(),
 		notes: text('notes').notNull().default(''),
-		halfLifeDays: real('half_life_days').notNull().default(14),
-		loudness: real('loudness').notNull().default(5),
+		halfLifeDays: doublePrecision('half_life_days').notNull().default(14),
+		loudness: doublePrecision('loudness').notNull().default(5),
 		updatedAt: now('updated_at')
 	},
 	() => [
@@ -661,7 +648,7 @@ export const realmAgent = sqliteTable(
 	]
 );
 
-export const attributes = sqliteTable(
+export const attributes = pgTable(
 	'attributes',
 	{
 		id: id(),
@@ -673,7 +660,7 @@ export const attributes = sqliteTable(
 		label: text('label').notNull(),
 		rubric: text('rubric').notNull(),
 		// By kind; the shapes are in docs/agent-layer-data.md.
-		spec: text('spec', { mode: 'json' }).notNull().$type<unknown>(),
+		spec: json('spec').notNull().$type<unknown>(),
 		// No >= 0 check: writePositions parks rows on negative positions.
 		position: integer('position').notNull(),
 		createdAt: now(),
@@ -684,25 +671,19 @@ export const attributes = sqliteTable(
 		uniqueIndex('attributes_realm_key_uq').on(t.realmId, t.key),
 		uniqueIndex('attributes_realm_position_uq').on(t.realmId, t.position),
 		uniqueIndex('attributes_realm_id_uq').on(t.realmId, t.id),
-		check(
-			'attributes_key_format',
-			sql.raw(
-				`"key" GLOB '[a-z]*' AND "key" NOT GLOB '*[^a-z0-9-]*' AND length("key") BETWEEN 1 AND 32`
-			)
-		),
-		check('attributes_kind', sql.raw(`"kind" IN ('scale', 'tags', 'text')`)),
-		check('attributes_spec_json', sql.raw(`json_valid("spec")`))
+		check('attributes_key_format', sql.raw(`"key" ~ '^[a-z][a-z0-9-]{0,31}$'`)),
+		check('attributes_kind', sql.raw(`"kind" IN ('scale', 'tags', 'text')`))
 	]
 );
 
-export const labourAttributes = sqliteTable(
+export const labourAttributes = pgTable(
 	'labour_attributes',
 	{
 		realmId: integer('realm_id').notNull(),
 		labourId: integer('labour_id').notNull(),
 		attributeId: integer('attribute_id').notNull(),
 		// By the Attribute's kind; the shapes are in docs/agent-layer-data.md.
-		value: text('value', { mode: 'json' }).notNull().$type<unknown>(),
+		value: json('value').notNull().$type<unknown>(),
 		setBy: integer('set_by')
 			.notNull()
 			.references(() => users.id),
@@ -712,20 +693,19 @@ export const labourAttributes = sqliteTable(
 	(t) => [
 		primaryKey({ columns: [t.labourId, t.attributeId] }),
 		index('labour_attributes_attribute_idx').on(t.attributeId),
-		foreignKey(() => ({
+		foreignKey({
 			columns: [t.realmId, t.labourId],
 			foreignColumns: [labours.realmId, labours.id]
-		})).onDelete('cascade'),
-		foreignKey(() => ({
+		}).onDelete('cascade'),
+		foreignKey({
 			columns: [t.realmId, t.attributeId],
 			foreignColumns: [attributes.realmId, attributes.id]
-		})).onDelete('cascade'),
-		check('labour_attributes_value_json', sql.raw(`json_valid("value")`))
+		}).onDelete('cascade')
 	]
 );
 
 // A Labour's Brief, References and stamp, per docs/agent-layer-data.md. No row reads as unappraised.
-export const appraisals = sqliteTable(
+export const appraisals = pgTable(
 	'appraisals',
 	{
 		labourId: integer('labour_id')
@@ -733,7 +713,7 @@ export const appraisals = sqliteTable(
 			.references(() => labours.id, { onDelete: 'cascade' }),
 		brief: text('brief').notNull().default(''),
 		// Reference[]; the shape is in docs/agent-layer-data.md.
-		refs: text('refs', { mode: 'json' }).notNull().$type<unknown>().default([]),
+		refs: json('refs').notNull().$type<unknown>().default([]),
 		// Null until a brief or refs write.
 		setBy: integer('set_by').references(() => users.id),
 		setAt: timestamp('set_at'),
@@ -744,7 +724,6 @@ export const appraisals = sqliteTable(
 		appraisedVia: text('appraised_via')
 	},
 	() => [
-		check('appraisals_refs_json', sql.raw(`json_valid("refs")`)),
 		check(
 			'appraisals_stamp_set',
 			sql.raw(
@@ -755,7 +734,7 @@ export const appraisals = sqliteTable(
 );
 
 // A typed connection between two Labours, per docs/agent-layer-data.md.
-export const links = sqliteTable(
+export const links = pgTable(
 	'links',
 	{
 		fromId: integer('from_id')
@@ -782,14 +761,14 @@ export const links = sqliteTable(
 );
 
 // The version of the build rules each derived structure follows, per docs/agent-layer-data.md.
-export const derivedBuilds = sqliteTable('derived_builds', {
+export const derivedBuilds = pgTable('derived_builds', {
 	name: text('name', { enum: ['labour_text', 'mentions', 'embedding_inputs'] }).primaryKey(),
 	version: integer('version').notNull(),
 	builtAt: now('built_at')
 });
 
 // A Labour key or username found in a Labour's description or a Comment, per docs/agent-layer-data.md.
-export const mentions = sqliteTable(
+export const mentions = pgTable(
 	'mentions',
 	{
 		id: id(),
@@ -803,14 +782,14 @@ export const mentions = sqliteTable(
 		authorId: integer('author_id')
 			.notNull()
 			.references(() => users.id),
-		firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull()
+		firstSeenAt: epoch('first_seen_at').notNull()
 	},
 	(t) => [
 		uniqueIndex('mentions_source_target_uq').on(
 			t.sourceLabourId,
-			sql`(CASE WHEN ${t.commentId} IS NULL THEN 0 ELSE ${t.commentId} END)`,
-			sql`(CASE WHEN ${t.labourId} IS NULL THEN 0 ELSE ${t.labourId} END)`,
-			sql`(CASE WHEN ${t.userId} IS NULL THEN 0 ELSE ${t.userId} END)`
+			sql`coalesce(${t.commentId}, 0)`,
+			sql`coalesce(${t.labourId}, 0)`,
+			sql`coalesce(${t.userId}, 0)`
 		),
 		index('mentions_labour_idx').on(t.labourId, t.firstSeenAt),
 		index('mentions_user_idx').on(t.userId, t.firstSeenAt),
@@ -820,7 +799,7 @@ export const mentions = sqliteTable(
 );
 
 // One report into a Realm's Sentiment or a User's Affinity, per docs/agent-layer-data.md.
-export const pulses = sqliteTable(
+export const pulses = pgTable(
 	'pulses',
 	{
 		id: id(),
@@ -831,13 +810,13 @@ export const pulses = sqliteTable(
 		// The member key of a tags Attribute; null otherwise.
 		member: text('member'),
 		rawKey: text('raw_key').notNull(),
-		amount: real('amount').notNull(),
-		mood: real('mood').notNull(),
+		amount: doublePrecision('amount').notNull(),
+		mood: doublePrecision('mood').notNull(),
 		// Null never fades.
-		halfLifeDays: real('half_life_days'),
+		halfLifeDays: doublePrecision('half_life_days'),
 		note: text('note').notNull().default(''),
 		// Evidence[]; the shape is in docs/agent-layer-data.md.
-		evidence: text('evidence', { mode: 'json' }).notNull().$type<unknown>().default([]),
+		evidence: json('evidence').notNull().$type<unknown>().default([]),
 		ref: text('ref'),
 		authorId: integer('author_id')
 			.notNull()
@@ -863,13 +842,12 @@ export const pulses = sqliteTable(
 		check(
 			'pulses_half_life',
 			sql.raw(`"half_life_days" IS NULL OR ("half_life_days" > 0 AND "half_life_days" <= 365)`)
-		),
-		check('pulses_evidence_json', sql.raw(`json_valid("evidence")`))
+		)
 	]
 );
 
 // A scored request and what it returned, per docs/agent-layer-data.md.
-export const surveys = sqliteTable(
+export const surveys = pgTable(
 	'surveys',
 	{
 		id: id(),
@@ -879,20 +857,16 @@ export const surveys = sqliteTable(
 		forId: integer('for_id')
 			.notNull()
 			.references(() => users.id),
-		request: text('request', { mode: 'json' }).notNull().$type<unknown>(),
+		request: json('request').notNull().$type<unknown>(),
 		// Results; the shape is in docs/agent-layer-data.md.
-		results: text('results', { mode: 'json' }).notNull().$type<unknown>(),
+		results: json('results').notNull().$type<unknown>(),
 		createdAt: now()
 	},
-	(t) => [
-		index('surveys_created_idx').on(t.createdAt),
-		check('surveys_request_json', sql.raw(`json_valid("request")`)),
-		check('surveys_results_json', sql.raw(`json_valid("results")`))
-	]
+	(t) => [index('surveys_created_idx').on(t.createdAt)]
 );
 
 // What became of a Labour a Survey returned, per docs/agent-layer-data.md.
-export const outcomes = sqliteTable(
+export const outcomes = pgTable(
 	'outcomes',
 	{
 		surveyId: integer('survey_id')
@@ -916,7 +890,7 @@ export const outcomes = sqliteTable(
 );
 
 // An ability named once for the instance, per docs/agent-layer-data.md.
-export const skills = sqliteTable(
+export const skills = pgTable(
 	'skills',
 	{
 		id: id(),
@@ -927,18 +901,13 @@ export const skills = sqliteTable(
 		updatedAt: now('updated_at')
 	},
 	() => [
-		check(
-			'skills_key_format',
-			sql.raw(
-				`"key" GLOB '[a-z]*' AND "key" NOT GLOB '*[^a-z0-9-]*' AND length("key") BETWEEN 1 AND 32`
-			)
-		),
+		check('skills_key_format', sql.raw(`"key" ~ '^[a-z][a-z0-9-]{0,31}$'`)),
 		check('skills_label_length', sql.raw(`length("label") BETWEEN 1 AND 64`)),
 		check('skills_rubric_length', sql.raw(`length("rubric") <= 4000`))
 	]
 );
 
-export const userSkills = sqliteTable(
+export const userSkills = pgTable(
 	'user_skills',
 	{
 		userId: integer('user_id')
@@ -961,7 +930,7 @@ export const userSkills = sqliteTable(
 );
 
 // A Labour needs at most 8, held by the domain.
-export const labourNeeds = sqliteTable(
+export const labourNeeds = pgTable(
 	'labour_needs',
 	{
 		labourId: integer('labour_id')
@@ -984,25 +953,25 @@ export const labourNeeds = sqliteTable(
 );
 
 // A Labour's embedding, per docs/agent-layer-data.md. Derived: a missing or stale row is rebuilt.
-export const labourVectors = sqliteTable('labour_vectors', {
+export const labourVectors = pgTable('labour_vectors', {
 	labourId: integer('labour_id')
 		.primaryKey()
 		.references(() => labours.id, { onDelete: 'cascade' }),
 	model: text('model').notNull(),
-	vector: blob('vector', { mode: 'buffer' }).notNull(),
+	vector: bytea('vector').notNull(),
 	inputHash: text('input_hash').notNull(),
 	embeddedAt: now('embedded_at')
 });
 
 // The hash of a Labour's embedding input as its text stands, per docs/agent-layer-data.md.
-export const labourInputs = sqliteTable('labour_inputs', {
+export const labourInputs = pgTable('labour_inputs', {
 	labourId: integer('labour_id')
 		.primaryKey()
 		.references(() => labours.id, { onDelete: 'cascade' }),
 	inputHash: text('input_hash').notNull()
 });
 
-export const webhooks = sqliteTable(
+export const webhooks = pgTable(
 	'webhooks',
 	{
 		id: id(),
@@ -1030,14 +999,14 @@ export const webhooks = sqliteTable(
 	(t) => [index('webhooks_owner_idx').on(t.ownerId)]
 );
 
-export const webhookDeliveries = sqliteTable(
+export const webhookDeliveries = pgTable(
 	'webhook_deliveries',
 	{
 		id: id(),
 		webhookId: integer('webhook_id')
 			.notNull()
 			.references(() => webhooks.id, { onDelete: 'cascade' }),
-		attemptedAt: integer('attempted_at', { mode: 'timestamp_ms' }).notNull(),
+		attemptedAt: epoch('attempted_at').notNull(),
 		messageId: text('message_id').notNull(),
 		kind: text('kind', { enum: ['events', 'reset', 'ping'] }).notNull(),
 		firstSeq: integer('first_seq'),
@@ -1051,4 +1020,44 @@ export const webhookDeliveries = sqliteTable(
 		index('webhook_deliveries_webhook_idx').on(t.webhookId, t.id),
 		index('webhook_deliveries_attempted_idx').on(t.attemptedAt)
 	]
+);
+
+// Weights: title A, brief B, notes C, description and comments D; keywordScores ranks the classes
+// 4:3:2:1.
+export const labourText = pgTable(
+	'labour_text',
+	{
+		labourId: integer('labour_id')
+			.primaryKey()
+			.references(() => labours.id, { onDelete: 'cascade' }),
+		title: text('title').notNull(),
+		brief: text('brief').notNull(),
+		description: text('description').notNull(),
+		comments: text('comments').notNull(),
+		notes: text('notes').notNull(),
+		search: tsvector('search').generatedAlwaysAs(
+			sql.raw(
+				`setweight(to_tsvector('sagas_english', "title"), 'A') || setweight(to_tsvector('sagas_english', "brief"), 'B') || setweight(to_tsvector('sagas_english', "notes"), 'C') || setweight(to_tsvector('sagas_english', "description"), 'D') || setweight(to_tsvector('sagas_english', "comments"), 'D')`
+			)
+		)
+	},
+	(t) => [index('labour_text_search_idx').using('gin', t.search)]
+);
+
+// Weights: title A, body B; scrollMatches orders by them.
+export const scrollText = pgTable(
+	'scroll_text',
+	{
+		scrollId: integer('scroll_id')
+			.primaryKey()
+			.references(() => scrolls.id, { onDelete: 'cascade' }),
+		title: text('title').notNull(),
+		body: text('body').notNull(),
+		search: tsvector('search').generatedAlwaysAs(
+			sql.raw(
+				`setweight(to_tsvector('sagas_english', "title"), 'A') || setweight(to_tsvector('sagas_english', "body"), 'B')`
+			)
+		)
+	},
+	(t) => [index('scroll_text_search_idx').using('gin', t.search)]
 );

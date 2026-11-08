@@ -17,14 +17,15 @@ import { canSeeRealm } from '#lib/server/domain/access.ts';
 import { readLabourPage, toJson } from '#lib/server/ui/reads.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals }) => {
 	const viewer = signedIn(locals);
 	const db = getDb();
-	const found = resolveLabourKey(db, params.key);
-	if (!found || !canSeeRealm(db, viewer, found.realmId)) error(404, 'No Labour has that key');
+	const found = await resolveLabourKey(db, params.key);
+	if (!found || !(await canSeeRealm(db, viewer, found.realmId)))
+		error(404, 'No Labour has that key');
 	if (found.key !== params.key) redirect(307, `/l/${found.key}`);
 	try {
-		const { seq, value } = readAtSeq(db, (tx) => readLabourPage(tx, viewer, found.id));
+		const { seq, value } = await readAtSeq(db, (tx) => readLabourPage(tx, viewer, found.id));
 		return { seq, page: toJson(value) };
 	} catch (e) {
 		if (e instanceof DomainError && e.code === 'not_found') error(404, 'No Labour has that key');
@@ -44,7 +45,7 @@ export const actions: Actions = {
 	update: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('update', () => {
+		return perform('update', async () => {
 			const patch: LabourPatch = {};
 			if (form.has('title')) patch.title = text(form, 'title');
 			if (form.has('description')) patch.description = text(form, 'description');
@@ -53,7 +54,7 @@ export const actions: Actions = {
 			if (form.has('stateId')) patch.stateId = int(form, 'stateId');
 			if (form.has('labels')) patch.labels = labels(form);
 			if (form.has('substateId')) patch.substateId = optionalInt(form, 'substateId');
-			const labour = updateLabour(getDb(), actor, int(form, 'labourId'), patch);
+			const labour = await updateLabour(getDb(), actor, int(form, 'labourId'), patch);
 			return { key: labour.key };
 		});
 	},
@@ -61,40 +62,40 @@ export const actions: Actions = {
 	comment: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('comment', () => {
-			addComment(getDb(), actor, int(form, 'labourId'), text(form, 'body'));
+		return perform('comment', async () => {
+			await addComment(getDb(), actor, int(form, 'labourId'), text(form, 'body'));
 		});
 	},
 
 	editComment: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('comment', () => {
-			editComment(getDb(), actor, int(form, 'commentId'), text(form, 'body'));
+		return perform('comment', async () => {
+			await editComment(getDb(), actor, int(form, 'commentId'), text(form, 'body'));
 		});
 	},
 
 	deleteComment: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('comment', () => {
-			deleteComment(getDb(), actor, int(form, 'commentId'));
+		return perform('comment', async () => {
+			await deleteComment(getDb(), actor, int(form, 'commentId'));
 		});
 	},
 
 	parent: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('parent', () => {
-			setParent(getDb(), actor, int(form, 'labourId'), optionalInt(form, 'parentId'));
+		return perform('parent', async () => {
+			await setParent(getDb(), actor, int(form, 'labourId'), optionalInt(form, 'parentId'));
 		});
 	},
 
 	move: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('move', () => {
-			const labour = moveLabour(getDb(), actor, int(form, 'labourId'), {
+		return perform('move', async () => {
+			const labour = await moveLabour(getDb(), actor, int(form, 'labourId'), {
 				realmId: int(form, 'realmId'),
 				stateId: optionalInt(form, 'stateId') ?? undefined,
 				substateId: optionalInt(form, 'substateId')
@@ -106,26 +107,26 @@ export const actions: Actions = {
 	addQuest: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('quests', () => {
-			addQuestLabour(getDb(), actor, int(form, 'questId'), int(form, 'labourId'));
+		return perform('quests', async () => {
+			await addQuestLabour(getDb(), actor, int(form, 'questId'), int(form, 'labourId'));
 		});
 	},
 
 	removeQuest: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('quests', () => {
-			removeQuestLabour(getDb(), actor, int(form, 'questId'), int(form, 'labourId'));
+		return perform('quests', async () => {
+			await removeQuestLabour(getDb(), actor, int(form, 'questId'), int(form, 'labourId'));
 		});
 	},
 
 	delete: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const result = perform('delete', () => {
+		const result = await perform('delete', async () => {
 			const db = getDb();
-			const page = readLabourPage(db, actor, int(form, 'labourId'));
-			deleteLabour(db, actor, page.labour.id);
+			const page = await readLabourPage(db, actor, int(form, 'labourId'));
+			await deleteLabour(db, actor, page.labour.id);
 			const realm = page.realms.find((p) => p.id === page.labour.realmId);
 			return { board: realm?.key ?? '' };
 		});

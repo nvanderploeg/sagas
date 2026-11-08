@@ -11,20 +11,20 @@ export const SESSION_COOKIE = 'sagas_session';
 
 // A Bearer header decides alone: a malformed or revoked token never falls back to the cookie.
 // Any other scheme, such as a reverse proxy's Basic, leaves the decision to the cookie.
-export function authFromRequest(
+export async function authFromRequest(
 	db: Db,
 	request: Request,
 	sessionToken: string | undefined
-): Auth | null {
+): Promise<Auth | null> {
 	const header = request.headers.get('authorization')?.trim() ?? '';
 	if (/^Bearer(\s|$)/i.test(header)) {
 		const match = /^Bearer\s+(\S+)$/i.exec(header);
 		if (!match) return null;
-		const user = verifyApiToken(db, match[1]);
+		const user = await verifyApiToken(db, match[1]);
 		return user && { user, credential: apiTokenCredential(match[1]) };
 	}
 	if (!sessionToken) return null;
-	const user = resolveSession(db, sessionToken);
+	const user = await resolveSession(db, sessionToken);
 	return user && { user, credential: sessionCredential(sessionToken) };
 }
 

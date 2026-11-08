@@ -1,10 +1,11 @@
 import { createWriteStream } from 'node:fs';
-import { mkdir, rm } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { stageImport, type ImportOptions, type PendingImport } from './import.ts';
-import type { DataLayout } from './layout.ts';
+import type { Db } from '#lib/server/db/client.ts';
+import { importBundle, type ImportOptions, type ImportResult } from './import.ts';
 
 export class UploadError extends Error {
 	constructor(
@@ -24,14 +25,14 @@ type Session = {
 	size: number;
 	touchedAt: number;
 	writing: boolean;
-	staging: boolean;
+	importing: boolean;
 };
 
 export type Chunk = { id: string; offset: number; body: ReadableStream | Readable; final: boolean };
 
 /** One upload at a time; the bundle arrives in chunks small enough for the server's body limit. */
 export function createUploads(
-	layout: DataLayout,
+	db: Db,
 	options: ImportOptions & { maxBytes: number },
 	clock: () => number = Date.now
 ) {
@@ -43,12 +44,12 @@ export function createUploads(
 	}
 
 	// Everything up to `writing = true` runs synchronously, so two chunks never both get through.
-	async function append(chunk: Chunk): Promise<PendingImport | null> {
+	async function append(chunk: Chunk): Promise<ImportResult | null> {
 		if (!UPLOAD_ID.test(chunk.id)) throw new UploadError(400, 'Bad upload id');
 		const now = clock();
 		let abandoned: Session | null = null;
 		if (active && active.id !== chunk.id) {
-			if (active.writing || active.staging || now - active.touchedAt < STALE_MS) {
+			if (active.writing || active.importing || now - active.touchedAt < STALE_MS) {
 				throw new UploadError(409, 'Another import is in progress');
 			}
 			abandoned = active;
@@ -59,16 +60,16 @@ export function createUploads(
 			if (chunk.offset !== 0) throw new UploadError(409, 'The upload is not in progress');
 			active = {
 				id: chunk.id,
-				file: join(layout.dataDir, `import-tmp-upload-${chunk.id}.zip`),
+				file: join(tmpdir(), `sagas-upload-${chunk.id}.zip`),
 				size: 0,
 				touchedAt: now,
 				writing: false,
-				staging: false
+				importing: false
 			};
 			fresh = true;
 		}
 		const session = active;
-		if (session.writing || session.staging)
+		if (session.writing || session.importing)
 			throw new UploadError(409, 'Another import is in progress');
 		if (chunk.offset !== session.size) throw new UploadError(409, 'Chunk out of order');
 		session.writing = true;
@@ -77,7 +78,6 @@ export function createUploads(
 		try {
 			if (abandoned) await rm(abandoned.file, { force: true });
 			if (fresh) {
-				await mkdir(layout.dataDir, { recursive: true });
 				await rm(session.file, { force: true });
 			}
 			const room = options.maxBytes - session.size;
@@ -104,8 +104,8 @@ export function createUploads(
 				session.writing = false;
 				return null;
 			}
-			session.staging = true;
-			return await stageImport(session.file, layout, options);
+			session.importing = true;
+			return await importBundle(db, session.file, options);
 		} catch (error) {
 			await drop(session);
 			throw error;

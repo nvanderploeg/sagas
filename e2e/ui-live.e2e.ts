@@ -6,9 +6,9 @@ test.describe('live sync between two browsers', () => {
 		other,
 		ui
 	}) => {
-		const p = ui.realm();
-		const a = ui.labour(p.id, { title: 'Watched' });
-		const b = ui.labour(p.id, { title: 'Neighbour' });
+		const p = await ui.realm();
+		const a = await ui.labour(p.id, { title: 'Watched' });
+		const b = await ui.labour(p.id, { title: 'Neighbour' });
 
 		await page.goto(`/r/${p.key}`);
 		await other.page.goto(`/r/${p.key}`);
@@ -34,8 +34,8 @@ test.describe('live sync between two browsers', () => {
 		other,
 		ui
 	}) => {
-		const p = ui.realm();
-		const t = ui.labour(p.id, { title: 'Before' });
+		const p = await ui.realm();
+		const t = await ui.labour(p.id, { title: 'Before' });
 
 		const labourTab = await page.context().newPage();
 		await page.goto(`/r/${p.key}`);
@@ -61,7 +61,7 @@ test.describe('live sync between two browsers', () => {
 	});
 
 	test("one's own create lands once, in both browsers", async ({ page, other, ui }) => {
-		const p = ui.realm();
+		const p = await ui.realm();
 		await page.goto(`/r/${p.key}`);
 		await other.page.goto(`/r/${p.key}`);
 		await live(page);
@@ -81,8 +81,8 @@ test.describe('live sync between two browsers', () => {
 	});
 
 	test('a Realm key rename re-keys open boards and Labour pages', async ({ page, other, ui }) => {
-		const p = ui.realm();
-		const t = ui.labour(p.id, { title: 'Rekeyed' });
+		const p = await ui.realm();
+		const t = await ui.labour(p.id, { title: 'Rekeyed' });
 		await page.goto(`/l/${t.key}`);
 		await live(page);
 
@@ -100,8 +100,8 @@ test.describe('live sync between two browsers', () => {
 		other,
 		ui
 	}) => {
-		const p = ui.realm();
-		const t = ui.labour(p.id, { title: 'Handed over' });
+		const p = await ui.realm();
+		const t = await ui.labour(p.id, { title: 'Handed over' });
 		await other.page.goto(`/r/${p.key}`);
 		const labourTab = await other.context.newPage();
 		await labourTab.goto(`/l/${t.key}`);
@@ -110,8 +110,8 @@ test.describe('live sync between two browsers', () => {
 
 		const tag = Date.now().toString(36);
 		const name = `Late Bot ${tag}`;
-		const late = ui.agent(`late${tag}`, name);
-		ui.join(p.id, late.id);
+		const late = await ui.agent(`late${tag}`, name);
+		await ui.join(p.id, late.id);
 		await page.goto(`/l/${t.key}`);
 		await live(page);
 		await page.getByLabel('Owner').selectOption({ label: name });

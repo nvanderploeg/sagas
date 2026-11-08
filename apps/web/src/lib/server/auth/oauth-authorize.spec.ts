@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { redirect } from '@sveltejs/kit';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import {
@@ -17,13 +17,10 @@ const CHALLENGE = 'a'.repeat(43);
 let db: Db;
 let client: OAuthClient;
 
-beforeEach(() => {
-	db = testDb();
-	client = registerClient(db, { name: 'Claude', redirectUris: [...OAUTH_REDIRECT_URIS] }).client;
-});
-
-afterEach(() => {
-	db.$client.close();
+beforeEach(async () => {
+	db = await testDb();
+	client = (await registerClient(db, { name: 'Claude', redirectUris: [...OAUTH_REDIRECT_URIS] }))
+		.client;
 });
 
 function request(overrides: Record<string, string | null> = {}, extra: [string, string][] = []) {
@@ -43,7 +40,7 @@ function request(overrides: Record<string, string | null> = {}, extra: [string, 
 	return readAuthorizeRequest(db, params, ORIGIN);
 }
 
-function redirected(result: ReturnType<typeof request>) {
+function redirected(result: Awaited<ReturnType<typeof request>>) {
 	expect(result.kind).toBe('redirect');
 	if (result.kind !== 'redirect') throw new Error('not a redirect');
 	const url = new URL(result.location);
@@ -51,8 +48,8 @@ function redirected(result: ReturnType<typeof request>) {
 }
 
 describe('readAuthorizeRequest', () => {
-	it('returns the consent details for a good request', () => {
-		expect(request()).toEqual({
+	it('returns the consent details for a good request', async () => {
+		expect(await request()).toEqual({
 			kind: 'consent',
 			client,
 			redirectUri: CALLBACK,
@@ -61,13 +58,13 @@ describe('readAuthorizeRequest', () => {
 		});
 	});
 
-	it('takes state as optional and scope as ignored', () => {
-		const result = request({ state: null, scope: 'anything' });
+	it('takes state as optional and scope as ignored', async () => {
+		const result = await request({ state: null, scope: 'anything' });
 		expect(result).toMatchObject({ kind: 'consent', state: null });
 	});
 
-	it('accepts a resource equal to this origin’s /mcp', () => {
-		expect(request({ resource: `${ORIGIN}/mcp` }).kind).toBe('consent');
+	it('accepts a resource equal to this origin’s /mcp', async () => {
+		expect((await request({ resource: `${ORIGIN}/mcp` })).kind).toBe('consent');
 	});
 
 	it.each([
@@ -77,21 +74,23 @@ describe('readAuthorizeRequest', () => {
 		['an unregistered redirect_uri', { redirect_uri: 'https://evil.example/cb' }],
 		['a redirect_uri differing only by query', { redirect_uri: `${CALLBACK}?x=1` }],
 		['a redirect_uri differing only by trailing slash', { redirect_uri: `${CALLBACK}/` }]
-	])('refuses with an error page, never a redirect, for %s', (_name, overrides) => {
-		expect(request(overrides).kind).toBe('invalid');
+	])('refuses with an error page, never a redirect, for %s', async (_name, overrides) => {
+		expect((await request(overrides)).kind).toBe('invalid');
 	});
 
-	it('refuses a repeated client_id or redirect_uri', () => {
-		expect(request({}, [['client_id', client.clientId]]).kind).toBe('invalid');
-		expect(request({}, [['redirect_uri', CALLBACK]]).kind).toBe('invalid');
+	it('refuses a repeated client_id or redirect_uri', async () => {
+		expect((await request({}, [['client_id', client.clientId]])).kind).toBe('invalid');
+		expect((await request({}, [['redirect_uri', CALLBACK]])).kind).toBe('invalid');
 	});
 
-	it('redirects unsupported_response_type, echoing state', () => {
-		const result = redirected(request({ response_type: 'token' }));
+	it('redirects unsupported_response_type, echoing state', async () => {
+		const result = redirected(await request({ response_type: 'token' }));
 		expect(result).toMatchObject({ error: 'unsupported_response_type', state: 'xyz' });
 		expect(result.url.origin + result.url.pathname).toBe(CALLBACK);
 		expect(result.url.searchParams.get('error_description')).toBeTruthy();
-		expect(redirected(request({ response_type: null })).error).toBe('unsupported_response_type');
+		expect(redirected(await request({ response_type: null })).error).toBe(
+			'unsupported_response_type'
+		);
 	});
 
 	it.each([
@@ -101,26 +100,28 @@ describe('readAuthorizeRequest', () => {
 		['a short challenge', { code_challenge: 'a'.repeat(42) }],
 		['a long challenge', { code_challenge: 'a'.repeat(44) }],
 		['a challenge with bad characters', { code_challenge: `${'a'.repeat(42)}=` }]
-	])('redirects invalid_request for %s', (_name, overrides) => {
-		expect(redirected(request(overrides)).error).toBe('invalid_request');
+	])('redirects invalid_request for %s', async (_name, overrides) => {
+		expect(redirected(await request(overrides)).error).toBe('invalid_request');
 	});
 
-	it('redirects invalid_request for a repeated parameter', () => {
-		expect(redirected(request({}, [['code_challenge', CHALLENGE]])).error).toBe('invalid_request');
-		const repeated = redirected(request({}, [['state', 'again']]));
+	it('redirects invalid_request for a repeated parameter', async () => {
+		expect(redirected(await request({}, [['code_challenge', CHALLENGE]])).error).toBe(
+			'invalid_request'
+		);
+		const repeated = redirected(await request({}, [['state', 'again']]));
 		expect(repeated.error).toBe('invalid_request');
 		expect(repeated.state).toBe('xyz');
 	});
 
-	it('redirects invalid_target for another resource', () => {
-		expect(redirected(request({ resource: 'https://other.example/mcp' })).error).toBe(
+	it('redirects invalid_target for another resource', async () => {
+		expect(redirected(await request({ resource: 'https://other.example/mcp' })).error).toBe(
 			'invalid_target'
 		);
-		expect(redirected(request({ resource: ORIGIN })).error).toBe('invalid_target');
+		expect(redirected(await request({ resource: ORIGIN })).error).toBe('invalid_target');
 	});
 
-	it('leaves state off an error redirect when none was given', () => {
-		expect(redirected(request({ response_type: 'token', state: null })).state).toBeNull();
+	it('leaves state off an error redirect when none was given', async () => {
+		expect(redirected(await request({ response_type: 'token', state: null })).state).toBeNull();
 	});
 });
 

@@ -22,11 +22,11 @@ function questId(raw: string): number {
 	return Number(raw);
 }
 
-export const load: PageServerLoad = ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals }) => {
 	const viewer = signedIn(locals);
 	const id = questId(params.id);
 	try {
-		const { seq, value } = readAtSeq(getDb(), (tx) => readQuestPage(tx, viewer, id));
+		const { seq, value } = await readAtSeq(getDb(), (tx) => readQuestPage(tx, viewer, id));
 		return { seq, page: toJson(value) };
 	} catch (e) {
 		if (e instanceof DomainError && e.code === 'not_found') error(404, 'No such Quest');
@@ -38,28 +38,28 @@ export const actions: Actions = {
 	update: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('update', () => {
+		return perform('update', async () => {
 			const patch: QuestPatch = {};
 			if (form.has('name')) patch.name = text(form, 'name');
 			if (form.has('description')) patch.description = text(form, 'description');
 			if (form.has('ownerId')) patch.ownerId = int(form, 'ownerId');
-			updateQuest(getDb(), actor, questId(params.id), patch);
+			await updateQuest(getDb(), actor, questId(params.id), patch);
 		});
 	},
 
 	add: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('add', () => {
+		return perform('add', async () => {
 			const db = getDb();
 			const id = questId(params.id);
 			const labourId = int(form, 'labourId');
 			if (!checked(form, 'children')) {
-				addQuestLabour(db, actor, id, labourId);
+				await addQuestLabour(db, actor, id, labourId);
 				return;
 			}
-			const children = listChildren(db, labourId).map((child) => child.id);
-			const added = addQuestLabours(db, actor, id, [labourId, ...children]);
+			const children = (await listChildren(db, labourId)).map((child) => child.id);
+			const added = await addQuestLabours(db, actor, id, [labourId, ...children]);
 			if (added.labourIds.length === 0) {
 				throw new DomainError('conflict', 'The Labour and its Children are already in the Quest');
 			}
@@ -69,15 +69,15 @@ export const actions: Actions = {
 	create: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('create', () => {
+		return perform('create', async () => {
 			const db = getDb();
 			const id = questId(params.id);
-			const labour = createLabour(db, actor, {
-				realmId: getQuest(db, id).realmId,
+			const labour = await createLabour(db, actor, {
+				realmId: (await getQuest(db, id)).realmId,
 				title: text(form, 'title'),
 				ownerId: actor.id
 			});
-			addQuestLabour(db, actor, id, labour.id);
+			await addQuestLabour(db, actor, id, labour.id);
 			return { key: labour.key };
 		});
 	},
@@ -85,22 +85,28 @@ export const actions: Actions = {
 	remove: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('members', () => {
-			removeQuestLabour(getDb(), actor, questId(params.id), int(form, 'labourId'));
+		return perform('members', async () => {
+			await removeQuestLabour(getDb(), actor, questId(params.id), int(form, 'labourId'));
 		});
 	},
 
 	rank: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('members', () => {
-			rankQuestLabour(getDb(), actor, questId(params.id), int(form, 'labourId'), placement(form));
+		return perform('members', async () => {
+			await rankQuestLabour(
+				getDb(),
+				actor,
+				questId(params.id),
+				int(form, 'labourId'),
+				placement(form)
+			);
 		});
 	},
 
 	delete: async ({ locals, params }) => {
 		const actor = signedIn(locals);
-		const result = perform('delete', () => deleteQuest(getDb(), actor, questId(params.id)));
+		const result = await perform('delete', () => deleteQuest(getDb(), actor, questId(params.id)));
 		if (!isActionFailure(result)) redirect(303, '/quests');
 		return result;
 	}

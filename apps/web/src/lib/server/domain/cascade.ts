@@ -1,4 +1,5 @@
-import { and, asc, eq, inArray, not, sql, type SQL } from 'drizzle-orm';
+import { mapSeq } from '#lib/server/async.ts';
+import { and, asc, eq, inArray, not, type SQL } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
 import { questLabours, labours } from '../db/schema.ts';
 import type { EventSpec } from '../events/types.ts';
@@ -12,21 +13,16 @@ export type Fallout = {
 };
 
 // Call before the delete. Detach Children here, not by the foreign key, so their updatedAt moves.
-export function prepareLabourDelete(tx: Handle, doomed: SQL): Fallout {
+export async function prepareLabourDelete(tx: Handle, doomed: SQL): Promise<Fallout> {
 	const doomedIds = tx.select({ id: labours.id }).from(labours).where(doomed);
-	tx.run(sql`DELETE FROM labour_text WHERE rowid IN (SELECT id FROM labours WHERE ${doomed})`);
 	const orphaned = and(inArray(labours.parentId, doomedIds), not(inArray(labours.id, doomedIds)));
-	const orphans = tx
-		.select({ id: labours.id })
-		.from(labours)
-		.where(orphaned)
-		.orderBy(asc(labours.id))
-		.all()
-		.map((row) => row.id);
-	tx.update(labours).set({ parentId: null, updatedAt: new Date() }).where(orphaned).run();
+	const orphans = (
+		await tx.select({ id: labours.id }).from(labours).where(orphaned).orderBy(asc(labours.id))
+	).map((row) => row.id);
+	await tx.update(labours).set({ parentId: null, updatedAt: new Date() }).where(orphaned);
 
 	const quests = new Map<number, number[]>();
-	const memberships = tx
+	const memberships = await tx
 		.select({
 			questId: questLabours.questId,
 			labourId: questLabours.labourId,
@@ -35,8 +31,7 @@ export function prepareLabourDelete(tx: Handle, doomed: SQL): Fallout {
 		.from(questLabours)
 		.innerJoin(labours, eq(labours.id, questLabours.labourId))
 		.where(inArray(questLabours.labourId, doomedIds))
-		.orderBy(asc(questLabours.questId), asc(questLabours.rank))
-		.all();
+		.orderBy(asc(questLabours.questId), asc(questLabours.rank));
 	const questRealms = new Map<number, number[]>();
 	for (const { questId, labourId, realmId } of memberships) {
 		quests.set(questId, [...(quests.get(questId) ?? []), labourId]);
@@ -47,17 +42,17 @@ export function prepareLabourDelete(tx: Handle, doomed: SQL): Fallout {
 }
 
 // Call after the delete.
-export function falloutEvents(tx: Handle, fallout: Fallout): EventSpec[] {
-	for (const questId of fallout.quests.keys()) touchQuest(tx, questId);
+export async function falloutEvents(tx: Handle, fallout: Fallout): Promise<EventSpec[]> {
+	for (const questId of fallout.quests.keys()) await touchQuest(tx, questId);
 	return [
-		...fallout.orphans.map((id): EventSpec => ({
+		...(await mapSeq(fallout.orphans, async (id): Promise<EventSpec> => ({
 			type: 'labour.reparented',
-			data: { labour: readLabour(tx, id) }
-		})),
-		...[...fallout.quests].map(([questId, labourIds]): EventSpec => ({
+			data: { labour: await readLabour(tx, id) }
+		}))),
+		...(await mapSeq([...fallout.quests], async ([questId, labourIds]): Promise<EventSpec> => ({
 			type: 'quest.labours_removed',
-			data: { quest: readQuest(tx, questId), labourIds },
+			data: { quest: await readQuest(tx, questId), labourIds },
 			realms: fallout.questRealms.get(questId)
-		}))
+		})))
 	];
 }

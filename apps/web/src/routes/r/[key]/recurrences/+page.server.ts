@@ -15,35 +15,37 @@ import { checked, int, perform, signedIn, text } from '#lib/server/ui/form.ts';
 import { findRealmByKey, toJson } from '#lib/server/ui/reads.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-function realmFor(locals: App.Locals, key: string) {
-	const realm = findRealmByKey(getDb(), key, signedIn(locals));
+async function realmFor(locals: App.Locals, key: string) {
+	const realm = await findRealmByKey(getDb(), key, signedIn(locals));
 	if (!realm) error(404, 'No Realm has that key');
 	return realm;
 }
 
-export const load: PageServerLoad = ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals }) => {
 	const viewer = signedIn(locals);
-	const realm = realmFor(locals, params.key);
+	const realm = await realmFor(locals, params.key);
 	if (realm.key !== params.key) redirect(307, `/r/${realm.key}/recurrences`);
 	const db = getDb();
-	const recurrences = listRecurrences(db, realm.id).map((recurrence) => ({
-		...recurrence,
-		labour: recurrence.labourId === null ? null : labourSummary(recurrence.labourId)
-	}));
-	const quests = listQuests(db)
+	const recurrences = await Promise.all(
+		(await listRecurrences(db, realm.id)).map(async (recurrence) => ({
+			...recurrence,
+			labour: recurrence.labourId === null ? null : await labourSummary(recurrence.labourId)
+		}))
+	);
+	const quests = (await listQuests(db))
 		.filter((quest) => quest.realmId === realm.id)
 		.map(({ id, name }) => ({ id, name }));
 	return {
 		realm: { id: realm.id, key: realm.key, name: realm.name },
 		recurrences: toJson(recurrences),
 		quests,
-		canEdit: ['owner', 'editor'].includes(memberRole(db, realm.id, viewer.id) ?? '')
+		canEdit: ['owner', 'editor'].includes((await memberRole(db, realm.id, viewer.id)) ?? '')
 	};
 };
 
-function labourSummary(id: number) {
+async function labourSummary(id: number) {
 	try {
-		const { key, title, closed } = readLabour(getDb(), id);
+		const { key, title, closed } = await readLabour(getDb(), id);
 		return { key, title, closed };
 	} catch (e) {
 		if (e instanceof DomainError && e.code === 'not_found') return null;
@@ -67,9 +69,9 @@ export const actions: Actions = {
 	create: async ({ request, locals, params }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		const realm = realmFor(locals, params.key);
-		return perform('create', () => {
-			createRecurrence(getDb(), actor, {
+		const realm = await realmFor(locals, params.key);
+		return perform('create', async () => {
+			await createRecurrence(getDb(), actor, {
 				realmId: realm.id,
 				title: text(form, 'title'),
 				description: text(form, 'description'),
@@ -86,8 +88,8 @@ export const actions: Actions = {
 	update: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('update', () => {
-			updateRecurrence(getDb(), actor, int(form, 'id'), {
+		return perform('update', async () => {
+			await updateRecurrence(getDb(), actor, int(form, 'id'), {
 				title: text(form, 'title'),
 				description: text(form, 'description'),
 				unit: unit(form),
@@ -103,8 +105,8 @@ export const actions: Actions = {
 	delete: async ({ request, locals }) => {
 		const actor = signedIn(locals);
 		const form = await request.formData();
-		return perform('delete', () => {
-			deleteRecurrence(getDb(), actor, int(form, 'id'));
+		return perform('delete', async () => {
+			await deleteRecurrence(getDb(), actor, int(form, 'id'));
 		});
 	}
 };

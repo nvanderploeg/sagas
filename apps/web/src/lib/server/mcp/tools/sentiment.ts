@@ -25,6 +25,7 @@ import { count, type Presenter } from '../present.ts';
 import * as refs from '../refs.ts';
 import { reply } from '../result.ts';
 import { labourRef, realmRef, userRef, type Tools } from '../tool.ts';
+import { filterAsync, mapAll } from '#lib/server/async.ts';
 
 const evidenceShape = z.union([
 	z.strictObject({
@@ -66,21 +67,23 @@ const pulseShape = z.strictObject({
 // Relies on the domain dropping evidence that names a deleted Labour.
 function evidenceDto(db: Handle) {
 	const keys = new Map<number, string>();
-	return (items: Evidence[]) =>
-		items.map((item) => {
-			if (!('labour' in item)) return item;
-			if (!keys.has(item.labour)) keys.set(item.labour, refs.labourKey(db, item.labour));
-			return { labour: keys.get(item.labour)! };
-		});
+	return async (items: Evidence[]) =>
+		await Promise.all(
+			items.map(async (item) => {
+				if (!('labour' in item)) return item;
+				if (!keys.has(item.labour)) keys.set(item.labour, await refs.labourKey(db, item.labour));
+				return { labour: keys.get(item.labour)! };
+			})
+		);
 }
 
 export function pulseDto(db: Handle, present: Presenter) {
 	const evidence = evidenceDto(db);
-	return (pulse: PulseView) => ({
+	return async (pulse: PulseView) => ({
 		id: pulse.id,
 		note: pulse.note,
-		evidence: evidence(pulse.evidence),
-		author: present.username(pulse.authorId),
+		evidence: await evidence(pulse.evidence),
+		author: await present.username(pulse.authorId),
 		createdAt: pulse.createdAt.toISOString()
 	});
 }
@@ -96,20 +99,22 @@ export function registerSentimentTools({ db, actor, define }: Tools): void {
 				pulses: z.array(pulseShape).min(1).max(PULSES_MAX).describe(`1 to ${PULSES_MAX} Pulses`)
 			}
 		},
-		(args) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			const items = args.pulses.map((item): PulseInput => ({
-				key: item.key,
-				amount: item.amount,
-				mood: item.mood,
-				note: item.note,
-				evidence: item.evidence?.map((entry) =>
-					'labour' in entry ? { labour: refs.labourId(db, entry.labour, actor) } : entry
-				),
-				halfLifeDays: item.half_life_days,
-				ref: item.ref
-			}));
-			const results = postPulses(db, actor, realmId, items);
+		async (args) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			const items = await Promise.all(
+				args.pulses.map(async (item): Promise<PulseInput> => ({
+					key: item.key,
+					amount: item.amount,
+					mood: item.mood,
+					note: item.note,
+					evidence: await mapAll(item.evidence, async (entry) =>
+						'labour' in entry ? { labour: await refs.labourId(db, entry.labour, actor) } : entry
+					),
+					halfLifeDays: item.half_life_days,
+					ref: item.ref
+				}))
+			);
+			const results = await postPulses(db, actor, realmId, items);
 			const tally = (status: string) => results.filter((r) => r.status === status).length;
 			return reply(
 				{ pulses: results },
@@ -135,53 +140,57 @@ export function registerSentimentTools({ db, actor, define }: Tools): void {
 					.describe(`Pulses to list for each key, 1 to ${LIMIT_MAX}; ${LIMIT_DEFAULT} by default`)
 			}
 		},
-		(args, present) => {
+		async (args, present) => {
 			if ((args.realm === undefined) === (args.user === undefined)) {
 				throw new DomainError('invalid', 'Give exactly one of realm and user');
 			}
 			const dto = pulseDto(db, present);
-			const listed = (view: SentimentView, realmKey: (realmId: number) => string) => ({
+			const listed = async (view: SentimentView, realmKey: (realmId: number) => string) => ({
 				asOf: view.asOf.toISOString(),
-				keys: view.keys.map((entry) => ({
-					realm: realmKey(entry.realmId),
-					key: entry.key,
-					volume: entry.volume,
-					mood: entry.mood,
-					v: entry.v,
-					pulses: entry.pulses.map((pulse) => ({ ...dto(pulse), weight: pulse.weight }))
-				})),
+				keys: await Promise.all(
+					view.keys.map(async (entry) => ({
+						realm: realmKey(entry.realmId),
+						key: entry.key,
+						volume: entry.volume,
+						mood: entry.mood,
+						v: entry.v,
+						pulses: await Promise.all(
+							entry.pulses.map(async (pulse) => ({ ...(await dto(pulse)), weight: pulse.weight }))
+						)
+					}))
+				),
 				unfiled: view.unfiled
 			});
 
 			if (args.realm !== undefined) {
-				const realmId = refs.realmId(db, args.realm, actor);
-				const view = readSentiment(db, realmId, { limit: args.limit });
-				const realm = getRealm(db, realmId).key;
-				const data = listed(view, () => realm);
+				const realmId = await refs.realmId(db, args.realm, actor);
+				const view = await readSentiment(db, realmId, { limit: args.limit });
+				const realm = (await getRealm(db, realmId)).key;
+				const data = await listed(view, () => realm);
 				return reply(
 					data,
 					`${realm}: ${count(data.keys.length, 'key')} with Pulses, ${data.unfiled.length} unfiled`
 				);
 			}
-			const userId = refs.userId(db, args.user!, actor);
-			const affinity = readAffinity(db, userId, { limit: args.limit });
+			const userId = await refs.userId(db, args.user!, actor);
+			const affinity = await readAffinity(db, userId, { limit: args.limit });
 			// Another User's Affinity names only Realms you can see.
 			const view = {
 				...affinity,
-				keys: affinity.keys.filter((entry) => canSeeRealm(db, actor, entry.realmId))
+				keys: await filterAsync(affinity.keys, (entry) => canSeeRealm(db, actor, entry.realmId))
 			};
 			const realmKeys = new Map(
-				db
-					.select({ id: realms.id, key: realms.key })
-					.from(realms)
-					.where(inArray(realms.id, [...new Set(view.keys.map((entry) => entry.realmId))]))
-					.all()
-					.map((row) => [row.id, row.key])
+				(
+					await db
+						.select({ id: realms.id, key: realms.key })
+						.from(realms)
+						.where(inArray(realms.id, [...new Set(view.keys.map((entry) => entry.realmId))]))
+				).map((row) => [row.id, row.key])
 			);
-			const data = listed(view, (realmId) => realmKeys.get(realmId)!);
+			const data = await listed(view, (realmId) => realmKeys.get(realmId)!);
 			return reply(
 				data,
-				`${present.username(userId)}'s Affinity: ${count(data.keys.length, 'key')} with Pulses`
+				`${await present.username(userId)}'s Affinity: ${count(data.keys.length, 'key')} with Pulses`
 			);
 		}
 	);
@@ -198,9 +207,9 @@ export function registerSentimentTools({ db, actor, define }: Tools): void {
 				key: z.string().describe('The key to file them under: `attr` or `attr:member`')
 			}
 		},
-		(args) => {
-			const realmId = refs.realmId(db, args.realm, actor);
-			const filed = filePulses(db, actor, realmId, args.raw_key, args.key);
+		async (args) => {
+			const realmId = await refs.realmId(db, args.realm, actor);
+			const filed = await filePulses(db, actor, realmId, args.raw_key, args.key);
 			return reply({ filed }, `Filed ${count(filed, 'Pulse')}`);
 		}
 	);
@@ -213,8 +222,8 @@ export function registerSentimentTools({ db, actor, define }: Tools): void {
 				"Delete one Pulse by id, whoever posted it; get_sentiment gives the ids. Its weight leaves the Realm's Sentiment, or the User's Affinity, at once.",
 			input: { pulse: z.number().int().positive().describe('Pulse id') }
 		},
-		(args) => {
-			deletePulse(db, actor, args.pulse);
+		async (args) => {
+			await deletePulse(db, actor, args.pulse);
 			return reply({ deleted: { id: args.pulse } }, `Deleted Pulse ${args.pulse}`);
 		}
 	);

@@ -31,9 +31,9 @@ function text(ref: string, what: string): string {
 	return value;
 }
 
-function labourById(db: Handle, id: number) {
+async function labourById(db: Handle, id: number) {
 	try {
-		return readLabour(db, id);
+		return await readLabour(db, id);
 	} catch (error) {
 		if (error instanceof DomainError && error.code === 'not_found') {
 			return notFound(`No Labour has the id ${id}`);
@@ -45,10 +45,10 @@ function labourById(db: Handle, id: number) {
 type Viewer = { id: number };
 
 // A Labour in a Realm the viewer cannot see is not found, worded as for one that doesn't exist.
-export function labourId(db: Handle, ref: Ref, viewer: Viewer): number {
+export async function labourId(db: Handle, ref: Ref, viewer: Viewer): Promise<number> {
 	if (typeof ref === 'number') {
-		const found = labourById(db, ref);
-		return canSeeRealm(db, viewer, found.realmId)
+		const found = await labourById(db, ref);
+		return (await canSeeRealm(db, viewer, found.realmId))
 			? found.id
 			: notFound(`No Labour has the id ${ref}`);
 	}
@@ -56,62 +56,67 @@ export function labourId(db: Handle, ref: Ref, viewer: Viewer): number {
 	if (parseLabourKey(key) === null) {
 		throw new DomainError('invalid', `"${key}" is not a Labour key, e.g. "AM-12"`);
 	}
-	const found = resolveLabourKey(db, key);
-	return found && canSeeRealm(db, viewer, found.realmId)
+	const found = await resolveLabourKey(db, key);
+	return found && (await canSeeRealm(db, viewer, found.realmId))
 		? found.id
 		: notFound(`No Labour has the key ${key.toUpperCase()}`);
 }
 
-export function labourKey(db: Handle, id: number): string {
-	return readLabour(db, id).key;
+export async function labourKey(db: Handle, id: number): Promise<string> {
+	return (await readLabour(db, id)).key;
 }
 
-export function realmId(db: Handle, ref: Ref, viewer: Viewer): number {
+export async function realmId(db: Handle, ref: Ref, viewer: Viewer): Promise<number> {
 	if (typeof ref === 'number') {
-		const id = getRealm(db, ref).id;
-		return canSeeRealm(db, viewer, id) ? id : notFound('Realm not found');
+		const id = (await getRealm(db, ref)).id;
+		return (await canSeeRealm(db, viewer, id)) ? id : notFound('Realm not found');
 	}
 	const key = text(ref, 'a Realm key').toUpperCase();
-	const row = db.select().from(realmKeys).where(eq(realmKeys.key, key)).get();
-	return row && canSeeRealm(db, viewer, row.realmId)
+	const row = (await db.select().from(realmKeys).where(eq(realmKeys.key, key)).limit(1))[0];
+	return row && (await canSeeRealm(db, viewer, row.realmId))
 		? row.realmId
 		: notFound(`No Realm has the key ${key}`);
 }
 
-export function username(db: Handle, id: number): string | undefined {
-	return db.select({ username: users.username }).from(users).where(eq(users.id, id)).get()
-		?.username;
+export async function username(db: Handle, id: number): Promise<string | undefined> {
+	return (
+		await db.select({ username: users.username }).from(users).where(eq(users.id, id)).limit(1)
+	)[0]?.username;
 }
 
 // "me" is the caller, whatever the usernames.
-export function userId(db: Handle, ref: Ref, me: { id: number }): number {
+export async function userId(db: Handle, ref: Ref, me: { id: number }): Promise<number> {
 	if (typeof ref === 'number') {
-		const row = db.select({ id: users.id }).from(users).where(eq(users.id, ref)).get();
+		const row = (
+			await db.select({ id: users.id }).from(users).where(eq(users.id, ref)).limit(1)
+		)[0];
 		return row?.id ?? notFound(`No User has the id ${ref}`);
 	}
 	const username = text(ref, 'a username or "me"').toLowerCase();
 	if (username === 'me') return me.id;
-	const row = db.select({ id: users.id }).from(users).where(eq(users.username, username)).get();
+	const row = (
+		await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1)
+	)[0];
 	return row?.id ?? notFound(`No User is named "${username}"`);
 }
 
 // A Quest in a Realm the viewer cannot see is not found.
-export function questId(db: Handle, id: number, viewer: Viewer): number {
-	const quest = getQuest(db, id);
-	return canSeeRealm(db, viewer, quest.realmId) ? quest.id : notFound('Quest not found');
+export async function questId(db: Handle, id: number, viewer: Viewer): Promise<number> {
+	const quest = await getQuest(db, id);
+	return (await canSeeRealm(db, viewer, quest.realmId)) ? quest.id : notFound('Quest not found');
 }
 
 // A Recurrence in a Realm the viewer cannot see is not found.
-export function recurrenceId(db: Handle, id: number, viewer: Viewer): number {
-	const recurrence = getRecurrence(db, id);
-	return canSeeRealm(db, viewer, recurrence.realmId)
+export async function recurrenceId(db: Handle, id: number, viewer: Viewer): Promise<number> {
+	const recurrence = await getRecurrence(db, id);
+	return (await canSeeRealm(db, viewer, recurrence.realmId))
 		? recurrence.id
 		: notFound('Recurrence not found');
 }
 
-export function stateId(db: Handle, realm: number | undefined, ref: Ref): number {
+export async function stateId(db: Handle, realm: number | undefined, ref: Ref): Promise<number> {
 	if (typeof ref === 'number') {
-		const state = getState(db, ref);
+		const state = await getState(db, ref);
 		if (realm !== undefined && state.realmId !== realm) {
 			throw new DomainError('invalid', 'The State belongs to another Realm');
 		}
@@ -121,21 +126,23 @@ export function stateId(db: Handle, realm: number | undefined, ref: Ref): number
 	if (realm === undefined) {
 		throw new DomainError('invalid', `Name the Realm to look up State "${key}"`);
 	}
-	const row = db
-		.select({ id: states.id })
-		.from(states)
-		.where(and(eq(states.realmId, realm), eq(states.key, key)))
-		.get();
+	const row = (
+		await db
+			.select({ id: states.id })
+			.from(states)
+			.where(and(eq(states.realmId, realm), eq(states.key, key)))
+			.limit(1)
+	)[0];
 	if (row) return row.id;
-	const known = listStates(db, realm).map((s) => s.key);
+	const known = (await listStates(db, realm)).map((s) => s.key);
 	return notFound(
-		`No State "${key}" in ${getRealm(db, realm).key}; its States are ${known.join(', ')}`
+		`No State "${key}" in ${(await getRealm(db, realm)).key}; its States are ${known.join(', ')}`
 	);
 }
 
-export function substateId(db: Handle, state: number | undefined, ref: Ref): number {
+export async function substateId(db: Handle, state: number | undefined, ref: Ref): Promise<number> {
 	if (typeof ref === 'number') {
-		const substate = getSubstate(db, ref);
+		const substate = await getSubstate(db, ref);
 		if (state !== undefined && substate.stateId !== state) {
 			throw new DomainError('invalid', 'The Substate belongs to another State');
 		}
@@ -145,14 +152,16 @@ export function substateId(db: Handle, state: number | undefined, ref: Ref): num
 	if (state === undefined) {
 		throw new DomainError('invalid', `Name the State to look up Substate "${key}"`);
 	}
-	const row = db
-		.select({ id: substates.id })
-		.from(substates)
-		.where(and(eq(substates.stateId, state), eq(substates.key, key)))
-		.get();
+	const row = (
+		await db
+			.select({ id: substates.id })
+			.from(substates)
+			.where(and(eq(substates.stateId, state), eq(substates.key, key)))
+			.limit(1)
+	)[0];
 	if (row) return row.id;
-	const known = listSubstates(db, state).map((s) => s.key);
-	const stateKey = getState(db, state).key;
+	const known = (await listSubstates(db, state)).map((s) => s.key);
+	const stateKey = (await getState(db, state)).key;
 	return notFound(
 		known.length === 0
 			? `State "${stateKey}" has no Substates`
@@ -162,31 +171,45 @@ export function substateId(db: Handle, state: number | undefined, ref: Ref): num
 
 export type PlacementArgs = { position?: 'top' | 'bottom'; before?: Ref; after?: Ref };
 
-function placementWith(args: PlacementArgs, resolve: (ref: Ref) => number): Placement | undefined {
+async function placementWith(
+	args: PlacementArgs,
+	resolve: (ref: Ref) => Promise<number>
+): Promise<Placement | undefined> {
 	const given = [args.position, args.before, args.after].filter((v) => v !== undefined);
 	if (given.length > 1) {
 		throw new DomainError('invalid', 'Give at most one of position, before and after');
 	}
 	if (args.position !== undefined) return args.position;
-	if (args.before !== undefined) return { before: resolve(args.before) };
-	if (args.after !== undefined) return { after: resolve(args.after) };
+	if (args.before !== undefined) return { before: await resolve(args.before) };
+	if (args.after !== undefined) return { after: await resolve(args.after) };
 	return undefined;
 }
 
-export function placement(db: Handle, args: PlacementArgs, viewer: Viewer): Placement | undefined {
+export function placement(
+	db: Handle,
+	args: PlacementArgs,
+	viewer: Viewer
+): Promise<Placement | undefined> {
 	return placementWith(args, (ref) => labourId(db, ref, viewer));
 }
 
 // A Scroll in a Realm the viewer cannot see is not found, worded as for one that doesn't exist.
 // A string is always a Path, digits included: a Slug may be all digits.
-export function scrollId(db: Handle, realm: number | undefined, ref: Ref, viewer: Viewer): number {
+export async function scrollId(
+	db: Handle,
+	realm: number | undefined,
+	ref: Ref,
+	viewer: Viewer
+): Promise<number> {
 	if (typeof ref === 'number') {
-		const row = db
-			.select({ id: scrolls.id, realmId: scrolls.realmId })
-			.from(scrolls)
-			.where(eq(scrolls.id, ref))
-			.get();
-		if (row === undefined || !canSeeRealm(db, viewer, row.realmId)) {
+		const row = (
+			await db
+				.select({ id: scrolls.id, realmId: scrolls.realmId })
+				.from(scrolls)
+				.where(eq(scrolls.id, ref))
+				.limit(1)
+		)[0];
+		if (row === undefined || !(await canSeeRealm(db, viewer, row.realmId))) {
 			return notFound(`No Scroll has the id ${ref}`);
 		}
 		if (realm !== undefined && row.realmId !== realm) {
@@ -201,10 +224,12 @@ export function scrollId(db: Handle, realm: number | undefined, ref: Ref, viewer
 			`Name the Realm to look up Scroll "${path}", or give the Scroll's id as a JSON number`
 		);
 	}
-	const found = resolveScrollPath(db, realm, path);
+	const found = await resolveScrollPath(db, realm, path);
 	return (
 		found?.scroll.id ??
-		notFound(`No Scroll has the Path ${normalizePath(path) ?? path} in ${getRealm(db, realm).key}`)
+		notFound(
+			`No Scroll has the Path ${normalizePath(path) ?? path} in ${(await getRealm(db, realm)).key}`
+		)
 	);
 }
 
@@ -213,6 +238,6 @@ export function scrollPlacement(
 	realm: number,
 	args: PlacementArgs,
 	viewer: Viewer
-): Placement | undefined {
+): Promise<Placement | undefined> {
 	return placementWith(args, (ref) => scrollId(db, realm, ref, viewer));
 }

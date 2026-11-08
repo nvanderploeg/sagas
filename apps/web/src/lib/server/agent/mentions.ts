@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
 import { labourKeys, mentions, users } from '../db/schema.ts';
 import { LABOUR_KEY_IN_TEXT } from '../domain/keys.ts';
@@ -40,15 +40,15 @@ function scan(text: string): { keys: string[]; names: { exact: string; trimmed: 
 }
 
 // The Labours and Users a text names, by Labour key, Alias or username.
-export function mentionTargets(tx: Handle, text: string): MentionTargets {
+export async function mentionTargets(tx: Handle, text: string): Promise<MentionTargets> {
 	const found = scan(text);
 	const labourIds = new Set<number>();
 	if (found.keys.length > 0) {
-		const rows = tx
+		const rows = await tx
 			.select({ labourId: labourKeys.labourId })
 			.from(labourKeys)
 			.where(inArray(labourKeys.key, found.keys))
-			.all();
+			.orderBy(asc(labourKeys.key));
 		for (const row of rows) labourIds.add(row.labourId);
 	}
 
@@ -56,12 +56,12 @@ export function mentionTargets(tx: Handle, text: string): MentionTargets {
 	if (found.names.length > 0) {
 		const candidates = [...new Set(found.names.flatMap((name) => [name.exact, name.trimmed]))];
 		const byName = new Map(
-			tx
-				.select({ id: users.id, username: users.username })
-				.from(users)
-				.where(inArray(users.username, candidates))
-				.all()
-				.map((row) => [row.username, row.id])
+			(
+				await tx
+					.select({ id: users.id, username: users.username })
+					.from(users)
+					.where(inArray(users.username, candidates))
+			).map((row) => [row.username, row.id])
 		);
 		for (const { exact, trimmed } of found.names) {
 			const id = byName.get(exact) ?? byName.get(trimmed);
@@ -72,10 +72,10 @@ export function mentionTargets(tx: Handle, text: string): MentionTargets {
 }
 
 // Leave kept rows untouched: their firstSeenAt and authorId must survive edits.
-export function refreshMentions(tx: Handle, input: MentionText): void {
-	const targets = mentionTargets(tx, input.text);
+export async function refreshMentions(tx: Handle, input: MentionText): Promise<void> {
+	const targets = await mentionTargets(tx, input.text);
 	targets.labourIds.delete(input.sourceLabourId);
-	const held = tx
+	const held = await tx
 		.select()
 		.from(mentions)
 		.where(
@@ -85,8 +85,7 @@ export function refreshMentions(tx: Handle, input: MentionText): void {
 					? isNull(mentions.commentId)
 					: eq(mentions.commentId, input.commentId)
 			)
-		)
-		.all();
+		);
 
 	const gone = held
 		.filter((row) =>
@@ -95,7 +94,7 @@ export function refreshMentions(tx: Handle, input: MentionText): void {
 				: !targets.labourIds.has(row.labourId)
 		)
 		.map((row) => row.id);
-	if (gone.length > 0) tx.delete(mentions).where(inArray(mentions.id, gone)).run();
+	if (gone.length > 0) await tx.delete(mentions).where(inArray(mentions.id, gone));
 
 	const keptLabours = new Set(held.map((row) => row.labourId));
 	const keptUsers = new Set(held.map((row) => row.userId));
@@ -106,22 +105,20 @@ export function refreshMentions(tx: Handle, input: MentionText): void {
 		firstSeenAt: input.firstSeenAt
 	};
 	for (const labourId of targets.labourIds) {
-		if (!keptLabours.has(labourId))
-			tx.insert(mentions)
-				.values({ ...row, labourId })
-				.run();
+		if (!keptLabours.has(labourId)) await tx.insert(mentions).values({ ...row, labourId });
 	}
 	for (const userId of targets.userIds) {
-		if (!keptUsers.has(userId))
-			tx.insert(mentions)
-				.values({ ...row, userId })
-				.run();
+		if (!keptUsers.has(userId)) await tx.insert(mentions).values({ ...row, userId });
 	}
 }
 
 // Mentions of the Labour in other Labours' text, newest first.
-export function readMentions(db: Handle, labourId: number, limit = MENTIONS_SHOWN): MentionView[] {
-	return db
+export async function readMentions(
+	db: Handle,
+	labourId: number,
+	limit = MENTIONS_SHOWN
+): Promise<MentionView[]> {
+	return await db
 		.select({
 			sourceLabourId: mentions.sourceLabourId,
 			commentId: mentions.commentId,
@@ -131,6 +128,5 @@ export function readMentions(db: Handle, labourId: number, limit = MENTIONS_SHOW
 		.from(mentions)
 		.where(eq(mentions.labourId, labourId))
 		.orderBy(desc(mentions.firstSeenAt), desc(mentions.id))
-		.limit(limit)
-		.all();
+		.limit(limit);
 }

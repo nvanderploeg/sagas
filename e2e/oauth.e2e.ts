@@ -82,10 +82,10 @@ async function decide(
 	}
 }
 
-function exchange(
+async function exchange(
 	request: APIRequestContext,
 	form: Record<string, string>
-): ReturnType<APIRequestContext['post']> {
+): Promise<ReturnType<APIRequestContext['post']>> {
 	return request.post('/oauth/token', { form });
 }
 

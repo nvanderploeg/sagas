@@ -17,6 +17,7 @@ import { listChildren } from '../domain/labours.ts';
 import type { AuthUser } from '../auth/users.ts';
 import { listBacklinks, listScrollChildren, type Scroll } from '../domain/scrolls.ts';
 import { parentPath } from '../../ui/scroll-path.ts';
+import { filterAsync } from '#lib/server/async.ts';
 
 export type Label = { key: string; label: string };
 
@@ -64,8 +65,8 @@ export class Presenter {
 	}
 
 	// What a Labour in a Realm the viewer cannot see reveals: nothing.
-	private visibleLabour(id: number): boolean {
-		return canSeeRealm(this.db, this.viewer, readLabour(this.db, id).realmId);
+	private async visibleLabour(id: number): Promise<boolean> {
+		return canSeeRealm(this.db, this.viewer, (await readLabour(this.db, id)).realmId);
 	}
 
 	url(path: string): string {
@@ -77,57 +78,58 @@ export class Presenter {
 		return this.memo.get(key) as T;
 	}
 
-	username(id: number): string {
-		return this.once(`user:${id}`, () => {
-			const row = this.db
-				.select({ username: users.username })
-				.from(users)
-				.where(eq(users.id, id))
-				.get();
+	async username(id: number): Promise<string> {
+		return this.once(`user:${id}`, async () => {
+			const row = (
+				await this.db
+					.select({ username: users.username })
+					.from(users)
+					.where(eq(users.id, id))
+					.limit(1)
+			)[0];
 			return row?.username ?? `#${id}`;
 		});
 	}
 
-	private state(id: number): Label {
-		return this.once(`state:${id}`, () => {
-			const { key, label } = getState(this.db, id);
+	private async state(id: number): Promise<Label> {
+		return this.once(`state:${id}`, async () => {
+			const { key, label } = await getState(this.db, id);
 			return { key, label };
 		});
 	}
 
-	private substate(id: number): Label {
-		return this.once(`substate:${id}`, () => {
-			const { key, label } = getSubstate(this.db, id);
+	private async substate(id: number): Promise<Label> {
+		return this.once(`substate:${id}`, async () => {
+			const { key, label } = await getSubstate(this.db, id);
 			return { key, label };
 		});
 	}
 
-	private realmKey(id: number): string {
-		return this.once(`realm:${id}`, () => getRealm(this.db, id).key);
+	private async realmKey(id: number): Promise<string> {
+		return this.once(`realm:${id}`, async () => (await getRealm(this.db, id)).key);
 	}
 
-	private labourKey(id: number): string {
-		return this.once(`labour:${id}`, () => readLabour(this.db, id).key);
+	private async labourKey(id: number): Promise<string> {
+		return this.once(`labour:${id}`, async () => (await readLabour(this.db, id)).key);
 	}
 
-	private brief(labourId: number): string {
-		if (!this.briefs.has(labourId)) this.loadBriefs([labourId]);
+	private async brief(labourId: number): Promise<string> {
+		if (!this.briefs.has(labourId)) await this.loadBriefs([labourId]);
 		return this.briefs.get(labourId)!;
 	}
 
-	private loadBriefs(labourIds: number[]): void {
+	private async loadBriefs(labourIds: number[]): Promise<void> {
 		const wanted = labourIds.filter((id) => !this.briefs.has(id));
 		if (wanted.length === 0) return;
 		for (const id of wanted) this.briefs.set(id, '');
-		const rows = this.db
+		const rows = await this.db
 			.select({ labourId: appraisals.labourId, brief: appraisals.brief })
 			.from(appraisals)
-			.where(inArray(appraisals.labourId, wanted))
-			.all();
+			.where(inArray(appraisals.labourId, wanted));
 		for (const row of rows) this.briefs.set(row.labourId, row.brief);
 	}
 
-	labour(view: LabourView): LabourSummary {
+	async labour(view: LabourView): Promise<LabourSummary> {
 		const path = `/l/${view.key}`;
 		return {
 			id: view.id,
@@ -135,91 +137,97 @@ export class Presenter {
 			path,
 			url: this.url(path),
 			title: view.title,
-			brief: this.brief(view.id),
-			realm: this.realmKey(view.realmId),
-			state: this.state(view.stateId),
-			substate: view.substateId === null ? null : this.substate(view.substateId),
+			brief: await this.brief(view.id),
+			realm: await this.realmKey(view.realmId),
+			state: await this.state(view.stateId),
+			substate: view.substateId === null ? null : await this.substate(view.substateId),
 			closed: view.closed,
-			owner: this.username(view.ownerId),
-			assignee: view.assigneeId === null ? null : this.username(view.assigneeId),
+			owner: await this.username(view.ownerId),
+			assignee: view.assigneeId === null ? null : await this.username(view.assigneeId),
 			parent:
-				view.parentId === null || !this.visibleLabour(view.parentId)
+				view.parentId === null || !(await this.visibleLabour(view.parentId))
 					? null
-					: this.labourKey(view.parentId),
+					: await this.labourKey(view.parentId),
 			labels: view.labels
 		};
 	}
 
 	// Map every list of Labours through here: it reads their Briefs in one statement.
-	labours(views: LabourView[]): LabourSummary[] {
-		this.loadBriefs(views.map((view) => view.id));
-		return views.map((view) => this.labour(view));
+	async labours(views: LabourView[]): Promise<LabourSummary[]> {
+		await this.loadBriefs(views.map((view) => view.id));
+		return Promise.all(views.map((view) => this.labour(view)));
 	}
 
-	detail(view: LabourView): LabourDetail {
+	async detail(view: LabourView): Promise<LabourDetail> {
 		return {
-			...this.labour(view),
+			...(await this.labour(view)),
 			description: view.description,
-			aliases: this.aliases(view),
+			aliases: await this.aliases(view),
 			createdAt: view.createdAt.toISOString(),
 			updatedAt: view.updatedAt.toISOString(),
 			parentLabour:
-				view.parentId === null || !this.visibleLabour(view.parentId)
+				view.parentId === null || !(await this.visibleLabour(view.parentId))
 					? null
-					: this.labour(readLabour(this.db, view.parentId)),
-			children: this.labours(
-				listChildren(this.db, view.id).filter((child) =>
+					: await this.labour(await readLabour(this.db, view.parentId)),
+			children: await this.labours(
+				await filterAsync(await listChildren(this.db, view.id), (child) =>
 					canSeeRealm(this.db, this.viewer, child.realmId)
 				)
 			),
-			quests: listLabourQuests(this.db, view.id).map((quest) => ({
-				id: quest.id,
-				name: quest.name,
-				progress: this.restricted(readQuest(this.db, quest.id)).progress
-			}))
+			quests: await Promise.all(
+				(await listLabourQuests(this.db, view.id)).map(async (quest) => ({
+					id: quest.id,
+					name: quest.name,
+					progress: (await this.restricted(await readQuest(this.db, quest.id))).progress
+				}))
+			)
 		};
 	}
 
-	comment(view: CommentView) {
+	async comment(view: CommentView) {
 		return {
 			id: view.id,
-			labour: this.labourKey(view.labourId),
-			author: this.username(view.authorId),
+			labour: await this.labourKey(view.labourId),
+			author: await this.username(view.authorId),
 			body: view.body,
 			createdAt: view.createdAt.toISOString(),
 			updatedAt: view.updatedAt?.toISOString() ?? null
 		};
 	}
 
-	aliases(view: LabourView): string[] {
-		return this.db
-			.select({ key: labourKeys.key })
-			.from(labourKeys)
-			.where(eq(labourKeys.labourId, view.id))
-			.orderBy(asc(labourKeys.createdAt), asc(labourKeys.key))
-			.all()
+	async aliases(view: LabourView): Promise<string[]> {
+		return (
+			await this.db
+				.select({ key: labourKeys.key })
+				.from(labourKeys)
+				.where(eq(labourKeys.labourId, view.id))
+				.orderBy(asc(labourKeys.createdAt), asc(labourKeys.key))
+		)
 			.map((row) => row.key)
 			.filter((key) => key !== view.key);
 	}
 
-	realm(realmId: number) {
-		const view = readRealm(this.db, realmId);
-		const formerKeys = this.db
-			.select({ key: realmKeys.key })
-			.from(realmKeys)
-			.where(eq(realmKeys.realmId, realmId))
-			.orderBy(asc(realmKeys.createdAt), asc(realmKeys.key))
-			.all()
+	async realm(realmId: number) {
+		const view = await readRealm(this.db, realmId);
+		const formerKeys = (
+			await this.db
+				.select({ key: realmKeys.key })
+				.from(realmKeys)
+				.where(eq(realmKeys.realmId, realmId))
+				.orderBy(asc(realmKeys.createdAt), asc(realmKeys.key))
+		)
 			.map((row) => row.key)
 			.filter((key) => key !== view.key);
 		const keyOf = (id: number | null, rows: { id: number; key: string }[]) =>
 			rows.find((row) => row.id === id)?.key ?? null;
 		const notes =
-			this.db
-				.select({ notes: realmAgent.notes })
-				.from(realmAgent)
-				.where(eq(realmAgent.realmId, realmId))
-				.get()?.notes ?? '';
+			(
+				await this.db
+					.select({ notes: realmAgent.notes })
+					.from(realmAgent)
+					.where(eq(realmAgent.realmId, realmId))
+					.limit(1)
+			)[0]?.notes ?? '';
 		const path = `/r/${view.key}`;
 		return {
 			id: view.id,
@@ -252,17 +260,17 @@ export class Presenter {
 	}
 
 	// A Quest as the viewer sees it: other Realms' Labours are neither listed nor counted.
-	restricted(view: QuestView): QuestView {
+	async restricted(view: QuestView): Promise<QuestView> {
 		return restrictQuest(
 			view,
-			this.once('visible', () => {
-				const ids = visibleRealmIds(this.db, this.viewer);
+			await this.once('visible', async () => {
+				const ids = await visibleRealmIds(this.db, this.viewer);
 				return ids === null ? null : new Set(ids);
 			})
 		);
 	}
 
-	questSummary(view: QuestView) {
+	async questSummary(view: QuestView) {
 		const path = `/quests/${view.id}`;
 		return {
 			id: view.id,
@@ -270,57 +278,56 @@ export class Presenter {
 			url: this.url(path),
 			name: view.name,
 			description: view.description,
-			realm: this.realmKey(view.realmId),
-			owner: this.username(view.ownerId),
-			progress: this.restricted(view).progress
+			realm: await this.realmKey(view.realmId),
+			owner: await this.username(view.ownerId),
+			progress: (await this.restricted(view)).progress
 		};
 	}
 
-	scrollUrl(realmId: number, path: string): string {
-		return this.url(`/r/${this.realmKey(realmId)}/s/${path}`);
+	async scrollUrl(realmId: number, path: string): Promise<string> {
+		return this.url(`/r/${await this.realmKey(realmId)}/s/${path}`);
 	}
 
-	private scrollLabours(scrollId: number): string[] {
-		const rows = this.db
+	private async scrollLabours(scrollId: number): Promise<string[]> {
+		const rows = await this.db
 			.select({ labourId: scrollRefs.labourId })
 			.from(scrollRefs)
 			.where(and(eq(scrollRefs.scrollId, scrollId), isNotNull(scrollRefs.labourId)))
-			.orderBy(asc(scrollRefs.firstSeenAt), asc(scrollRefs.id))
-			.all();
-		return rows
-			.map((row) => readLabour(this.db, row.labourId!))
-			.filter((labour) => canSeeRealm(this.db, this.viewer, labour.realmId))
-			.map((labour) => labour.key);
+			.orderBy(asc(scrollRefs.firstSeenAt), asc(scrollRefs.id));
+		const found = await Promise.all(rows.map((row) => readLabour(this.db, row.labourId!)));
+		return (
+			await filterAsync(found, (labour) => canSeeRealm(this.db, this.viewer, labour.realmId))
+		).map((labour) => labour.key);
 	}
 
-	scroll(view: Scroll) {
+	async scroll(view: Scroll) {
 		const link = ({ path, title }: { path: string; title: string }) => ({ path, title });
 		return {
 			id: view.id,
-			realm: this.realmKey(view.realmId),
+			realm: await this.realmKey(view.realmId),
 			path: view.path,
-			url: this.scrollUrl(view.realmId, view.path),
+			url: await this.scrollUrl(view.realmId, view.path),
 			title: view.title,
 			body: view.body,
 			version: view.version,
 			parent: parentPath(view.path),
-			children: listScrollChildren(this.db, view.id).map(link),
-			backlinks: listBacklinks(this.db, view.id).map(link),
-			labours: this.scrollLabours(view.id),
-			createdBy: this.username(view.createdById),
-			updatedBy: this.username(view.updatedById),
+			children: (await listScrollChildren(this.db, view.id)).map(link),
+			backlinks: (await listBacklinks(this.db, view.id)).map(link),
+			labours: await this.scrollLabours(view.id),
+			createdBy: await this.username(view.createdById),
+			updatedBy: await this.username(view.updatedById),
 			createdAt: view.createdAt.toISOString(),
 			updatedAt: view.updatedAt.toISOString()
 		};
 	}
 
-	quest(view: QuestView) {
-		const shown = this.restricted(view);
-		return { ...this.questSummary(shown), labours: this.labours(shown.labours) };
+	async quest(view: QuestView) {
+		const shown = await this.restricted(view);
+		return { ...(await this.questSummary(shown)), labours: await this.labours(shown.labours) };
 	}
 }
 
-export type RealmSummary = ReturnType<Presenter['realm']>;
+export type RealmSummary = Awaited<ReturnType<Presenter['realm']>>;
 
 export function userSummary(user: AuthUser) {
 	return {

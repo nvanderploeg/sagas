@@ -45,11 +45,12 @@ vite.config.ts.timestamp-*
 # Agent worktrees
 .claude/
 
-# SQLite databases and the local data directory (bind-mounted in compose)
+# Database files and data exports hold real data: never commit them
 *.db
 *.db-wal
 *.db-shm
 data/
+sagas-export-*.zip
 
 # Output of 'npm pack'
 *.tgz

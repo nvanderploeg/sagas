@@ -9,6 +9,8 @@ import { placeAt, writePositions } from '../domain/positions.ts';
 import { requireMatch, requireText, STATE_KEY } from '../domain/validate.ts';
 import type { Actor } from '../domain/write.ts';
 import { refreshLabourText } from './search.ts';
+import { transact } from '#lib/server/db/tx.ts';
+import { textList } from '#lib/server/db/lists.ts';
 
 export type AttributeKind = 'scale' | 'tags' | 'text';
 export type Member = { key: string; label: string; rubric: string };
@@ -96,9 +98,11 @@ export const RESERVED = new Set([
 
 const specOf = (row: AttributeRow) => row.spec as Spec;
 
-export function readRealmAgent(db: Handle, realmId: number): RealmAgentView {
-	getRealm(db, realmId);
-	const row = db.select().from(realmAgent).where(eq(realmAgent.realmId, realmId)).get();
+export async function readRealmAgent(db: Handle, realmId: number): Promise<RealmAgentView> {
+	await getRealm(db, realmId);
+	const row = (
+		await db.select().from(realmAgent).where(eq(realmAgent.realmId, realmId)).limit(1)
+	)[0];
 	if (row === undefined) {
 		return {
 			version: 0,
@@ -115,26 +119,24 @@ export function readRealmAgent(db: Handle, realmId: number): RealmAgentView {
 	};
 }
 
-function attributeRows(db: Handle, realmId: number): AttributeRow[] {
-	return db
+async function attributeRows(db: Handle, realmId: number): Promise<AttributeRow[]> {
+	return await db
 		.select()
 		.from(attributes)
 		.where(eq(attributes.realmId, realmId))
-		.orderBy(asc(attributes.position))
-		.all();
+		.orderBy(asc(attributes.position));
 }
 
-export function readAttributes(db: Handle, realmId: number): AttributeView[] {
-	const rows = attributeRows(db, realmId);
-	const held = db
+export async function readAttributes(db: Handle, realmId: number): Promise<AttributeView[]> {
+	const rows = await attributeRows(db, realmId);
+	const held = await db
 		.select({
 			attributeId: labourAttributes.attributeId,
 			value: labourAttributes.value,
 			setAt: labourAttributes.setAt
 		})
 		.from(labourAttributes)
-		.where(eq(labourAttributes.realmId, realmId))
-		.all();
+		.where(eq(labourAttributes.realmId, realmId));
 
 	return rows.map((row) => {
 		const spec = specOf(row);
@@ -173,43 +175,43 @@ export function readAttributes(db: Handle, realmId: number): AttributeView[] {
 	});
 }
 
-export function readValues(db: Handle, labourId: number): ValueView[] {
-	return db
-		.select({
-			key: attributes.key,
-			kind: attributes.kind,
-			value: labourAttributes.value,
-			setBy: labourAttributes.setBy,
-			via: labourAttributes.via,
-			setAt: labourAttributes.setAt,
-			revisedAt: attributes.revisedAt
-		})
-		.from(labourAttributes)
-		.innerJoin(attributes, eq(attributes.id, labourAttributes.attributeId))
-		.where(eq(labourAttributes.labourId, labourId))
-		.orderBy(asc(attributes.position))
-		.all()
-		.map((row) => ({
-			key: row.key,
-			kind: row.kind,
-			value: row.value as Value,
-			setBy: row.setBy,
-			via: row.via,
-			setAt: row.setAt,
-			stale: row.setAt < row.revisedAt
-		}));
+export async function readValues(db: Handle, labourId: number): Promise<ValueView[]> {
+	return (
+		await db
+			.select({
+				key: attributes.key,
+				kind: attributes.kind,
+				value: labourAttributes.value,
+				setBy: labourAttributes.setBy,
+				via: labourAttributes.via,
+				setAt: labourAttributes.setAt,
+				revisedAt: attributes.revisedAt
+			})
+			.from(labourAttributes)
+			.innerJoin(attributes, eq(attributes.id, labourAttributes.attributeId))
+			.where(eq(labourAttributes.labourId, labourId))
+			.orderBy(asc(attributes.position))
+	).map((row) => ({
+		key: row.key,
+		kind: row.kind,
+		value: row.value as Value,
+		setBy: row.setBy,
+		via: row.via,
+		setAt: row.setAt,
+		stale: row.setAt < row.revisedAt
+	}));
 }
 
 // Each Realm rises by one, however many times it is listed.
-export function bumpRealms(tx: Handle, realmIds: Iterable<number>, now: Date): void {
+export async function bumpRealms(tx: Handle, realmIds: Iterable<number>, now: Date): Promise<void> {
 	for (const realmId of new Set(realmIds)) {
-		tx.insert(realmAgent)
+		await tx
+			.insert(realmAgent)
 			.values({ realmId, version: 1, updatedAt: now })
 			.onConflictDoUpdate({
 				target: realmAgent.realmId,
 				set: { version: sql`${realmAgent.version} + 1`, updatedAt: now }
-			})
-			.run();
+			});
 	}
 }
 
@@ -287,28 +289,35 @@ function normalizeKey(key: string): string {
 	return key;
 }
 
-function findAttribute(db: Handle, realmId: number, key: string): AttributeRow | undefined {
-	return db
-		.select()
-		.from(attributes)
-		.where(and(eq(attributes.realmId, realmId), eq(attributes.key, key)))
-		.get();
+async function findAttribute(
+	db: Handle,
+	realmId: number,
+	key: string
+): Promise<AttributeRow | undefined> {
+	return (
+		await db
+			.select()
+			.from(attributes)
+			.where(and(eq(attributes.realmId, realmId), eq(attributes.key, key)))
+			.limit(1)
+	)[0];
 }
 
 // Keep setBy and setAt: fitting a value to a revised spec is not a new judgement of it.
-function reshapeValues(tx: Handle, row: AttributeRow, next: Spec): boolean {
-	const held = tx
+async function reshapeValues(tx: Handle, row: AttributeRow, next: Spec): Promise<boolean> {
+	const held = await tx
 		.select()
 		.from(labourAttributes)
-		.where(eq(labourAttributes.attributeId, row.id))
-		.all();
+		.where(eq(labourAttributes.attributeId, row.id));
 	let changed = false;
-	const rewrite = (labourId: number, value: Value) => {
+	const rewrite = async (labourId: number, value: Value) => {
 		changed = true;
-		tx.update(labourAttributes)
+		await tx
+			.update(labourAttributes)
 			.set({ value })
-			.where(and(eq(labourAttributes.labourId, labourId), eq(labourAttributes.attributeId, row.id)))
-			.run();
+			.where(
+				and(eq(labourAttributes.labourId, labourId), eq(labourAttributes.attributeId, row.id))
+			);
 	};
 
 	for (const entry of held) {
@@ -316,7 +325,7 @@ function reshapeValues(tx: Handle, row: AttributeRow, next: Spec): boolean {
 			const { min, max } = next as ScaleSpec;
 			const value = entry.value as number;
 			const clamped = Math.min(Math.max(value, min), max);
-			if (clamped !== value) rewrite(entry.labourId, clamped);
+			if (clamped !== value) await rewrite(entry.labourId, clamped);
 		} else if (row.kind === 'tags') {
 			const { members, max } = next as TagsSpec;
 			const keys = new Set(members.map((member) => member.key));
@@ -324,14 +333,14 @@ function reshapeValues(tx: Handle, row: AttributeRow, next: Spec): boolean {
 			const kept = value.filter((key) => keys.has(key));
 			if (kept.length === 0) {
 				changed = true;
-				tx.delete(labourAttributes)
+				await tx
+					.delete(labourAttributes)
 					.where(
 						and(
 							eq(labourAttributes.labourId, entry.labourId),
 							eq(labourAttributes.attributeId, row.id)
 						)
-					)
-					.run();
+					);
 				continue;
 			}
 			if (max !== null && kept.length > max) {
@@ -340,7 +349,7 @@ function reshapeValues(tx: Handle, row: AttributeRow, next: Spec): boolean {
 					`A Labour holds ${kept.length} members of Attribute "${row.key}"; max cannot go below that`
 				);
 			}
-			if (kept.length !== value.length) rewrite(entry.labourId, kept);
+			if (kept.length !== value.length) await rewrite(entry.labourId, kept);
 		} else if ((entry.value as string).length > (next as TextSpec).max) {
 			throw new DomainError(
 				'conflict',
@@ -351,38 +360,38 @@ function reshapeValues(tx: Handle, row: AttributeRow, next: Spec): boolean {
 	return changed;
 }
 
-export function defineAttribute(
+export async function defineAttribute(
 	db: Db,
 	actor: Actor,
 	realmId: number,
 	input: AttributeInput,
 	now: Date = new Date()
-): { version: number; attribute: AttributeView } {
-	return db.transaction((tx) => {
-		getRealm(tx, realmId);
-		requireRealmRole(tx, actor, realmId, 'owner');
+): Promise<{ version: number; attribute: AttributeView }> {
+	return transact(db, async (tx) => {
+		await getRealm(tx, realmId);
+		await requireRealmRole(tx, actor, realmId, 'owner');
 		const key = normalizeKey(input.key);
 		if (!KINDS.includes(input.kind)) invalid('Attribute kind must be scale, tags or text');
-		const existing = findAttribute(tx, realmId, key);
+		const existing = await findAttribute(tx, realmId, key);
 
 		const changed =
 			existing === undefined
-				? createAttribute(tx, realmId, key, input, now)
-				: reviseAttribute(tx, existing, input, now);
-		if (changed) bumpRealms(tx, [realmId], now);
+				? await createAttribute(tx, realmId, key, input, now)
+				: await reviseAttribute(tx, existing, input, now);
+		if (changed) await bumpRealms(tx, [realmId], now);
 
-		const attribute = readAttributes(tx, realmId).find((a) => a.key === key)!;
-		return { version: readRealmAgent(tx, realmId).version, attribute };
+		const attribute = (await readAttributes(tx, realmId)).find((a) => a.key === key)!;
+		return { version: (await readRealmAgent(tx, realmId)).version, attribute };
 	});
 }
 
-function createAttribute(
+async function createAttribute(
 	tx: Handle,
 	realmId: number,
 	key: string,
 	input: AttributeInput,
 	now: Date
-): boolean {
+): Promise<boolean> {
 	if (input.label === undefined || input.rubric === undefined) {
 		invalid('Creating an Attribute needs a label and a rubric');
 	}
@@ -390,35 +399,43 @@ function createAttribute(
 	const rubric = requireText(input.rubric, 'Attribute rubric', 4000);
 	const spec = normalizeSpec(input.kind, input.spec, undefined);
 
-	const order = attributeRows(tx, realmId).map((row) => row.id);
+	const order = (await attributeRows(tx, realmId)).map((row) => row.id);
 	if (order.length >= ATTRIBUTES_MAX) {
 		throw new DomainError('conflict', `A Realm holds at most ${ATTRIBUTES_MAX} Attributes`);
 	}
 	placeAt(order, 0, input.index);
 
-	const row = tx
-		.insert(attributes)
-		.values({
-			realmId,
-			key,
-			kind: input.kind,
-			label,
-			rubric,
-			spec,
-			position: order.length,
-			createdAt: now,
-			revisedAt: now,
-			updatedAt: now
-		})
-		.returning()
-		.get();
-	writePositions(placeAt(order, row.id, input.index), (id, position) =>
-		tx.update(attributes).set({ position }).where(eq(attributes.id, id)).run()
+	const row = (
+		await tx
+			.insert(attributes)
+			.values({
+				realmId,
+				key,
+				kind: input.kind,
+				label,
+				rubric,
+				spec,
+				position: order.length,
+				createdAt: now,
+				revisedAt: now,
+				updatedAt: now
+			})
+			.returning()
+	)[0];
+	await writePositions(
+		placeAt(order, row.id, input.index),
+		async (id, position) =>
+			await tx.update(attributes).set({ position }).where(eq(attributes.id, id))
 	);
 	return true;
 }
 
-function reviseAttribute(tx: Handle, row: AttributeRow, input: AttributeInput, now: Date): boolean {
+async function reviseAttribute(
+	tx: Handle,
+	row: AttributeRow,
+	input: AttributeInput,
+	now: Date
+): Promise<boolean> {
 	if (input.kind !== row.kind) {
 		invalid(`Attribute "${row.key}" is ${row.kind}; its kind cannot change`);
 	}
@@ -428,124 +445,124 @@ function reviseAttribute(tx: Handle, row: AttributeRow, input: AttributeInput, n
 		input.rubric === undefined ? row.rubric : requireText(input.rubric, 'Attribute rubric', 4000);
 	const spec = normalizeSpec(row.kind, input.spec, specOf(row));
 
-	const rows = attributeRows(tx, row.realmId);
+	const rows = await attributeRows(tx, row.realmId);
 	const rest = rows.filter((other) => other.id !== row.id).map((other) => other.id);
 	const order = placeAt(rest, row.id, input.index ?? row.position);
 	const moved = order.indexOf(row.id) !== row.position;
 
 	const specChanged = JSON.stringify(spec) !== JSON.stringify(row.spec);
 	const revised = specChanged || rubric !== row.rubric;
-	const valuesChanged = specChanged && reshapeValues(tx, row, spec);
+	const valuesChanged = specChanged && (await reshapeValues(tx, row, spec));
 	if (row.kind === 'tags' && specChanged) {
 		const kept = new Set((spec as TagsSpec).members.map((member) => member.key));
 		const removed = (specOf(row) as TagsSpec).members
 			.map((member) => member.key)
 			.filter((key) => !kept.has(key));
-		unfilePulses(tx, row.id, removed);
-		deleteAffinityPulses(tx, row.id, removed);
+		await unfilePulses(tx, row.id, removed);
+		await deleteAffinityPulses(tx, row.id, removed);
 	}
 	if (!revised && label === row.label && !moved) return false;
 
-	tx.update(attributes)
+	await tx
+		.update(attributes)
 		.set({ label, rubric, spec, updatedAt: now, ...(revised ? { revisedAt: now } : {}) })
-		.where(eq(attributes.id, row.id))
-		.run();
+		.where(eq(attributes.id, row.id));
 	if (moved) {
-		writePositions(order, (id, position) =>
-			tx.update(attributes).set({ position }).where(eq(attributes.id, id)).run()
+		await writePositions(
+			order,
+			async (id, position) =>
+				await tx.update(attributes).set({ position }).where(eq(attributes.id, id))
 		);
 		if (rows.filter((other) => other.kind === 'text').length > 1) {
-			refreshTextHolders(tx, row.realmId);
+			await refreshTextHolders(tx, row.realmId);
 		}
 	}
 	return revised || valuesChanged || label !== row.label || moved;
 }
 
 // notes follow Attribute position: refresh them whenever text Attributes reorder.
-function refreshTextHolders(tx: Handle, realmId: number): void {
-	const holders = tx
+async function refreshTextHolders(tx: Handle, realmId: number): Promise<void> {
+	const holders = await tx
 		.selectDistinct({ labourId: labourAttributes.labourId })
 		.from(labourAttributes)
 		.innerJoin(attributes, eq(attributes.id, labourAttributes.attributeId))
-		.where(and(eq(attributes.realmId, realmId), eq(attributes.kind, 'text')))
-		.all();
-	for (const { labourId } of holders) refreshLabourText(tx, labourId);
+		.where(and(eq(attributes.realmId, realmId), eq(attributes.kind, 'text')));
+	for (const { labourId } of holders) await refreshLabourText(tx, labourId);
 }
 
 // Only Sentiment Pulses unfile: CHECK `pulses_unfiled_is_sentiment`.
-function unfilePulses(tx: Handle, attributeId: number, members?: string[]): void {
+async function unfilePulses(tx: Handle, attributeId: number, members?: string[]): Promise<void> {
 	if (members?.length === 0) return;
 	const owned = and(eq(pulses.attributeId, attributeId), isNotNull(pulses.realmId));
 	const scope =
-		members === undefined
-			? owned
-			: and(
-					owned,
-					sql`${pulses.member} IN (SELECT value FROM json_each(${JSON.stringify(members)}))`
-				);
-	tx.update(pulses).set({ attributeId: null, member: null }).where(scope).run();
+		members === undefined ? owned : and(owned, sql`${pulses.member} IN ${textList(members)}`);
+	await tx.update(pulses).set({ attributeId: null, member: null }).where(scope);
 }
 
-function deleteAffinityPulses(tx: Handle, attributeId: number, members: string[]): void {
+async function deleteAffinityPulses(
+	tx: Handle,
+	attributeId: number,
+	members: string[]
+): Promise<void> {
 	if (members.length === 0) return;
-	tx.delete(pulses)
+	await tx
+		.delete(pulses)
 		.where(
 			and(
 				isNull(pulses.realmId),
 				eq(pulses.attributeId, attributeId),
-				sql`${pulses.member} IN (SELECT value FROM json_each(${JSON.stringify(members)}))`
+				sql`${pulses.member} IN ${textList(members)}`
 			)
-		)
-		.run();
+		);
 }
 
 // Every Attribute deletion goes through here; release what an Attribute owns here too.
-export function removeAttribute(tx: Handle, row: AttributeRow): void {
-	unfilePulses(tx, row.id);
+export async function removeAttribute(tx: Handle, row: AttributeRow): Promise<void> {
+	await unfilePulses(tx, row.id);
 	const holders =
 		row.kind === 'text'
-			? tx
+			? await tx
 					.select({ labourId: labourAttributes.labourId })
 					.from(labourAttributes)
 					.where(eq(labourAttributes.attributeId, row.id))
-					.all()
 			: [];
-	tx.delete(attributes).where(eq(attributes.id, row.id)).run();
-	for (const { labourId } of holders) refreshLabourText(tx, labourId);
-	writePositions(
-		attributeRows(tx, row.realmId).map((other) => other.id),
-		(id, position) => tx.update(attributes).set({ position }).where(eq(attributes.id, id)).run()
+	await tx.delete(attributes).where(eq(attributes.id, row.id));
+	for (const { labourId } of holders) await refreshLabourText(tx, labourId);
+	await writePositions(
+		(await attributeRows(tx, row.realmId)).map((other) => other.id),
+		async (id, position) =>
+			await tx.update(attributes).set({ position }).where(eq(attributes.id, id))
 	);
 }
 
-export function deleteAttribute(
+export async function deleteAttribute(
 	db: Db,
 	actor: Actor,
 	realmId: number,
 	key: string,
 	now: Date = new Date()
-): { version: number } {
-	return db.transaction((tx) => {
-		getRealm(tx, realmId);
-		requireRealmRole(tx, actor, realmId, 'owner');
-		const row = findAttribute(tx, realmId, key);
+): Promise<{ version: number }> {
+	return transact(db, async (tx) => {
+		await getRealm(tx, realmId);
+		await requireRealmRole(tx, actor, realmId, 'owner');
+		const row = await findAttribute(tx, realmId, key);
 		if (row === undefined) throw new DomainError('not_found', 'Attribute not found');
-		removeAttribute(tx, row);
-		bumpRealms(tx, [realmId], now);
-		return { version: readRealmAgent(tx, realmId).version };
+		await removeAttribute(tx, row);
+		await bumpRealms(tx, [realmId], now);
+		return { version: (await readRealmAgent(tx, realmId)).version };
 	});
 }
 
-export function tuneRealm(
+export async function tuneRealm(
 	db: Db,
 	actor: Actor,
 	realmId: number,
 	input: { notes?: string; halfLifeDays?: number; loudness?: number },
 	now: Date = new Date()
-): RealmAgentView {
-	return db.transaction((tx) => {
-		requireRealmRole(tx, actor, realmId, 'owner');
-		const current = readRealmAgent(tx, realmId);
+): Promise<RealmAgentView> {
+	return transact(db, async (tx) => {
+		await requireRealmRole(tx, actor, realmId, 'owner');
+		const current = await readRealmAgent(tx, realmId);
 		const next = { ...current };
 		if (input.notes !== undefined) {
 			if (typeof input.notes !== 'string' || input.notes.length > NOTES_MAX) {
@@ -574,11 +591,11 @@ export function tuneRealm(
 		) {
 			return current;
 		}
-		bumpRealms(tx, [realmId], now);
-		tx.update(realmAgent)
+		await bumpRealms(tx, [realmId], now);
+		await tx
+			.update(realmAgent)
 			.set({ notes: next.notes, halfLifeDays: next.halfLifeDays, loudness: next.loudness })
-			.where(eq(realmAgent.realmId, realmId))
-			.run();
+			.where(eq(realmAgent.realmId, realmId));
 		return readRealmAgent(tx, realmId);
 	});
 }
@@ -618,18 +635,18 @@ function normalizeValue(row: AttributeRow, raw: unknown): Value | null {
 }
 
 // Never bumps a version; `touched` gains the Labour's Realm when a row changed.
-export function writeValues(
+export async function writeValues(
 	tx: Handle,
 	userId: number,
 	labour: { id: number; realmId: number },
 	values: Record<string, unknown>,
 	now: Date,
 	touched: Set<number>
-): void {
+): Promise<void> {
 	if (values === null || typeof values !== 'object' || Array.isArray(values)) {
 		invalid('Values must be an object of Attribute keys to values');
 	}
-	const rows = new Map(attributeRows(tx, labour.realmId).map((row) => [row.key, row]));
+	const rows = new Map((await attributeRows(tx, labour.realmId)).map((row) => [row.key, row]));
 	const planned = Object.entries(values).map(([key, raw]) => {
 		const row = rows.get(key);
 		if (row === undefined) invalid(`Attribute "${key}" does not exist in this Realm`);
@@ -644,11 +661,12 @@ export function writeValues(
 			eq(labourAttributes.attributeId, row.id)
 		);
 		if (value === null) {
-			const removed = tx.delete(labourAttributes).where(match).run().changes;
+			const removed = (await tx.delete(labourAttributes).where(match)).rowCount ?? 0;
 			if (removed > 0) touched.add(labour.realmId);
 			continue;
 		}
-		tx.insert(labourAttributes)
+		await tx
+			.insert(labourAttributes)
 			.values({
 				realmId: labour.realmId,
 				labourId: labour.id,
@@ -661,26 +679,25 @@ export function writeValues(
 			.onConflictDoUpdate({
 				target: [labourAttributes.labourId, labourAttributes.attributeId],
 				set: { value, setBy: userId, via: currentVia(), setAt: now }
-			})
-			.run();
+			});
 		touched.add(labour.realmId);
 	}
-	if (notesChanged) refreshLabourText(tx, labour.id);
+	if (notesChanged) await refreshLabourText(tx, labour.id);
 }
 
-export function setValues(
+export async function setValues(
 	db: Db,
 	actor: Actor,
 	labourId: number,
 	values: Record<string, unknown>,
 	now: Date = new Date()
-): ValueView[] {
-	return db.transaction((tx) => {
-		const labour = getLabour(tx, labourId);
-		requireRealmRole(tx, actor, labour.realmId, 'editor');
+): Promise<ValueView[]> {
+	return transact(db, async (tx) => {
+		const labour = await getLabour(tx, labourId);
+		await requireRealmRole(tx, actor, labour.realmId, 'editor');
 		const touched = new Set<number>();
-		writeValues(tx, actor.id, labour, values, now, touched);
-		bumpRealms(tx, touched, now);
+		await writeValues(tx, actor.id, labour, values, now, touched);
+		await bumpRealms(tx, touched, now);
 		return readValues(tx, labourId);
 	});
 }
@@ -694,43 +711,41 @@ export type DetachedValue = {
 };
 
 // Must run before the Labour's realm_id changes: the composite foreign key blocks the update.
-export function detachValues(tx: Handle, labourId: number): DetachedValue[] {
-	const detached = readValues(tx, labourId).map(
+export async function detachValues(tx: Handle, labourId: number): Promise<DetachedValue[]> {
+	const detached = (await readValues(tx, labourId)).map(
 		({ key, kind, value, setBy, setAt }): DetachedValue => ({ key, kind, value, setBy, setAt })
 	);
-	tx.delete(labourAttributes).where(eq(labourAttributes.labourId, labourId)).run();
+	await tx.delete(labourAttributes).where(eq(labourAttributes.labourId, labourId));
 	return detached;
 }
 
 // Keeps each value the new Realm's same-key, same-kind Attribute accepts as it stands, with its
 // original setBy and setAt.
-export function attachValues(
+export async function attachValues(
 	tx: Handle,
 	labourId: number,
 	fromRealmId: number,
 	toRealmId: number,
 	detached: DetachedValue[],
 	now: Date
-): void {
+): Promise<void> {
 	if (detached.length === 0) return;
-	const rows = new Map(attributeRows(tx, toRealmId).map((row) => [row.key, row]));
+	const rows = new Map((await attributeRows(tx, toRealmId)).map((row) => [row.key, row]));
 	for (const entry of detached) {
 		const row = rows.get(entry.key);
 		if (row === undefined || row.kind !== entry.kind) continue;
 		const value = carriedValue(row, entry.value);
 		if (value === null) continue;
-		tx.insert(labourAttributes)
-			.values({
-				realmId: toRealmId,
-				labourId,
-				attributeId: row.id,
-				value,
-				setBy: entry.setBy,
-				setAt: entry.setAt
-			})
-			.run();
+		await tx.insert(labourAttributes).values({
+			realmId: toRealmId,
+			labourId,
+			attributeId: row.id,
+			value,
+			setBy: entry.setBy,
+			setAt: entry.setAt
+		});
 	}
-	bumpRealms(tx, [fromRealmId, toRealmId], now);
+	await bumpRealms(tx, [fromRealmId, toRealmId], now);
 }
 
 function carriedValue(row: AttributeRow, value: Value): Value | null {
