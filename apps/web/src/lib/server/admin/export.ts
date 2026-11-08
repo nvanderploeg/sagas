@@ -11,7 +11,7 @@ import {
 	SERVICE,
 	type Manifest
 } from './manifest.ts';
-import { BUNDLE_TABLES, columnKind, quote } from './tables.ts';
+import { BUNDLE_TABLES, columnKind, quote, tableSql } from './tables.ts';
 import { zipChunks, type ZipEntry } from './zip.ts';
 
 const CURSOR_ROWS = 256;
@@ -31,7 +31,7 @@ async function* dump(client: pg.PoolClient): AsyncGenerator<Buffer> {
 		yield Buffer.from(`${JSON.stringify({ table: name, columns: columns.map((c) => c.name) })}\n`);
 		const select = columns.map((c) => selectExpression(c.name, columnKind(c))).join(', ');
 		const cursor = client.query(
-			new Cursor(`SELECT ${select} FROM ${quote(name)}`, [], { rowMode: 'array' })
+			new Cursor(`SELECT ${select} FROM ${tableSql(name)}`, [], { rowMode: 'array' })
 		);
 		let pending = '';
 		for (;;) {

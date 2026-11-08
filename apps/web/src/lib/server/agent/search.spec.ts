@@ -46,7 +46,7 @@ type TextRow = {
 async function textOf(labourId: number): Promise<TextRow | undefined> {
 	return (
 		await db.$client.query<TextRow>(
-			'SELECT title, brief, description, comments, notes FROM labour_text WHERE labour_id = $1',
+			'SELECT title, brief, description, comments, notes FROM sagas_labour_text WHERE labour_id = $1',
 			[labourId]
 		)
 	).rows[0];
@@ -55,7 +55,7 @@ async function textOf(labourId: number): Promise<TextRow | undefined> {
 async function indexedIds(): Promise<number[]> {
 	return (
 		await db.$client.query<{ labour_id: number }>(
-			'SELECT labour_id FROM labour_text ORDER BY labour_id'
+			'SELECT labour_id FROM sagas_labour_text ORDER BY labour_id'
 		)
 	).rows.map((row) => row.labour_id);
 }

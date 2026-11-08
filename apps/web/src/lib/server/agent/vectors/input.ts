@@ -33,8 +33,8 @@ export async function readEmbeddingTexts(
 		await db.execute<{ id: number; title: string; description: string; brief: string | null }>(sql`
 		SELECT l.id AS id, l.title AS title, l.description AS description, a.brief AS brief
 		FROM ${intRows(labourIds)} AS j(value)
-		JOIN labours l ON l.id = j.value
-		LEFT JOIN appraisals a ON a.labour_id = l.id
+		JOIN sagas_labours l ON l.id = j.value
+		LEFT JOIN sagas_appraisals a ON a.labour_id = l.id
 	`)
 	).rows;
 	for (const row of rows) {
@@ -64,12 +64,12 @@ export async function refreshEmbeddingInput(
 
 // Chunked, so the text held at once stays bounded however many Labours there are.
 export async function rebuildEmbeddingInputs(tx: Handle): Promise<void> {
-	await tx.execute(sql`DELETE FROM labour_inputs`);
+	await tx.execute(sql`DELETE FROM sagas_labour_inputs`);
 	let after = 0;
 	for (;;) {
 		const ids = (
 			await tx.execute<{ id: number }>(
-				sql`SELECT id FROM labours WHERE id > ${after} ORDER BY id LIMIT ${CHUNK}`
+				sql`SELECT id FROM sagas_labours WHERE id > ${after} ORDER BY id LIMIT ${CHUNK}`
 			)
 		).rows.map((row) => row.id);
 		if (ids.length === 0) return;

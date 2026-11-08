@@ -4,8 +4,8 @@
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.api_tokens": {
-      "name": "api_tokens",
+    "public.sagas_api_tokens": {
+      "name": "sagas_api_tokens",
       "schema": "",
       "columns": {
         "id": {
@@ -15,7 +15,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "api_tokens_id_seq",
+            "name": "sagas_api_tokens_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -75,8 +75,8 @@
         }
       },
       "indexes": {
-        "api_tokens_user_idx": {
-          "name": "api_tokens_user_idx",
+        "sagas_api_tokens_user_idx": {
+          "name": "sagas_api_tokens_user_idx",
           "columns": [
             {
               "expression": "user_id",
@@ -92,10 +92,10 @@
         }
       },
       "foreignKeys": {
-        "api_tokens_user_id_users_id_fk": {
-          "name": "api_tokens_user_id_users_id_fk",
-          "tableFrom": "api_tokens",
-          "tableTo": "users",
+        "sagas_api_tokens_user_id_sagas_users_id_fk": {
+          "name": "sagas_api_tokens_user_id_sagas_users_id_fk",
+          "tableFrom": "sagas_api_tokens",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "user_id"
           ],
@@ -105,10 +105,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "api_tokens_grant_id_oauth_grants_id_fk": {
-          "name": "api_tokens_grant_id_oauth_grants_id_fk",
-          "tableFrom": "api_tokens",
-          "tableTo": "oauth_grants",
+        "sagas_api_tokens_grant_id_sagas_oauth_grants_id_fk": {
+          "name": "sagas_api_tokens_grant_id_sagas_oauth_grants_id_fk",
+          "tableFrom": "sagas_api_tokens",
+          "tableTo": "sagas_oauth_grants",
           "columnsFrom": [
             "grant_id"
           ],
@@ -121,15 +121,15 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "api_tokens_token_hash_unique": {
-          "name": "api_tokens_token_hash_unique",
+        "sagas_api_tokens_token_hash_unique": {
+          "name": "sagas_api_tokens_token_hash_unique",
           "nullsNotDistinct": false,
           "columns": [
             "token_hash"
           ]
         },
-        "api_tokens_grant_id_unique": {
-          "name": "api_tokens_grant_id_unique",
+        "sagas_api_tokens_grant_id_unique": {
+          "name": "sagas_api_tokens_grant_id_unique",
           "nullsNotDistinct": false,
           "columns": [
             "grant_id"
@@ -140,8 +140,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.appraisals": {
-      "name": "appraisals",
+    "public.sagas_appraisals": {
+      "name": "sagas_appraisals",
       "schema": "",
       "columns": {
         "labour_id": {
@@ -209,10 +209,10 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "appraisals_labour_id_labours_id_fk": {
-          "name": "appraisals_labour_id_labours_id_fk",
-          "tableFrom": "appraisals",
-          "tableTo": "labours",
+        "sagas_appraisals_labour_id_sagas_labours_id_fk": {
+          "name": "sagas_appraisals_labour_id_sagas_labours_id_fk",
+          "tableFrom": "sagas_appraisals",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "labour_id"
           ],
@@ -222,10 +222,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "appraisals_set_by_users_id_fk": {
-          "name": "appraisals_set_by_users_id_fk",
-          "tableFrom": "appraisals",
-          "tableTo": "users",
+        "sagas_appraisals_set_by_sagas_users_id_fk": {
+          "name": "sagas_appraisals_set_by_sagas_users_id_fk",
+          "tableFrom": "sagas_appraisals",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "set_by"
           ],
@@ -235,10 +235,10 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "appraisals_appraised_by_users_id_fk": {
-          "name": "appraisals_appraised_by_users_id_fk",
-          "tableFrom": "appraisals",
-          "tableTo": "users",
+        "sagas_appraisals_appraised_by_sagas_users_id_fk": {
+          "name": "sagas_appraisals_appraised_by_sagas_users_id_fk",
+          "tableFrom": "sagas_appraisals",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "appraised_by"
           ],
@@ -253,15 +253,15 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "appraisals_stamp_set": {
-          "name": "appraisals_stamp_set",
+        "sagas_appraisals_stamp_set": {
+          "name": "sagas_appraisals_stamp_set",
           "value": "(\"content_hash\" IS NULL) = (\"appraised_by\" IS NULL) AND (\"appraised_by\" IS NULL) = (\"appraised_at\" IS NULL)"
         }
       },
       "isRLSEnabled": false
     },
-    "public.attributes": {
-      "name": "attributes",
+    "public.sagas_attributes": {
+      "name": "sagas_attributes",
       "schema": "",
       "columns": {
         "id": {
@@ -271,7 +271,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "attributes_id_seq",
+            "name": "sagas_attributes_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -343,8 +343,8 @@
         }
       },
       "indexes": {
-        "attributes_realm_key_uq": {
-          "name": "attributes_realm_key_uq",
+        "sagas_attributes_realm_key_uq": {
+          "name": "sagas_attributes_realm_key_uq",
           "columns": [
             {
               "expression": "realm_id",
@@ -364,8 +364,8 @@
           "method": "btree",
           "with": {}
         },
-        "attributes_realm_position_uq": {
-          "name": "attributes_realm_position_uq",
+        "sagas_attributes_realm_position_uq": {
+          "name": "sagas_attributes_realm_position_uq",
           "columns": [
             {
               "expression": "realm_id",
@@ -385,8 +385,8 @@
           "method": "btree",
           "with": {}
         },
-        "attributes_realm_id_uq": {
-          "name": "attributes_realm_id_uq",
+        "sagas_attributes_realm_id_uq": {
+          "name": "sagas_attributes_realm_id_uq",
           "columns": [
             {
               "expression": "realm_id",
@@ -408,10 +408,10 @@
         }
       },
       "foreignKeys": {
-        "attributes_realm_id_realms_id_fk": {
-          "name": "attributes_realm_id_realms_id_fk",
-          "tableFrom": "attributes",
-          "tableTo": "realms",
+        "sagas_attributes_realm_id_sagas_realms_id_fk": {
+          "name": "sagas_attributes_realm_id_sagas_realms_id_fk",
+          "tableFrom": "sagas_attributes",
+          "tableTo": "sagas_realms",
           "columnsFrom": [
             "realm_id"
           ],
@@ -426,19 +426,19 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "attributes_key_format": {
-          "name": "attributes_key_format",
+        "sagas_attributes_key_format": {
+          "name": "sagas_attributes_key_format",
           "value": "\"key\" ~ '^[a-z][a-z0-9-]{0,31}$'"
         },
-        "attributes_kind": {
-          "name": "attributes_kind",
+        "sagas_attributes_kind": {
+          "name": "sagas_attributes_kind",
           "value": "\"kind\" IN ('scale', 'tags', 'text')"
         }
       },
       "isRLSEnabled": false
     },
-    "public.comments": {
-      "name": "comments",
+    "public.sagas_comments": {
+      "name": "sagas_comments",
       "schema": "",
       "columns": {
         "id": {
@@ -448,7 +448,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "comments_id_seq",
+            "name": "sagas_comments_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -496,8 +496,8 @@
         }
       },
       "indexes": {
-        "comments_labour_idx": {
-          "name": "comments_labour_idx",
+        "sagas_comments_labour_idx": {
+          "name": "sagas_comments_labour_idx",
           "columns": [
             {
               "expression": "labour_id",
@@ -519,10 +519,10 @@
         }
       },
       "foreignKeys": {
-        "comments_labour_id_labours_id_fk": {
-          "name": "comments_labour_id_labours_id_fk",
-          "tableFrom": "comments",
-          "tableTo": "labours",
+        "sagas_comments_labour_id_sagas_labours_id_fk": {
+          "name": "sagas_comments_labour_id_sagas_labours_id_fk",
+          "tableFrom": "sagas_comments",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "labour_id"
           ],
@@ -532,10 +532,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "comments_author_id_users_id_fk": {
-          "name": "comments_author_id_users_id_fk",
-          "tableFrom": "comments",
-          "tableTo": "users",
+        "sagas_comments_author_id_sagas_users_id_fk": {
+          "name": "sagas_comments_author_id_sagas_users_id_fk",
+          "tableFrom": "sagas_comments",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "author_id"
           ],
@@ -552,8 +552,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.derived_builds": {
-      "name": "derived_builds",
+    "public.sagas_derived_builds": {
+      "name": "sagas_derived_builds",
       "schema": "",
       "columns": {
         "name": {
@@ -583,8 +583,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.event_counter": {
-      "name": "event_counter",
+    "public.sagas_event_counter": {
+      "name": "sagas_event_counter",
       "schema": "",
       "columns": {
         "id": {
@@ -608,15 +608,15 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "event_counter_single": {
-          "name": "event_counter_single",
+        "sagas_event_counter_single": {
+          "name": "sagas_event_counter_single",
           "value": "\"id\" = 1"
         }
       },
       "isRLSEnabled": false
     },
-    "public.event_realms": {
-      "name": "event_realms",
+    "public.sagas_event_realms": {
+      "name": "sagas_event_realms",
       "schema": "",
       "columns": {
         "seq": {
@@ -633,8 +633,8 @@
         }
       },
       "indexes": {
-        "event_realms_realm_idx": {
-          "name": "event_realms_realm_idx",
+        "sagas_event_realms_realm_idx": {
+          "name": "sagas_event_realms_realm_idx",
           "columns": [
             {
               "expression": "realm_id",
@@ -650,10 +650,10 @@
         }
       },
       "foreignKeys": {
-        "event_realms_seq_events_seq_fk": {
-          "name": "event_realms_seq_events_seq_fk",
-          "tableFrom": "event_realms",
-          "tableTo": "events",
+        "sagas_event_realms_seq_sagas_events_seq_fk": {
+          "name": "sagas_event_realms_seq_sagas_events_seq_fk",
+          "tableFrom": "sagas_event_realms",
+          "tableTo": "sagas_events",
           "columnsFrom": [
             "seq"
           ],
@@ -665,8 +665,8 @@
         }
       },
       "compositePrimaryKeys": {
-        "event_realms_seq_realm_id_pk": {
-          "name": "event_realms_seq_realm_id_pk",
+        "sagas_event_realms_seq_realm_id_pk": {
+          "name": "sagas_event_realms_seq_realm_id_pk",
           "columns": [
             "seq",
             "realm_id"
@@ -678,8 +678,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.events": {
-      "name": "events",
+    "public.sagas_events": {
+      "name": "sagas_events",
       "schema": "",
       "columns": {
         "seq": {
@@ -726,8 +726,8 @@
         }
       },
       "indexes": {
-        "events_created_idx": {
-          "name": "events_created_idx",
+        "sagas_events_created_idx": {
+          "name": "sagas_events_created_idx",
           "columns": [
             {
               "expression": "created_at",
@@ -743,10 +743,10 @@
         }
       },
       "foreignKeys": {
-        "events_actor_id_users_id_fk": {
-          "name": "events_actor_id_users_id_fk",
-          "tableFrom": "events",
-          "tableTo": "users",
+        "sagas_events_actor_id_sagas_users_id_fk": {
+          "name": "sagas_events_actor_id_sagas_users_id_fk",
+          "tableFrom": "sagas_events",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "actor_id"
           ],
@@ -756,10 +756,10 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "events_token_id_api_tokens_id_fk": {
-          "name": "events_token_id_api_tokens_id_fk",
-          "tableFrom": "events",
-          "tableTo": "api_tokens",
+        "sagas_events_token_id_sagas_api_tokens_id_fk": {
+          "name": "sagas_events_token_id_sagas_api_tokens_id_fk",
+          "tableFrom": "sagas_events",
+          "tableTo": "sagas_api_tokens",
           "columnsFrom": [
             "token_id"
           ],
@@ -776,8 +776,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.invites": {
-      "name": "invites",
+    "public.sagas_invites": {
+      "name": "sagas_invites",
       "schema": "",
       "columns": {
         "id": {
@@ -787,7 +787,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "invites_id_seq",
+            "name": "sagas_invites_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -830,10 +830,10 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "invites_created_by_user_id_users_id_fk": {
-          "name": "invites_created_by_user_id_users_id_fk",
-          "tableFrom": "invites",
-          "tableTo": "users",
+        "sagas_invites_created_by_user_id_sagas_users_id_fk": {
+          "name": "sagas_invites_created_by_user_id_sagas_users_id_fk",
+          "tableFrom": "sagas_invites",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "created_by_user_id"
           ],
@@ -843,10 +843,10 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "invites_used_by_user_id_users_id_fk": {
-          "name": "invites_used_by_user_id_users_id_fk",
-          "tableFrom": "invites",
-          "tableTo": "users",
+        "sagas_invites_used_by_user_id_sagas_users_id_fk": {
+          "name": "sagas_invites_used_by_user_id_sagas_users_id_fk",
+          "tableFrom": "sagas_invites",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "used_by_user_id"
           ],
@@ -859,8 +859,8 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "invites_token_hash_unique": {
-          "name": "invites_token_hash_unique",
+        "sagas_invites_token_hash_unique": {
+          "name": "sagas_invites_token_hash_unique",
           "nullsNotDistinct": false,
           "columns": [
             "token_hash"
@@ -869,15 +869,15 @@
       },
       "policies": {},
       "checkConstraints": {
-        "invites_used_pair": {
-          "name": "invites_used_pair",
+        "sagas_invites_used_pair": {
+          "name": "sagas_invites_used_pair",
           "value": "(\"used_at\" IS NULL) = (\"used_by_user_id\" IS NULL)"
         }
       },
       "isRLSEnabled": false
     },
-    "public.labour_attributes": {
-      "name": "labour_attributes",
+    "public.sagas_labour_attributes": {
+      "name": "sagas_labour_attributes",
       "schema": "",
       "columns": {
         "realm_id": {
@@ -924,8 +924,8 @@
         }
       },
       "indexes": {
-        "labour_attributes_attribute_idx": {
-          "name": "labour_attributes_attribute_idx",
+        "sagas_labour_attributes_attribute_idx": {
+          "name": "sagas_labour_attributes_attribute_idx",
           "columns": [
             {
               "expression": "attribute_id",
@@ -941,10 +941,10 @@
         }
       },
       "foreignKeys": {
-        "labour_attributes_set_by_users_id_fk": {
-          "name": "labour_attributes_set_by_users_id_fk",
-          "tableFrom": "labour_attributes",
-          "tableTo": "users",
+        "sagas_labour_attributes_set_by_sagas_users_id_fk": {
+          "name": "sagas_labour_attributes_set_by_sagas_users_id_fk",
+          "tableFrom": "sagas_labour_attributes",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "set_by"
           ],
@@ -954,10 +954,10 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "labour_attributes_realm_id_labour_id_labours_realm_id_id_fk": {
-          "name": "labour_attributes_realm_id_labour_id_labours_realm_id_id_fk",
-          "tableFrom": "labour_attributes",
-          "tableTo": "labours",
+        "sagas_labour_attributes_realm_id_labour_id_sagas_labours_realm_id_id_fk": {
+          "name": "sagas_labour_attributes_realm_id_labour_id_sagas_labours_realm_id_id_fk",
+          "tableFrom": "sagas_labour_attributes",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "realm_id",
             "labour_id"
@@ -969,10 +969,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "labour_attributes_realm_id_attribute_id_attributes_realm_id_id_fk": {
-          "name": "labour_attributes_realm_id_attribute_id_attributes_realm_id_id_fk",
-          "tableFrom": "labour_attributes",
-          "tableTo": "attributes",
+        "sagas_labour_attributes_realm_id_attribute_id_sagas_attributes_realm_id_id_fk": {
+          "name": "sagas_labour_attributes_realm_id_attribute_id_sagas_attributes_realm_id_id_fk",
+          "tableFrom": "sagas_labour_attributes",
+          "tableTo": "sagas_attributes",
           "columnsFrom": [
             "realm_id",
             "attribute_id"
@@ -986,8 +986,8 @@
         }
       },
       "compositePrimaryKeys": {
-        "labour_attributes_labour_id_attribute_id_pk": {
-          "name": "labour_attributes_labour_id_attribute_id_pk",
+        "sagas_labour_attributes_labour_id_attribute_id_pk": {
+          "name": "sagas_labour_attributes_labour_id_attribute_id_pk",
           "columns": [
             "labour_id",
             "attribute_id"
@@ -999,8 +999,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.labour_inputs": {
-      "name": "labour_inputs",
+    "public.sagas_labour_inputs": {
+      "name": "sagas_labour_inputs",
       "schema": "",
       "columns": {
         "labour_id": {
@@ -1018,10 +1018,10 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "labour_inputs_labour_id_labours_id_fk": {
-          "name": "labour_inputs_labour_id_labours_id_fk",
-          "tableFrom": "labour_inputs",
-          "tableTo": "labours",
+        "sagas_labour_inputs_labour_id_sagas_labours_id_fk": {
+          "name": "sagas_labour_inputs_labour_id_sagas_labours_id_fk",
+          "tableFrom": "sagas_labour_inputs",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "labour_id"
           ],
@@ -1038,8 +1038,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.labour_keys": {
-      "name": "labour_keys",
+    "public.sagas_labour_keys": {
+      "name": "sagas_labour_keys",
       "schema": "",
       "columns": {
         "key": {
@@ -1062,8 +1062,8 @@
         }
       },
       "indexes": {
-        "labour_keys_labour_idx": {
-          "name": "labour_keys_labour_idx",
+        "sagas_labour_keys_labour_idx": {
+          "name": "sagas_labour_keys_labour_idx",
           "columns": [
             {
               "expression": "labour_id",
@@ -1079,10 +1079,10 @@
         }
       },
       "foreignKeys": {
-        "labour_keys_labour_id_labours_id_fk": {
-          "name": "labour_keys_labour_id_labours_id_fk",
-          "tableFrom": "labour_keys",
-          "tableTo": "labours",
+        "sagas_labour_keys_labour_id_sagas_labours_id_fk": {
+          "name": "sagas_labour_keys_labour_id_sagas_labours_id_fk",
+          "tableFrom": "sagas_labour_keys",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "labour_id"
           ],
@@ -1097,15 +1097,15 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "labour_keys_format": {
-          "name": "labour_keys_format",
+        "sagas_labour_keys_format": {
+          "name": "sagas_labour_keys_format",
           "value": "\"key\" ~ '^[A-Z][A-Z0-9]*-[1-9][0-9]*$'"
         }
       },
       "isRLSEnabled": false
     },
-    "public.labour_needs": {
-      "name": "labour_needs",
+    "public.sagas_labour_needs": {
+      "name": "sagas_labour_needs",
       "schema": "",
       "columns": {
         "labour_id": {
@@ -1147,10 +1147,10 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "labour_needs_labour_id_labours_id_fk": {
-          "name": "labour_needs_labour_id_labours_id_fk",
-          "tableFrom": "labour_needs",
-          "tableTo": "labours",
+        "sagas_labour_needs_labour_id_sagas_labours_id_fk": {
+          "name": "sagas_labour_needs_labour_id_sagas_labours_id_fk",
+          "tableFrom": "sagas_labour_needs",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "labour_id"
           ],
@@ -1160,10 +1160,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "labour_needs_skill_id_skills_id_fk": {
-          "name": "labour_needs_skill_id_skills_id_fk",
-          "tableFrom": "labour_needs",
-          "tableTo": "skills",
+        "sagas_labour_needs_skill_id_sagas_skills_id_fk": {
+          "name": "sagas_labour_needs_skill_id_sagas_skills_id_fk",
+          "tableFrom": "sagas_labour_needs",
+          "tableTo": "sagas_skills",
           "columnsFrom": [
             "skill_id"
           ],
@@ -1173,10 +1173,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "labour_needs_set_by_users_id_fk": {
-          "name": "labour_needs_set_by_users_id_fk",
-          "tableFrom": "labour_needs",
-          "tableTo": "users",
+        "sagas_labour_needs_set_by_sagas_users_id_fk": {
+          "name": "sagas_labour_needs_set_by_sagas_users_id_fk",
+          "tableFrom": "sagas_labour_needs",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "set_by"
           ],
@@ -1188,8 +1188,8 @@
         }
       },
       "compositePrimaryKeys": {
-        "labour_needs_labour_id_skill_id_pk": {
-          "name": "labour_needs_labour_id_skill_id_pk",
+        "sagas_labour_needs_labour_id_skill_id_pk": {
+          "name": "sagas_labour_needs_labour_id_skill_id_pk",
           "columns": [
             "labour_id",
             "skill_id"
@@ -1199,15 +1199,15 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "labour_needs_level": {
-          "name": "labour_needs_level",
+        "sagas_labour_needs_level": {
+          "name": "sagas_labour_needs_level",
           "value": "\"level\" BETWEEN 1 AND 5"
         }
       },
       "isRLSEnabled": false
     },
-    "public.labour_text": {
-      "name": "labour_text",
+    "public.sagas_labour_text": {
+      "name": "sagas_labour_text",
       "schema": "",
       "columns": {
         "labour_id": {
@@ -1258,8 +1258,8 @@
         }
       },
       "indexes": {
-        "labour_text_search_idx": {
-          "name": "labour_text_search_idx",
+        "sagas_labour_text_search_idx": {
+          "name": "sagas_labour_text_search_idx",
           "columns": [
             {
               "expression": "search",
@@ -1275,10 +1275,10 @@
         }
       },
       "foreignKeys": {
-        "labour_text_labour_id_labours_id_fk": {
-          "name": "labour_text_labour_id_labours_id_fk",
-          "tableFrom": "labour_text",
-          "tableTo": "labours",
+        "sagas_labour_text_labour_id_sagas_labours_id_fk": {
+          "name": "sagas_labour_text_labour_id_sagas_labours_id_fk",
+          "tableFrom": "sagas_labour_text",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "labour_id"
           ],
@@ -1295,8 +1295,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.labour_vectors": {
-      "name": "labour_vectors",
+    "public.sagas_labour_vectors": {
+      "name": "sagas_labour_vectors",
       "schema": "",
       "columns": {
         "labour_id": {
@@ -1332,10 +1332,10 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "labour_vectors_labour_id_labours_id_fk": {
-          "name": "labour_vectors_labour_id_labours_id_fk",
-          "tableFrom": "labour_vectors",
-          "tableTo": "labours",
+        "sagas_labour_vectors_labour_id_sagas_labours_id_fk": {
+          "name": "sagas_labour_vectors_labour_id_sagas_labours_id_fk",
+          "tableFrom": "sagas_labour_vectors",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "labour_id"
           ],
@@ -1352,8 +1352,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.labours": {
-      "name": "labours",
+    "public.sagas_labours": {
+      "name": "sagas_labours",
       "schema": "",
       "columns": {
         "id": {
@@ -1363,7 +1363,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "labours_id_seq",
+            "name": "sagas_labours_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -1461,8 +1461,8 @@
         }
       },
       "indexes": {
-        "labours_recurrence_idx": {
-          "name": "labours_recurrence_idx",
+        "sagas_labours_recurrence_idx": {
+          "name": "sagas_labours_recurrence_idx",
           "columns": [
             {
               "expression": "recurrence_id",
@@ -1476,8 +1476,8 @@
           "method": "btree",
           "with": {}
         },
-        "labours_realm_number_uq": {
-          "name": "labours_realm_number_uq",
+        "sagas_labours_realm_number_uq": {
+          "name": "sagas_labours_realm_number_uq",
           "columns": [
             {
               "expression": "realm_id",
@@ -1497,8 +1497,8 @@
           "method": "btree",
           "with": {}
         },
-        "labours_realm_id_uq": {
-          "name": "labours_realm_id_uq",
+        "sagas_labours_realm_id_uq": {
+          "name": "sagas_labours_realm_id_uq",
           "columns": [
             {
               "expression": "realm_id",
@@ -1518,8 +1518,8 @@
           "method": "btree",
           "with": {}
         },
-        "labours_parent_idx": {
-          "name": "labours_parent_idx",
+        "sagas_labours_parent_idx": {
+          "name": "sagas_labours_parent_idx",
           "columns": [
             {
               "expression": "parent_id",
@@ -1533,8 +1533,8 @@
           "method": "btree",
           "with": {}
         },
-        "labours_state_rank_uq": {
-          "name": "labours_state_rank_uq",
+        "sagas_labours_state_rank_uq": {
+          "name": "sagas_labours_state_rank_uq",
           "columns": [
             {
               "expression": "state_id",
@@ -1556,10 +1556,10 @@
         }
       },
       "foreignKeys": {
-        "labours_realm_id_realms_id_fk": {
-          "name": "labours_realm_id_realms_id_fk",
-          "tableFrom": "labours",
-          "tableTo": "realms",
+        "sagas_labours_realm_id_sagas_realms_id_fk": {
+          "name": "sagas_labours_realm_id_sagas_realms_id_fk",
+          "tableFrom": "sagas_labours",
+          "tableTo": "sagas_realms",
           "columnsFrom": [
             "realm_id"
           ],
@@ -1569,10 +1569,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "labours_owner_id_users_id_fk": {
-          "name": "labours_owner_id_users_id_fk",
-          "tableFrom": "labours",
-          "tableTo": "users",
+        "sagas_labours_owner_id_sagas_users_id_fk": {
+          "name": "sagas_labours_owner_id_sagas_users_id_fk",
+          "tableFrom": "sagas_labours",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "owner_id"
           ],
@@ -1582,10 +1582,10 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "labours_assignee_id_users_id_fk": {
-          "name": "labours_assignee_id_users_id_fk",
-          "tableFrom": "labours",
-          "tableTo": "users",
+        "sagas_labours_assignee_id_sagas_users_id_fk": {
+          "name": "sagas_labours_assignee_id_sagas_users_id_fk",
+          "tableFrom": "sagas_labours",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "assignee_id"
           ],
@@ -1595,10 +1595,10 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "labours_parent_id_labours_id_fk": {
-          "name": "labours_parent_id_labours_id_fk",
-          "tableFrom": "labours",
-          "tableTo": "labours",
+        "sagas_labours_parent_id_sagas_labours_id_fk": {
+          "name": "sagas_labours_parent_id_sagas_labours_id_fk",
+          "tableFrom": "sagas_labours",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "parent_id"
           ],
@@ -1608,10 +1608,10 @@
           "onDelete": "set null",
           "onUpdate": "no action"
         },
-        "labours_recurrence_id_recurrences_id_fk": {
-          "name": "labours_recurrence_id_recurrences_id_fk",
-          "tableFrom": "labours",
-          "tableTo": "recurrences",
+        "sagas_labours_recurrence_id_sagas_recurrences_id_fk": {
+          "name": "sagas_labours_recurrence_id_sagas_recurrences_id_fk",
+          "tableFrom": "sagas_labours",
+          "tableTo": "sagas_recurrences",
           "columnsFrom": [
             "recurrence_id"
           ],
@@ -1621,10 +1621,10 @@
           "onDelete": "set null",
           "onUpdate": "no action"
         },
-        "labours_realm_id_state_id_states_realm_id_id_fk": {
-          "name": "labours_realm_id_state_id_states_realm_id_id_fk",
-          "tableFrom": "labours",
-          "tableTo": "states",
+        "sagas_labours_realm_id_state_id_sagas_states_realm_id_id_fk": {
+          "name": "sagas_labours_realm_id_state_id_sagas_states_realm_id_id_fk",
+          "tableFrom": "sagas_labours",
+          "tableTo": "sagas_states",
           "columnsFrom": [
             "realm_id",
             "state_id"
@@ -1636,10 +1636,10 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "labours_state_id_substate_id_substates_state_id_id_fk": {
-          "name": "labours_state_id_substate_id_substates_state_id_id_fk",
-          "tableFrom": "labours",
-          "tableTo": "substates",
+        "sagas_labours_state_id_substate_id_sagas_substates_state_id_id_fk": {
+          "name": "sagas_labours_state_id_substate_id_sagas_substates_state_id_id_fk",
+          "tableFrom": "sagas_labours",
+          "tableTo": "sagas_substates",
           "columnsFrom": [
             "state_id",
             "substate_id"
@@ -1656,15 +1656,15 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "labours_number_positive": {
-          "name": "labours_number_positive",
+        "sagas_labours_number_positive": {
+          "name": "sagas_labours_number_positive",
           "value": "\"number\" >= 1"
         }
       },
       "isRLSEnabled": false
     },
-    "public.links": {
-      "name": "links",
+    "public.sagas_links": {
+      "name": "sagas_links",
       "schema": "",
       "columns": {
         "from_id": {
@@ -1712,8 +1712,8 @@
         }
       },
       "indexes": {
-        "links_to_type_idx": {
-          "name": "links_to_type_idx",
+        "sagas_links_to_type_idx": {
+          "name": "sagas_links_to_type_idx",
           "columns": [
             {
               "expression": "to_id",
@@ -1735,10 +1735,10 @@
         }
       },
       "foreignKeys": {
-        "links_from_id_labours_id_fk": {
-          "name": "links_from_id_labours_id_fk",
-          "tableFrom": "links",
-          "tableTo": "labours",
+        "sagas_links_from_id_sagas_labours_id_fk": {
+          "name": "sagas_links_from_id_sagas_labours_id_fk",
+          "tableFrom": "sagas_links",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "from_id"
           ],
@@ -1748,10 +1748,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "links_to_id_labours_id_fk": {
-          "name": "links_to_id_labours_id_fk",
-          "tableFrom": "links",
-          "tableTo": "labours",
+        "sagas_links_to_id_sagas_labours_id_fk": {
+          "name": "sagas_links_to_id_sagas_labours_id_fk",
+          "tableFrom": "sagas_links",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "to_id"
           ],
@@ -1761,10 +1761,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "links_set_by_users_id_fk": {
-          "name": "links_set_by_users_id_fk",
-          "tableFrom": "links",
-          "tableTo": "users",
+        "sagas_links_set_by_sagas_users_id_fk": {
+          "name": "sagas_links_set_by_sagas_users_id_fk",
+          "tableFrom": "sagas_links",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "set_by"
           ],
@@ -1776,8 +1776,8 @@
         }
       },
       "compositePrimaryKeys": {
-        "links_from_id_to_id_type_pk": {
-          "name": "links_from_id_to_id_type_pk",
+        "sagas_links_from_id_to_id_type_pk": {
+          "name": "sagas_links_from_id_to_id_type_pk",
           "columns": [
             "from_id",
             "to_id",
@@ -1788,23 +1788,23 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "links_distinct": {
-          "name": "links_distinct",
+        "sagas_links_distinct": {
+          "name": "sagas_links_distinct",
           "value": "\"from_id\" <> \"to_id\""
         },
-        "links_relates_ordered": {
-          "name": "links_relates_ordered",
+        "sagas_links_relates_ordered": {
+          "name": "sagas_links_relates_ordered",
           "value": "\"type\" <> 'relates' OR \"from_id\" < \"to_id\""
         },
-        "links_type": {
-          "name": "links_type",
+        "sagas_links_type": {
+          "name": "sagas_links_type",
           "value": "\"type\" IN ('evidence', 'blocks', 'relates', 'duplicates')"
         }
       },
       "isRLSEnabled": false
     },
-    "public.mentions": {
-      "name": "mentions",
+    "public.sagas_mentions": {
+      "name": "sagas_mentions",
       "schema": "",
       "columns": {
         "id": {
@@ -1814,7 +1814,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "mentions_id_seq",
+            "name": "sagas_mentions_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -1862,8 +1862,8 @@
         }
       },
       "indexes": {
-        "mentions_source_target_uq": {
-          "name": "mentions_source_target_uq",
+        "sagas_mentions_source_target_uq": {
+          "name": "sagas_mentions_source_target_uq",
           "columns": [
             {
               "expression": "source_labour_id",
@@ -1895,8 +1895,8 @@
           "method": "btree",
           "with": {}
         },
-        "mentions_labour_idx": {
-          "name": "mentions_labour_idx",
+        "sagas_mentions_labour_idx": {
+          "name": "sagas_mentions_labour_idx",
           "columns": [
             {
               "expression": "labour_id",
@@ -1916,8 +1916,8 @@
           "method": "btree",
           "with": {}
         },
-        "mentions_user_idx": {
-          "name": "mentions_user_idx",
+        "sagas_mentions_user_idx": {
+          "name": "sagas_mentions_user_idx",
           "columns": [
             {
               "expression": "user_id",
@@ -1939,10 +1939,10 @@
         }
       },
       "foreignKeys": {
-        "mentions_source_labour_id_labours_id_fk": {
-          "name": "mentions_source_labour_id_labours_id_fk",
-          "tableFrom": "mentions",
-          "tableTo": "labours",
+        "sagas_mentions_source_labour_id_sagas_labours_id_fk": {
+          "name": "sagas_mentions_source_labour_id_sagas_labours_id_fk",
+          "tableFrom": "sagas_mentions",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "source_labour_id"
           ],
@@ -1952,10 +1952,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "mentions_comment_id_comments_id_fk": {
-          "name": "mentions_comment_id_comments_id_fk",
-          "tableFrom": "mentions",
-          "tableTo": "comments",
+        "sagas_mentions_comment_id_sagas_comments_id_fk": {
+          "name": "sagas_mentions_comment_id_sagas_comments_id_fk",
+          "tableFrom": "sagas_mentions",
+          "tableTo": "sagas_comments",
           "columnsFrom": [
             "comment_id"
           ],
@@ -1965,10 +1965,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "mentions_labour_id_labours_id_fk": {
-          "name": "mentions_labour_id_labours_id_fk",
-          "tableFrom": "mentions",
-          "tableTo": "labours",
+        "sagas_mentions_labour_id_sagas_labours_id_fk": {
+          "name": "sagas_mentions_labour_id_sagas_labours_id_fk",
+          "tableFrom": "sagas_mentions",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "labour_id"
           ],
@@ -1978,10 +1978,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "mentions_user_id_users_id_fk": {
-          "name": "mentions_user_id_users_id_fk",
-          "tableFrom": "mentions",
-          "tableTo": "users",
+        "sagas_mentions_user_id_sagas_users_id_fk": {
+          "name": "sagas_mentions_user_id_sagas_users_id_fk",
+          "tableFrom": "sagas_mentions",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "user_id"
           ],
@@ -1991,10 +1991,10 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "mentions_author_id_users_id_fk": {
-          "name": "mentions_author_id_users_id_fk",
-          "tableFrom": "mentions",
-          "tableTo": "users",
+        "sagas_mentions_author_id_sagas_users_id_fk": {
+          "name": "sagas_mentions_author_id_sagas_users_id_fk",
+          "tableFrom": "sagas_mentions",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "author_id"
           ],
@@ -2009,19 +2009,19 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "mentions_one_target": {
-          "name": "mentions_one_target",
+        "sagas_mentions_one_target": {
+          "name": "sagas_mentions_one_target",
           "value": "(\"labour_id\" IS NULL) <> (\"user_id\" IS NULL)"
         },
-        "mentions_not_self": {
-          "name": "mentions_not_self",
+        "sagas_mentions_not_self": {
+          "name": "sagas_mentions_not_self",
           "value": "\"labour_id\" IS NULL OR \"labour_id\" <> \"source_labour_id\""
         }
       },
       "isRLSEnabled": false
     },
-    "public.oauth_clients": {
-      "name": "oauth_clients",
+    "public.sagas_oauth_clients": {
+      "name": "sagas_oauth_clients",
       "schema": "",
       "columns": {
         "id": {
@@ -2073,23 +2073,23 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "oauth_clients_auth_method": {
-          "name": "oauth_clients_auth_method",
+        "sagas_oauth_clients_auth_method": {
+          "name": "sagas_oauth_clients_auth_method",
           "value": "\"auth_method\" IN ('none', 'client_secret_post', 'client_secret_basic')"
         },
-        "oauth_clients_secret_iff_confidential": {
-          "name": "oauth_clients_secret_iff_confidential",
+        "sagas_oauth_clients_secret_iff_confidential": {
+          "name": "sagas_oauth_clients_secret_iff_confidential",
           "value": "(\"auth_method\" = 'none') = (\"secret_hash\" IS NULL)"
         },
-        "oauth_clients_redirect_uris_json": {
-          "name": "oauth_clients_redirect_uris_json",
+        "sagas_oauth_clients_redirect_uris_json": {
+          "name": "sagas_oauth_clients_redirect_uris_json",
           "value": "\"redirect_uris\"::json IS NOT NULL"
         }
       },
       "isRLSEnabled": false
     },
-    "public.oauth_codes": {
-      "name": "oauth_codes",
+    "public.sagas_oauth_codes": {
+      "name": "sagas_oauth_codes",
       "schema": "",
       "columns": {
         "code_hash": {
@@ -2148,8 +2148,8 @@
         }
       },
       "indexes": {
-        "oauth_codes_client_idx": {
-          "name": "oauth_codes_client_idx",
+        "sagas_oauth_codes_client_idx": {
+          "name": "sagas_oauth_codes_client_idx",
           "columns": [
             {
               "expression": "client_id",
@@ -2163,8 +2163,8 @@
           "method": "btree",
           "with": {}
         },
-        "oauth_codes_user_idx": {
-          "name": "oauth_codes_user_idx",
+        "sagas_oauth_codes_user_idx": {
+          "name": "sagas_oauth_codes_user_idx",
           "columns": [
             {
               "expression": "user_id",
@@ -2180,10 +2180,10 @@
         }
       },
       "foreignKeys": {
-        "oauth_codes_client_id_oauth_clients_id_fk": {
-          "name": "oauth_codes_client_id_oauth_clients_id_fk",
-          "tableFrom": "oauth_codes",
-          "tableTo": "oauth_clients",
+        "sagas_oauth_codes_client_id_sagas_oauth_clients_id_fk": {
+          "name": "sagas_oauth_codes_client_id_sagas_oauth_clients_id_fk",
+          "tableFrom": "sagas_oauth_codes",
+          "tableTo": "sagas_oauth_clients",
           "columnsFrom": [
             "client_id"
           ],
@@ -2193,10 +2193,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "oauth_codes_user_id_users_id_fk": {
-          "name": "oauth_codes_user_id_users_id_fk",
-          "tableFrom": "oauth_codes",
-          "tableTo": "users",
+        "sagas_oauth_codes_user_id_sagas_users_id_fk": {
+          "name": "sagas_oauth_codes_user_id_sagas_users_id_fk",
+          "tableFrom": "sagas_oauth_codes",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "user_id"
           ],
@@ -2206,10 +2206,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "oauth_codes_grant_id_oauth_grants_id_fk": {
-          "name": "oauth_codes_grant_id_oauth_grants_id_fk",
-          "tableFrom": "oauth_codes",
-          "tableTo": "oauth_grants",
+        "sagas_oauth_codes_grant_id_sagas_oauth_grants_id_fk": {
+          "name": "sagas_oauth_codes_grant_id_sagas_oauth_grants_id_fk",
+          "tableFrom": "sagas_oauth_codes",
+          "tableTo": "sagas_oauth_grants",
           "columnsFrom": [
             "grant_id"
           ],
@@ -2226,8 +2226,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.oauth_grants": {
-      "name": "oauth_grants",
+    "public.sagas_oauth_grants": {
+      "name": "sagas_oauth_grants",
       "schema": "",
       "columns": {
         "id": {
@@ -2237,7 +2237,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "oauth_grants_id_seq",
+            "name": "sagas_oauth_grants_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -2273,8 +2273,8 @@
         }
       },
       "indexes": {
-        "oauth_grants_client_idx": {
-          "name": "oauth_grants_client_idx",
+        "sagas_oauth_grants_client_idx": {
+          "name": "sagas_oauth_grants_client_idx",
           "columns": [
             {
               "expression": "client_id",
@@ -2288,8 +2288,8 @@
           "method": "btree",
           "with": {}
         },
-        "oauth_grants_user_idx": {
-          "name": "oauth_grants_user_idx",
+        "sagas_oauth_grants_user_idx": {
+          "name": "sagas_oauth_grants_user_idx",
           "columns": [
             {
               "expression": "user_id",
@@ -2305,10 +2305,10 @@
         }
       },
       "foreignKeys": {
-        "oauth_grants_client_id_oauth_clients_id_fk": {
-          "name": "oauth_grants_client_id_oauth_clients_id_fk",
-          "tableFrom": "oauth_grants",
-          "tableTo": "oauth_clients",
+        "sagas_oauth_grants_client_id_sagas_oauth_clients_id_fk": {
+          "name": "sagas_oauth_grants_client_id_sagas_oauth_clients_id_fk",
+          "tableFrom": "sagas_oauth_grants",
+          "tableTo": "sagas_oauth_clients",
           "columnsFrom": [
             "client_id"
           ],
@@ -2318,10 +2318,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "oauth_grants_user_id_users_id_fk": {
-          "name": "oauth_grants_user_id_users_id_fk",
-          "tableFrom": "oauth_grants",
-          "tableTo": "users",
+        "sagas_oauth_grants_user_id_sagas_users_id_fk": {
+          "name": "sagas_oauth_grants_user_id_sagas_users_id_fk",
+          "tableFrom": "sagas_oauth_grants",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "user_id"
           ],
@@ -2338,8 +2338,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.oauth_refresh_tokens": {
-      "name": "oauth_refresh_tokens",
+    "public.sagas_oauth_refresh_tokens": {
+      "name": "sagas_oauth_refresh_tokens",
       "schema": "",
       "columns": {
         "token_hash": {
@@ -2374,8 +2374,8 @@
         }
       },
       "indexes": {
-        "oauth_refresh_tokens_grant_idx": {
-          "name": "oauth_refresh_tokens_grant_idx",
+        "sagas_oauth_refresh_tokens_grant_idx": {
+          "name": "sagas_oauth_refresh_tokens_grant_idx",
           "columns": [
             {
               "expression": "grant_id",
@@ -2391,10 +2391,10 @@
         }
       },
       "foreignKeys": {
-        "oauth_refresh_tokens_grant_id_oauth_grants_id_fk": {
-          "name": "oauth_refresh_tokens_grant_id_oauth_grants_id_fk",
-          "tableFrom": "oauth_refresh_tokens",
-          "tableTo": "oauth_grants",
+        "sagas_oauth_refresh_tokens_grant_id_sagas_oauth_grants_id_fk": {
+          "name": "sagas_oauth_refresh_tokens_grant_id_sagas_oauth_grants_id_fk",
+          "tableFrom": "sagas_oauth_refresh_tokens",
+          "tableTo": "sagas_oauth_grants",
           "columnsFrom": [
             "grant_id"
           ],
@@ -2411,8 +2411,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.outcomes": {
-      "name": "outcomes",
+    "public.sagas_outcomes": {
+      "name": "sagas_outcomes",
       "schema": "",
       "columns": {
         "survey_id": {
@@ -2453,8 +2453,8 @@
         }
       },
       "indexes": {
-        "outcomes_labour_idx": {
-          "name": "outcomes_labour_idx",
+        "sagas_outcomes_labour_idx": {
+          "name": "sagas_outcomes_labour_idx",
           "columns": [
             {
               "expression": "labour_id",
@@ -2470,10 +2470,10 @@
         }
       },
       "foreignKeys": {
-        "outcomes_survey_id_surveys_id_fk": {
-          "name": "outcomes_survey_id_surveys_id_fk",
-          "tableFrom": "outcomes",
-          "tableTo": "surveys",
+        "sagas_outcomes_survey_id_sagas_surveys_id_fk": {
+          "name": "sagas_outcomes_survey_id_sagas_surveys_id_fk",
+          "tableFrom": "sagas_outcomes",
+          "tableTo": "sagas_surveys",
           "columnsFrom": [
             "survey_id"
           ],
@@ -2483,10 +2483,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "outcomes_labour_id_labours_id_fk": {
-          "name": "outcomes_labour_id_labours_id_fk",
-          "tableFrom": "outcomes",
-          "tableTo": "labours",
+        "sagas_outcomes_labour_id_sagas_labours_id_fk": {
+          "name": "sagas_outcomes_labour_id_sagas_labours_id_fk",
+          "tableFrom": "sagas_outcomes",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "labour_id"
           ],
@@ -2496,10 +2496,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "outcomes_author_id_users_id_fk": {
-          "name": "outcomes_author_id_users_id_fk",
-          "tableFrom": "outcomes",
-          "tableTo": "users",
+        "sagas_outcomes_author_id_sagas_users_id_fk": {
+          "name": "sagas_outcomes_author_id_sagas_users_id_fk",
+          "tableFrom": "sagas_outcomes",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "author_id"
           ],
@@ -2511,8 +2511,8 @@
         }
       },
       "compositePrimaryKeys": {
-        "outcomes_survey_id_labour_id_verdict_pk": {
-          "name": "outcomes_survey_id_labour_id_verdict_pk",
+        "sagas_outcomes_survey_id_labour_id_verdict_pk": {
+          "name": "sagas_outcomes_survey_id_labour_id_verdict_pk",
           "columns": [
             "survey_id",
             "labour_id",
@@ -2523,15 +2523,15 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "outcomes_verdict": {
-          "name": "outcomes_verdict",
+        "sagas_outcomes_verdict": {
+          "name": "sagas_outcomes_verdict",
           "value": "\"verdict\" IN ('picked', 'skipped', 'done')"
         }
       },
       "isRLSEnabled": false
     },
-    "public.pulses": {
-      "name": "pulses",
+    "public.sagas_pulses": {
+      "name": "sagas_pulses",
       "schema": "",
       "columns": {
         "id": {
@@ -2541,7 +2541,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "pulses_id_seq",
+            "name": "sagas_pulses_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -2639,8 +2639,8 @@
         }
       },
       "indexes": {
-        "pulses_author_ref_key_uq": {
-          "name": "pulses_author_ref_key_uq",
+        "sagas_pulses_author_ref_key_uq": {
+          "name": "sagas_pulses_author_ref_key_uq",
           "columns": [
             {
               "expression": "author_id",
@@ -2667,8 +2667,8 @@
           "method": "btree",
           "with": {}
         },
-        "pulses_realm_attribute_idx": {
-          "name": "pulses_realm_attribute_idx",
+        "sagas_pulses_realm_attribute_idx": {
+          "name": "sagas_pulses_realm_attribute_idx",
           "columns": [
             {
               "expression": "realm_id",
@@ -2694,8 +2694,8 @@
           "method": "btree",
           "with": {}
         },
-        "pulses_user_attribute_idx": {
-          "name": "pulses_user_attribute_idx",
+        "sagas_pulses_user_attribute_idx": {
+          "name": "sagas_pulses_user_attribute_idx",
           "columns": [
             {
               "expression": "user_id",
@@ -2721,8 +2721,8 @@
           "method": "btree",
           "with": {}
         },
-        "pulses_unfiled_idx": {
-          "name": "pulses_unfiled_idx",
+        "sagas_pulses_unfiled_idx": {
+          "name": "sagas_pulses_unfiled_idx",
           "columns": [
             {
               "expression": "realm_id",
@@ -2743,8 +2743,8 @@
           "method": "btree",
           "with": {}
         },
-        "pulses_created_idx": {
-          "name": "pulses_created_idx",
+        "sagas_pulses_created_idx": {
+          "name": "sagas_pulses_created_idx",
           "columns": [
             {
               "expression": "created_at",
@@ -2760,10 +2760,10 @@
         }
       },
       "foreignKeys": {
-        "pulses_realm_id_realms_id_fk": {
-          "name": "pulses_realm_id_realms_id_fk",
-          "tableFrom": "pulses",
-          "tableTo": "realms",
+        "sagas_pulses_realm_id_sagas_realms_id_fk": {
+          "name": "sagas_pulses_realm_id_sagas_realms_id_fk",
+          "tableFrom": "sagas_pulses",
+          "tableTo": "sagas_realms",
           "columnsFrom": [
             "realm_id"
           ],
@@ -2773,10 +2773,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "pulses_user_id_users_id_fk": {
-          "name": "pulses_user_id_users_id_fk",
-          "tableFrom": "pulses",
-          "tableTo": "users",
+        "sagas_pulses_user_id_sagas_users_id_fk": {
+          "name": "sagas_pulses_user_id_sagas_users_id_fk",
+          "tableFrom": "sagas_pulses",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "user_id"
           ],
@@ -2786,10 +2786,10 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "pulses_attribute_id_attributes_id_fk": {
-          "name": "pulses_attribute_id_attributes_id_fk",
-          "tableFrom": "pulses",
-          "tableTo": "attributes",
+        "sagas_pulses_attribute_id_sagas_attributes_id_fk": {
+          "name": "sagas_pulses_attribute_id_sagas_attributes_id_fk",
+          "tableFrom": "sagas_pulses",
+          "tableTo": "sagas_attributes",
           "columnsFrom": [
             "attribute_id"
           ],
@@ -2799,10 +2799,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "pulses_author_id_users_id_fk": {
-          "name": "pulses_author_id_users_id_fk",
-          "tableFrom": "pulses",
-          "tableTo": "users",
+        "sagas_pulses_author_id_sagas_users_id_fk": {
+          "name": "sagas_pulses_author_id_sagas_users_id_fk",
+          "tableFrom": "sagas_pulses",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "author_id"
           ],
@@ -2817,31 +2817,31 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "pulses_one_owner": {
-          "name": "pulses_one_owner",
+        "sagas_pulses_one_owner": {
+          "name": "sagas_pulses_one_owner",
           "value": "(\"realm_id\" IS NULL) <> (\"user_id\" IS NULL)"
         },
-        "pulses_unfiled_is_sentiment": {
-          "name": "pulses_unfiled_is_sentiment",
+        "sagas_pulses_unfiled_is_sentiment": {
+          "name": "sagas_pulses_unfiled_is_sentiment",
           "value": "\"attribute_id\" IS NOT NULL OR (\"member\" IS NULL AND \"realm_id\" IS NOT NULL)"
         },
-        "pulses_amount": {
-          "name": "pulses_amount",
+        "sagas_pulses_amount": {
+          "name": "sagas_pulses_amount",
           "value": "\"amount\" > 0 AND \"amount\" <= 10"
         },
-        "pulses_mood": {
-          "name": "pulses_mood",
+        "sagas_pulses_mood": {
+          "name": "sagas_pulses_mood",
           "value": "\"mood\" >= -1 AND \"mood\" <= 1"
         },
-        "pulses_half_life": {
-          "name": "pulses_half_life",
+        "sagas_pulses_half_life": {
+          "name": "sagas_pulses_half_life",
           "value": "\"half_life_days\" IS NULL OR (\"half_life_days\" > 0 AND \"half_life_days\" <= 365)"
         }
       },
       "isRLSEnabled": false
     },
-    "public.quest_labours": {
-      "name": "quest_labours",
+    "public.sagas_quest_labours": {
+      "name": "sagas_quest_labours",
       "schema": "",
       "columns": {
         "quest_id": {
@@ -2870,8 +2870,8 @@
         }
       },
       "indexes": {
-        "quest_labours_quest_rank_uq": {
-          "name": "quest_labours_quest_rank_uq",
+        "sagas_quest_labours_quest_rank_uq": {
+          "name": "sagas_quest_labours_quest_rank_uq",
           "columns": [
             {
               "expression": "quest_id",
@@ -2891,8 +2891,8 @@
           "method": "btree",
           "with": {}
         },
-        "quest_labours_labour_idx": {
-          "name": "quest_labours_labour_idx",
+        "sagas_quest_labours_labour_idx": {
+          "name": "sagas_quest_labours_labour_idx",
           "columns": [
             {
               "expression": "labour_id",
@@ -2908,10 +2908,10 @@
         }
       },
       "foreignKeys": {
-        "quest_labours_quest_id_quests_id_fk": {
-          "name": "quest_labours_quest_id_quests_id_fk",
-          "tableFrom": "quest_labours",
-          "tableTo": "quests",
+        "sagas_quest_labours_quest_id_sagas_quests_id_fk": {
+          "name": "sagas_quest_labours_quest_id_sagas_quests_id_fk",
+          "tableFrom": "sagas_quest_labours",
+          "tableTo": "sagas_quests",
           "columnsFrom": [
             "quest_id"
           ],
@@ -2921,10 +2921,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "quest_labours_labour_id_labours_id_fk": {
-          "name": "quest_labours_labour_id_labours_id_fk",
-          "tableFrom": "quest_labours",
-          "tableTo": "labours",
+        "sagas_quest_labours_labour_id_sagas_labours_id_fk": {
+          "name": "sagas_quest_labours_labour_id_sagas_labours_id_fk",
+          "tableFrom": "sagas_quest_labours",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "labour_id"
           ],
@@ -2936,8 +2936,8 @@
         }
       },
       "compositePrimaryKeys": {
-        "quest_labours_quest_id_labour_id_pk": {
-          "name": "quest_labours_quest_id_labour_id_pk",
+        "sagas_quest_labours_quest_id_labour_id_pk": {
+          "name": "sagas_quest_labours_quest_id_labour_id_pk",
           "columns": [
             "quest_id",
             "labour_id"
@@ -2949,8 +2949,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.quests": {
-      "name": "quests",
+    "public.sagas_quests": {
+      "name": "sagas_quests",
       "schema": "",
       "columns": {
         "id": {
@@ -2960,7 +2960,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "quests_id_seq",
+            "name": "sagas_quests_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -3009,8 +3009,8 @@
         }
       },
       "indexes": {
-        "quests_realm_idx": {
-          "name": "quests_realm_idx",
+        "sagas_quests_realm_idx": {
+          "name": "sagas_quests_realm_idx",
           "columns": [
             {
               "expression": "realm_id",
@@ -3026,10 +3026,10 @@
         }
       },
       "foreignKeys": {
-        "quests_realm_id_realms_id_fk": {
-          "name": "quests_realm_id_realms_id_fk",
-          "tableFrom": "quests",
-          "tableTo": "realms",
+        "sagas_quests_realm_id_sagas_realms_id_fk": {
+          "name": "sagas_quests_realm_id_sagas_realms_id_fk",
+          "tableFrom": "sagas_quests",
+          "tableTo": "sagas_realms",
           "columnsFrom": [
             "realm_id"
           ],
@@ -3039,10 +3039,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "quests_owner_id_users_id_fk": {
-          "name": "quests_owner_id_users_id_fk",
-          "tableFrom": "quests",
-          "tableTo": "users",
+        "sagas_quests_owner_id_sagas_users_id_fk": {
+          "name": "sagas_quests_owner_id_sagas_users_id_fk",
+          "tableFrom": "sagas_quests",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "owner_id"
           ],
@@ -3059,8 +3059,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.realm_agent": {
-      "name": "realm_agent",
+    "public.sagas_realm_agent": {
+      "name": "sagas_realm_agent",
       "schema": "",
       "columns": {
         "realm_id": {
@@ -3105,10 +3105,10 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "realm_agent_realm_id_realms_id_fk": {
-          "name": "realm_agent_realm_id_realms_id_fk",
-          "tableFrom": "realm_agent",
-          "tableTo": "realms",
+        "sagas_realm_agent_realm_id_sagas_realms_id_fk": {
+          "name": "sagas_realm_agent_realm_id_sagas_realms_id_fk",
+          "tableFrom": "sagas_realm_agent",
+          "tableTo": "sagas_realms",
           "columnsFrom": [
             "realm_id"
           ],
@@ -3123,23 +3123,23 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "realm_agent_version": {
-          "name": "realm_agent_version",
+        "sagas_realm_agent_version": {
+          "name": "sagas_realm_agent_version",
           "value": "\"version\" >= 1"
         },
-        "realm_agent_half_life": {
-          "name": "realm_agent_half_life",
+        "sagas_realm_agent_half_life": {
+          "name": "sagas_realm_agent_half_life",
           "value": "\"half_life_days\" > 0 AND \"half_life_days\" <= 365"
         },
-        "realm_agent_loudness": {
-          "name": "realm_agent_loudness",
+        "sagas_realm_agent_loudness": {
+          "name": "sagas_realm_agent_loudness",
           "value": "\"loudness\" > 0"
         }
       },
       "isRLSEnabled": false
     },
-    "public.realm_keys": {
-      "name": "realm_keys",
+    "public.sagas_realm_keys": {
+      "name": "sagas_realm_keys",
       "schema": "",
       "columns": {
         "key": {
@@ -3162,8 +3162,8 @@
         }
       },
       "indexes": {
-        "realm_keys_realm_idx": {
-          "name": "realm_keys_realm_idx",
+        "sagas_realm_keys_realm_idx": {
+          "name": "sagas_realm_keys_realm_idx",
           "columns": [
             {
               "expression": "realm_id",
@@ -3179,10 +3179,10 @@
         }
       },
       "foreignKeys": {
-        "realm_keys_realm_id_realms_id_fk": {
-          "name": "realm_keys_realm_id_realms_id_fk",
-          "tableFrom": "realm_keys",
-          "tableTo": "realms",
+        "sagas_realm_keys_realm_id_sagas_realms_id_fk": {
+          "name": "sagas_realm_keys_realm_id_sagas_realms_id_fk",
+          "tableFrom": "sagas_realm_keys",
+          "tableTo": "sagas_realms",
           "columnsFrom": [
             "realm_id"
           ],
@@ -3197,15 +3197,15 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "realm_keys_format": {
-          "name": "realm_keys_format",
+        "sagas_realm_keys_format": {
+          "name": "sagas_realm_keys_format",
           "value": "\"key\" ~ '^[A-Z][A-Z0-9]{1,5}$'"
         }
       },
       "isRLSEnabled": false
     },
-    "public.realm_members": {
-      "name": "realm_members",
+    "public.sagas_realm_members": {
+      "name": "sagas_realm_members",
       "schema": "",
       "columns": {
         "realm_id": {
@@ -3252,8 +3252,8 @@
         }
       },
       "indexes": {
-        "realm_members_user_idx": {
-          "name": "realm_members_user_idx",
+        "sagas_realm_members_user_idx": {
+          "name": "sagas_realm_members_user_idx",
           "columns": [
             {
               "expression": "user_id",
@@ -3275,10 +3275,10 @@
         }
       },
       "foreignKeys": {
-        "realm_members_realm_id_realms_id_fk": {
-          "name": "realm_members_realm_id_realms_id_fk",
-          "tableFrom": "realm_members",
-          "tableTo": "realms",
+        "sagas_realm_members_realm_id_sagas_realms_id_fk": {
+          "name": "sagas_realm_members_realm_id_sagas_realms_id_fk",
+          "tableFrom": "sagas_realm_members",
+          "tableTo": "sagas_realms",
           "columnsFrom": [
             "realm_id"
           ],
@@ -3288,10 +3288,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "realm_members_user_id_users_id_fk": {
-          "name": "realm_members_user_id_users_id_fk",
-          "tableFrom": "realm_members",
-          "tableTo": "users",
+        "sagas_realm_members_user_id_sagas_users_id_fk": {
+          "name": "sagas_realm_members_user_id_sagas_users_id_fk",
+          "tableFrom": "sagas_realm_members",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "user_id"
           ],
@@ -3301,10 +3301,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "realm_members_invited_by_users_id_fk": {
-          "name": "realm_members_invited_by_users_id_fk",
-          "tableFrom": "realm_members",
-          "tableTo": "users",
+        "sagas_realm_members_invited_by_sagas_users_id_fk": {
+          "name": "sagas_realm_members_invited_by_sagas_users_id_fk",
+          "tableFrom": "sagas_realm_members",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "invited_by"
           ],
@@ -3316,8 +3316,8 @@
         }
       },
       "compositePrimaryKeys": {
-        "realm_members_realm_id_user_id_pk": {
-          "name": "realm_members_realm_id_user_id_pk",
+        "sagas_realm_members_realm_id_user_id_pk": {
+          "name": "sagas_realm_members_realm_id_user_id_pk",
           "columns": [
             "realm_id",
             "user_id"
@@ -3327,23 +3327,23 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "realm_members_role": {
-          "name": "realm_members_role",
+        "sagas_realm_members_role": {
+          "name": "sagas_realm_members_role",
           "value": "\"role\" IN ('owner', 'editor', 'viewer')"
         },
-        "realm_members_status": {
-          "name": "realm_members_status",
+        "sagas_realm_members_status": {
+          "name": "sagas_realm_members_status",
           "value": "\"status\" IN ('pending', 'active')"
         },
-        "realm_members_accepted": {
-          "name": "realm_members_accepted",
+        "sagas_realm_members_accepted": {
+          "name": "sagas_realm_members_accepted",
           "value": "(\"status\" = 'active') = (\"accepted_at\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false
     },
-    "public.realms": {
-      "name": "realms",
+    "public.sagas_realms": {
+      "name": "sagas_realms",
       "schema": "",
       "columns": {
         "id": {
@@ -3353,7 +3353,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "realms_id_seq",
+            "name": "sagas_realms_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -3391,10 +3391,10 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "realms_id_initial_state_id_states_realm_id_id_fk": {
-          "name": "realms_id_initial_state_id_states_realm_id_id_fk",
-          "tableFrom": "realms",
-          "tableTo": "states",
+        "sagas_realms_id_initial_state_id_sagas_states_realm_id_id_fk": {
+          "name": "sagas_realms_id_initial_state_id_sagas_states_realm_id_id_fk",
+          "tableFrom": "sagas_realms",
+          "tableTo": "sagas_states",
           "columnsFrom": [
             "id",
             "initial_state_id"
@@ -3409,8 +3409,8 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "realms_key_unique": {
-          "name": "realms_key_unique",
+        "sagas_realms_key_unique": {
+          "name": "sagas_realms_key_unique",
           "nullsNotDistinct": false,
           "columns": [
             "key"
@@ -3419,19 +3419,19 @@
       },
       "policies": {},
       "checkConstraints": {
-        "realms_key_format": {
-          "name": "realms_key_format",
+        "sagas_realms_key_format": {
+          "name": "sagas_realms_key_format",
           "value": "\"key\" ~ '^[A-Z][A-Z0-9]{1,5}$'"
         },
-        "realms_counter_non_negative": {
-          "name": "realms_counter_non_negative",
+        "sagas_realms_counter_non_negative": {
+          "name": "sagas_realms_counter_non_negative",
           "value": "\"labour_counter\" >= 0"
         }
       },
       "isRLSEnabled": false
     },
-    "public.recurrence_quests": {
-      "name": "recurrence_quests",
+    "public.sagas_recurrence_quests": {
+      "name": "sagas_recurrence_quests",
       "schema": "",
       "columns": {
         "recurrence_id": {
@@ -3449,10 +3449,10 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "recurrence_quests_recurrence_id_recurrences_id_fk": {
-          "name": "recurrence_quests_recurrence_id_recurrences_id_fk",
-          "tableFrom": "recurrence_quests",
-          "tableTo": "recurrences",
+        "sagas_recurrence_quests_recurrence_id_sagas_recurrences_id_fk": {
+          "name": "sagas_recurrence_quests_recurrence_id_sagas_recurrences_id_fk",
+          "tableFrom": "sagas_recurrence_quests",
+          "tableTo": "sagas_recurrences",
           "columnsFrom": [
             "recurrence_id"
           ],
@@ -3462,10 +3462,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "recurrence_quests_quest_id_quests_id_fk": {
-          "name": "recurrence_quests_quest_id_quests_id_fk",
-          "tableFrom": "recurrence_quests",
-          "tableTo": "quests",
+        "sagas_recurrence_quests_quest_id_sagas_quests_id_fk": {
+          "name": "sagas_recurrence_quests_quest_id_sagas_quests_id_fk",
+          "tableFrom": "sagas_recurrence_quests",
+          "tableTo": "sagas_quests",
           "columnsFrom": [
             "quest_id"
           ],
@@ -3477,8 +3477,8 @@
         }
       },
       "compositePrimaryKeys": {
-        "recurrence_quests_recurrence_id_quest_id_pk": {
-          "name": "recurrence_quests_recurrence_id_quest_id_pk",
+        "sagas_recurrence_quests_recurrence_id_quest_id_pk": {
+          "name": "sagas_recurrence_quests_recurrence_id_quest_id_pk",
           "columns": [
             "recurrence_id",
             "quest_id"
@@ -3490,8 +3490,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.recurrences": {
-      "name": "recurrences",
+    "public.sagas_recurrences": {
+      "name": "sagas_recurrences",
       "schema": "",
       "columns": {
         "id": {
@@ -3501,7 +3501,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "recurrences_id_seq",
+            "name": "sagas_recurrences_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -3607,8 +3607,8 @@
         }
       },
       "indexes": {
-        "recurrences_realm_idx": {
-          "name": "recurrences_realm_idx",
+        "sagas_recurrences_realm_idx": {
+          "name": "sagas_recurrences_realm_idx",
           "columns": [
             {
               "expression": "realm_id",
@@ -3622,8 +3622,8 @@
           "method": "btree",
           "with": {}
         },
-        "recurrences_due_idx": {
-          "name": "recurrences_due_idx",
+        "sagas_recurrences_due_idx": {
+          "name": "sagas_recurrences_due_idx",
           "columns": [
             {
               "expression": "next_due_at",
@@ -3639,10 +3639,10 @@
         }
       },
       "foreignKeys": {
-        "recurrences_realm_id_realms_id_fk": {
-          "name": "recurrences_realm_id_realms_id_fk",
-          "tableFrom": "recurrences",
-          "tableTo": "realms",
+        "sagas_recurrences_realm_id_sagas_realms_id_fk": {
+          "name": "sagas_recurrences_realm_id_sagas_realms_id_fk",
+          "tableFrom": "sagas_recurrences",
+          "tableTo": "sagas_realms",
           "columnsFrom": [
             "realm_id"
           ],
@@ -3652,10 +3652,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "recurrences_owner_id_users_id_fk": {
-          "name": "recurrences_owner_id_users_id_fk",
-          "tableFrom": "recurrences",
-          "tableTo": "users",
+        "sagas_recurrences_owner_id_sagas_users_id_fk": {
+          "name": "sagas_recurrences_owner_id_sagas_users_id_fk",
+          "tableFrom": "sagas_recurrences",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "owner_id"
           ],
@@ -3665,10 +3665,10 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "recurrences_assignee_id_users_id_fk": {
-          "name": "recurrences_assignee_id_users_id_fk",
-          "tableFrom": "recurrences",
-          "tableTo": "users",
+        "sagas_recurrences_assignee_id_sagas_users_id_fk": {
+          "name": "sagas_recurrences_assignee_id_sagas_users_id_fk",
+          "tableFrom": "sagas_recurrences",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "assignee_id"
           ],
@@ -3678,10 +3678,10 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "recurrences_labour_id_labours_id_fk": {
-          "name": "recurrences_labour_id_labours_id_fk",
-          "tableFrom": "recurrences",
-          "tableTo": "labours",
+        "sagas_recurrences_labour_id_sagas_labours_id_fk": {
+          "name": "sagas_recurrences_labour_id_sagas_labours_id_fk",
+          "tableFrom": "sagas_recurrences",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "labour_id"
           ],
@@ -3696,15 +3696,15 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "recurrences_every_positive": {
-          "name": "recurrences_every_positive",
+        "sagas_recurrences_every_positive": {
+          "name": "sagas_recurrences_every_positive",
           "value": "\"every\" >= 1"
         }
       },
       "isRLSEnabled": false
     },
-    "public.scroll_paths": {
-      "name": "scroll_paths",
+    "public.sagas_scroll_paths": {
+      "name": "sagas_scroll_paths",
       "schema": "",
       "columns": {
         "realm_id": {
@@ -3733,8 +3733,8 @@
         }
       },
       "indexes": {
-        "scroll_paths_scroll_idx": {
-          "name": "scroll_paths_scroll_idx",
+        "sagas_scroll_paths_scroll_idx": {
+          "name": "sagas_scroll_paths_scroll_idx",
           "columns": [
             {
               "expression": "scroll_id",
@@ -3750,10 +3750,10 @@
         }
       },
       "foreignKeys": {
-        "scroll_paths_realm_id_realms_id_fk": {
-          "name": "scroll_paths_realm_id_realms_id_fk",
-          "tableFrom": "scroll_paths",
-          "tableTo": "realms",
+        "sagas_scroll_paths_realm_id_sagas_realms_id_fk": {
+          "name": "sagas_scroll_paths_realm_id_sagas_realms_id_fk",
+          "tableFrom": "sagas_scroll_paths",
+          "tableTo": "sagas_realms",
           "columnsFrom": [
             "realm_id"
           ],
@@ -3763,10 +3763,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "scroll_paths_scroll_id_scrolls_id_fk": {
-          "name": "scroll_paths_scroll_id_scrolls_id_fk",
-          "tableFrom": "scroll_paths",
-          "tableTo": "scrolls",
+        "sagas_scroll_paths_scroll_id_sagas_scrolls_id_fk": {
+          "name": "sagas_scroll_paths_scroll_id_sagas_scrolls_id_fk",
+          "tableFrom": "sagas_scroll_paths",
+          "tableTo": "sagas_scrolls",
           "columnsFrom": [
             "scroll_id"
           ],
@@ -3778,8 +3778,8 @@
         }
       },
       "compositePrimaryKeys": {
-        "scroll_paths_realm_id_path_pk": {
-          "name": "scroll_paths_realm_id_path_pk",
+        "sagas_scroll_paths_realm_id_path_pk": {
+          "name": "sagas_scroll_paths_realm_id_path_pk",
           "columns": [
             "realm_id",
             "path"
@@ -3791,8 +3791,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.scroll_refs": {
-      "name": "scroll_refs",
+    "public.sagas_scroll_refs": {
+      "name": "sagas_scroll_refs",
       "schema": "",
       "columns": {
         "id": {
@@ -3802,7 +3802,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "scroll_refs_id_seq",
+            "name": "sagas_scroll_refs_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -3844,8 +3844,8 @@
         }
       },
       "indexes": {
-        "scroll_refs_target_uq": {
-          "name": "scroll_refs_target_uq",
+        "sagas_scroll_refs_target_uq": {
+          "name": "sagas_scroll_refs_target_uq",
           "columns": [
             {
               "expression": "scroll_id",
@@ -3877,8 +3877,8 @@
           "method": "btree",
           "with": {}
         },
-        "scroll_refs_path_idx": {
-          "name": "scroll_refs_path_idx",
+        "sagas_scroll_refs_path_idx": {
+          "name": "sagas_scroll_refs_path_idx",
           "columns": [
             {
               "expression": "target_path",
@@ -3892,8 +3892,8 @@
           "method": "btree",
           "with": {}
         },
-        "scroll_refs_labour_idx": {
-          "name": "scroll_refs_labour_idx",
+        "sagas_scroll_refs_labour_idx": {
+          "name": "sagas_scroll_refs_labour_idx",
           "columns": [
             {
               "expression": "labour_id",
@@ -3909,10 +3909,10 @@
         }
       },
       "foreignKeys": {
-        "scroll_refs_scroll_id_scrolls_id_fk": {
-          "name": "scroll_refs_scroll_id_scrolls_id_fk",
-          "tableFrom": "scroll_refs",
-          "tableTo": "scrolls",
+        "sagas_scroll_refs_scroll_id_sagas_scrolls_id_fk": {
+          "name": "sagas_scroll_refs_scroll_id_sagas_scrolls_id_fk",
+          "tableFrom": "sagas_scroll_refs",
+          "tableTo": "sagas_scrolls",
           "columnsFrom": [
             "scroll_id"
           ],
@@ -3922,10 +3922,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "scroll_refs_labour_id_labours_id_fk": {
-          "name": "scroll_refs_labour_id_labours_id_fk",
-          "tableFrom": "scroll_refs",
-          "tableTo": "labours",
+        "sagas_scroll_refs_labour_id_sagas_labours_id_fk": {
+          "name": "sagas_scroll_refs_labour_id_sagas_labours_id_fk",
+          "tableFrom": "sagas_scroll_refs",
+          "tableTo": "sagas_labours",
           "columnsFrom": [
             "labour_id"
           ],
@@ -3935,10 +3935,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "scroll_refs_user_id_users_id_fk": {
-          "name": "scroll_refs_user_id_users_id_fk",
-          "tableFrom": "scroll_refs",
-          "tableTo": "users",
+        "sagas_scroll_refs_user_id_sagas_users_id_fk": {
+          "name": "sagas_scroll_refs_user_id_sagas_users_id_fk",
+          "tableFrom": "sagas_scroll_refs",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "user_id"
           ],
@@ -3953,15 +3953,15 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "scroll_refs_one_target": {
-          "name": "scroll_refs_one_target",
+        "sagas_scroll_refs_one_target": {
+          "name": "sagas_scroll_refs_one_target",
           "value": "(\"target_path\" IS NOT NULL)::int + (\"labour_id\" IS NOT NULL)::int + (\"user_id\" IS NOT NULL)::int = 1"
         }
       },
       "isRLSEnabled": false
     },
-    "public.scroll_text": {
-      "name": "scroll_text",
+    "public.sagas_scroll_text": {
+      "name": "sagas_scroll_text",
       "schema": "",
       "columns": {
         "scroll_id": {
@@ -3994,8 +3994,8 @@
         }
       },
       "indexes": {
-        "scroll_text_search_idx": {
-          "name": "scroll_text_search_idx",
+        "sagas_scroll_text_search_idx": {
+          "name": "sagas_scroll_text_search_idx",
           "columns": [
             {
               "expression": "search",
@@ -4011,10 +4011,10 @@
         }
       },
       "foreignKeys": {
-        "scroll_text_scroll_id_scrolls_id_fk": {
-          "name": "scroll_text_scroll_id_scrolls_id_fk",
-          "tableFrom": "scroll_text",
-          "tableTo": "scrolls",
+        "sagas_scroll_text_scroll_id_sagas_scrolls_id_fk": {
+          "name": "sagas_scroll_text_scroll_id_sagas_scrolls_id_fk",
+          "tableFrom": "sagas_scroll_text",
+          "tableTo": "sagas_scrolls",
           "columnsFrom": [
             "scroll_id"
           ],
@@ -4031,8 +4031,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.scrolls": {
-      "name": "scrolls",
+    "public.sagas_scrolls": {
+      "name": "sagas_scrolls",
       "schema": "",
       "columns": {
         "id": {
@@ -4042,7 +4042,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "scrolls_id_seq",
+            "name": "sagas_scrolls_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -4128,8 +4128,8 @@
         }
       },
       "indexes": {
-        "scrolls_realm_path_uq": {
-          "name": "scrolls_realm_path_uq",
+        "sagas_scrolls_realm_path_uq": {
+          "name": "sagas_scrolls_realm_path_uq",
           "columns": [
             {
               "expression": "realm_id",
@@ -4149,8 +4149,8 @@
           "method": "btree",
           "with": {}
         },
-        "scrolls_sibling_rank_uq": {
-          "name": "scrolls_sibling_rank_uq",
+        "sagas_scrolls_sibling_rank_uq": {
+          "name": "sagas_scrolls_sibling_rank_uq",
           "columns": [
             {
               "expression": "realm_id",
@@ -4176,8 +4176,8 @@
           "method": "btree",
           "with": {}
         },
-        "scrolls_parent_idx": {
-          "name": "scrolls_parent_idx",
+        "sagas_scrolls_parent_idx": {
+          "name": "sagas_scrolls_parent_idx",
           "columns": [
             {
               "expression": "parent_id",
@@ -4193,10 +4193,10 @@
         }
       },
       "foreignKeys": {
-        "scrolls_realm_id_realms_id_fk": {
-          "name": "scrolls_realm_id_realms_id_fk",
-          "tableFrom": "scrolls",
-          "tableTo": "realms",
+        "sagas_scrolls_realm_id_sagas_realms_id_fk": {
+          "name": "sagas_scrolls_realm_id_sagas_realms_id_fk",
+          "tableFrom": "sagas_scrolls",
+          "tableTo": "sagas_realms",
           "columnsFrom": [
             "realm_id"
           ],
@@ -4206,10 +4206,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "scrolls_parent_id_scrolls_id_fk": {
-          "name": "scrolls_parent_id_scrolls_id_fk",
-          "tableFrom": "scrolls",
-          "tableTo": "scrolls",
+        "sagas_scrolls_parent_id_sagas_scrolls_id_fk": {
+          "name": "sagas_scrolls_parent_id_sagas_scrolls_id_fk",
+          "tableFrom": "sagas_scrolls",
+          "tableTo": "sagas_scrolls",
           "columnsFrom": [
             "parent_id"
           ],
@@ -4219,10 +4219,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "scrolls_created_by_id_users_id_fk": {
-          "name": "scrolls_created_by_id_users_id_fk",
-          "tableFrom": "scrolls",
-          "tableTo": "users",
+        "sagas_scrolls_created_by_id_sagas_users_id_fk": {
+          "name": "sagas_scrolls_created_by_id_sagas_users_id_fk",
+          "tableFrom": "sagas_scrolls",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "created_by_id"
           ],
@@ -4232,10 +4232,10 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "scrolls_updated_by_id_users_id_fk": {
-          "name": "scrolls_updated_by_id_users_id_fk",
-          "tableFrom": "scrolls",
-          "tableTo": "users",
+        "sagas_scrolls_updated_by_id_sagas_users_id_fk": {
+          "name": "sagas_scrolls_updated_by_id_sagas_users_id_fk",
+          "tableFrom": "sagas_scrolls",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "updated_by_id"
           ],
@@ -4250,19 +4250,19 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "scrolls_slug_format": {
-          "name": "scrolls_slug_format",
+        "sagas_scrolls_slug_format": {
+          "name": "sagas_scrolls_slug_format",
           "value": "length(\"slug\") BETWEEN 1 AND 64 AND \"slug\" ~ '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'"
         },
-        "scrolls_version_positive": {
-          "name": "scrolls_version_positive",
+        "sagas_scrolls_version_positive": {
+          "name": "sagas_scrolls_version_positive",
           "value": "\"version\" >= 1"
         }
       },
       "isRLSEnabled": false
     },
-    "public.sessions": {
-      "name": "sessions",
+    "public.sagas_sessions": {
+      "name": "sagas_sessions",
       "schema": "",
       "columns": {
         "id": {
@@ -4291,8 +4291,8 @@
         }
       },
       "indexes": {
-        "sessions_user_idx": {
-          "name": "sessions_user_idx",
+        "sagas_sessions_user_idx": {
+          "name": "sagas_sessions_user_idx",
           "columns": [
             {
               "expression": "user_id",
@@ -4308,10 +4308,10 @@
         }
       },
       "foreignKeys": {
-        "sessions_user_id_users_id_fk": {
-          "name": "sessions_user_id_users_id_fk",
-          "tableFrom": "sessions",
-          "tableTo": "users",
+        "sagas_sessions_user_id_sagas_users_id_fk": {
+          "name": "sagas_sessions_user_id_sagas_users_id_fk",
+          "tableFrom": "sagas_sessions",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "user_id"
           ],
@@ -4328,8 +4328,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.skills": {
-      "name": "skills",
+    "public.sagas_skills": {
+      "name": "sagas_skills",
       "schema": "",
       "columns": {
         "id": {
@@ -4339,7 +4339,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "skills_id_seq",
+            "name": "sagas_skills_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -4385,8 +4385,8 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "skills_key_unique": {
-          "name": "skills_key_unique",
+        "sagas_skills_key_unique": {
+          "name": "sagas_skills_key_unique",
           "nullsNotDistinct": false,
           "columns": [
             "key"
@@ -4395,23 +4395,23 @@
       },
       "policies": {},
       "checkConstraints": {
-        "skills_key_format": {
-          "name": "skills_key_format",
+        "sagas_skills_key_format": {
+          "name": "sagas_skills_key_format",
           "value": "\"key\" ~ '^[a-z][a-z0-9-]{0,31}$'"
         },
-        "skills_label_length": {
-          "name": "skills_label_length",
+        "sagas_skills_label_length": {
+          "name": "sagas_skills_label_length",
           "value": "length(\"label\") BETWEEN 1 AND 64"
         },
-        "skills_rubric_length": {
-          "name": "skills_rubric_length",
+        "sagas_skills_rubric_length": {
+          "name": "sagas_skills_rubric_length",
           "value": "length(\"rubric\") <= 4000"
         }
       },
       "isRLSEnabled": false
     },
-    "public.state_flows": {
-      "name": "state_flows",
+    "public.sagas_state_flows": {
+      "name": "sagas_state_flows",
       "schema": "",
       "columns": {
         "from_state_id": {
@@ -4429,10 +4429,10 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "state_flows_from_state_id_states_id_fk": {
-          "name": "state_flows_from_state_id_states_id_fk",
-          "tableFrom": "state_flows",
-          "tableTo": "states",
+        "sagas_state_flows_from_state_id_sagas_states_id_fk": {
+          "name": "sagas_state_flows_from_state_id_sagas_states_id_fk",
+          "tableFrom": "sagas_state_flows",
+          "tableTo": "sagas_states",
           "columnsFrom": [
             "from_state_id"
           ],
@@ -4442,10 +4442,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "state_flows_to_state_id_states_id_fk": {
-          "name": "state_flows_to_state_id_states_id_fk",
-          "tableFrom": "state_flows",
-          "tableTo": "states",
+        "sagas_state_flows_to_state_id_sagas_states_id_fk": {
+          "name": "sagas_state_flows_to_state_id_sagas_states_id_fk",
+          "tableFrom": "sagas_state_flows",
+          "tableTo": "sagas_states",
           "columnsFrom": [
             "to_state_id"
           ],
@@ -4457,8 +4457,8 @@
         }
       },
       "compositePrimaryKeys": {
-        "state_flows_from_state_id_to_state_id_pk": {
-          "name": "state_flows_from_state_id_to_state_id_pk",
+        "sagas_state_flows_from_state_id_to_state_id_pk": {
+          "name": "sagas_state_flows_from_state_id_to_state_id_pk",
           "columns": [
             "from_state_id",
             "to_state_id"
@@ -4468,15 +4468,15 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "state_flows_distinct": {
-          "name": "state_flows_distinct",
+        "sagas_state_flows_distinct": {
+          "name": "sagas_state_flows_distinct",
           "value": "\"from_state_id\" <> \"to_state_id\""
         }
       },
       "isRLSEnabled": false
     },
-    "public.states": {
-      "name": "states",
+    "public.sagas_states": {
+      "name": "sagas_states",
       "schema": "",
       "columns": {
         "id": {
@@ -4486,7 +4486,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "states_id_seq",
+            "name": "sagas_states_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -4554,8 +4554,8 @@
         }
       },
       "indexes": {
-        "states_realm_key_uq": {
-          "name": "states_realm_key_uq",
+        "sagas_states_realm_key_uq": {
+          "name": "sagas_states_realm_key_uq",
           "columns": [
             {
               "expression": "realm_id",
@@ -4575,8 +4575,8 @@
           "method": "btree",
           "with": {}
         },
-        "states_realm_position_uq": {
-          "name": "states_realm_position_uq",
+        "sagas_states_realm_position_uq": {
+          "name": "sagas_states_realm_position_uq",
           "columns": [
             {
               "expression": "realm_id",
@@ -4596,8 +4596,8 @@
           "method": "btree",
           "with": {}
         },
-        "states_realm_id_uq": {
-          "name": "states_realm_id_uq",
+        "sagas_states_realm_id_uq": {
+          "name": "sagas_states_realm_id_uq",
           "columns": [
             {
               "expression": "realm_id",
@@ -4617,8 +4617,8 @@
           "method": "btree",
           "with": {}
         },
-        "states_one_closed_uq": {
-          "name": "states_one_closed_uq",
+        "sagas_states_one_closed_uq": {
+          "name": "sagas_states_one_closed_uq",
           "columns": [
             {
               "expression": "realm_id",
@@ -4635,10 +4635,10 @@
         }
       },
       "foreignKeys": {
-        "states_realm_id_realms_id_fk": {
-          "name": "states_realm_id_realms_id_fk",
-          "tableFrom": "states",
-          "tableTo": "realms",
+        "sagas_states_realm_id_sagas_realms_id_fk": {
+          "name": "sagas_states_realm_id_sagas_realms_id_fk",
+          "tableFrom": "sagas_states",
+          "tableTo": "sagas_realms",
           "columnsFrom": [
             "realm_id"
           ],
@@ -4648,10 +4648,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "states_default_substate_id_substates_id_fk": {
-          "name": "states_default_substate_id_substates_id_fk",
-          "tableFrom": "states",
-          "tableTo": "substates",
+        "sagas_states_default_substate_id_sagas_substates_id_fk": {
+          "name": "sagas_states_default_substate_id_sagas_substates_id_fk",
+          "tableFrom": "sagas_states",
+          "tableTo": "sagas_substates",
           "columnsFrom": [
             "default_substate_id"
           ],
@@ -4661,10 +4661,10 @@
           "onDelete": "set null",
           "onUpdate": "no action"
         },
-        "states_id_default_substate_id_substates_state_id_id_fk": {
-          "name": "states_id_default_substate_id_substates_state_id_id_fk",
-          "tableFrom": "states",
-          "tableTo": "substates",
+        "sagas_states_id_default_substate_id_sagas_substates_state_id_id_fk": {
+          "name": "sagas_states_id_default_substate_id_sagas_substates_state_id_id_fk",
+          "tableFrom": "sagas_states",
+          "tableTo": "sagas_substates",
           "columnsFrom": [
             "id",
             "default_substate_id"
@@ -4683,8 +4683,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.substates": {
-      "name": "substates",
+    "public.sagas_substates": {
+      "name": "sagas_substates",
       "schema": "",
       "columns": {
         "id": {
@@ -4694,7 +4694,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "substates_id_seq",
+            "name": "sagas_substates_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -4742,8 +4742,8 @@
         }
       },
       "indexes": {
-        "substates_state_key_uq": {
-          "name": "substates_state_key_uq",
+        "sagas_substates_state_key_uq": {
+          "name": "sagas_substates_state_key_uq",
           "columns": [
             {
               "expression": "state_id",
@@ -4763,8 +4763,8 @@
           "method": "btree",
           "with": {}
         },
-        "substates_state_position_uq": {
-          "name": "substates_state_position_uq",
+        "sagas_substates_state_position_uq": {
+          "name": "sagas_substates_state_position_uq",
           "columns": [
             {
               "expression": "state_id",
@@ -4784,8 +4784,8 @@
           "method": "btree",
           "with": {}
         },
-        "substates_state_id_uq": {
-          "name": "substates_state_id_uq",
+        "sagas_substates_state_id_uq": {
+          "name": "sagas_substates_state_id_uq",
           "columns": [
             {
               "expression": "state_id",
@@ -4807,10 +4807,10 @@
         }
       },
       "foreignKeys": {
-        "substates_state_id_states_id_fk": {
-          "name": "substates_state_id_states_id_fk",
-          "tableFrom": "substates",
-          "tableTo": "states",
+        "sagas_substates_state_id_sagas_states_id_fk": {
+          "name": "sagas_substates_state_id_sagas_states_id_fk",
+          "tableFrom": "sagas_substates",
+          "tableTo": "sagas_states",
           "columnsFrom": [
             "state_id"
           ],
@@ -4827,8 +4827,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.surveys": {
-      "name": "surveys",
+    "public.sagas_surveys": {
+      "name": "sagas_surveys",
       "schema": "",
       "columns": {
         "id": {
@@ -4838,7 +4838,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "surveys_id_seq",
+            "name": "sagas_surveys_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -4880,8 +4880,8 @@
         }
       },
       "indexes": {
-        "surveys_created_idx": {
-          "name": "surveys_created_idx",
+        "sagas_surveys_created_idx": {
+          "name": "sagas_surveys_created_idx",
           "columns": [
             {
               "expression": "created_at",
@@ -4897,10 +4897,10 @@
         }
       },
       "foreignKeys": {
-        "surveys_actor_id_users_id_fk": {
-          "name": "surveys_actor_id_users_id_fk",
-          "tableFrom": "surveys",
-          "tableTo": "users",
+        "sagas_surveys_actor_id_sagas_users_id_fk": {
+          "name": "sagas_surveys_actor_id_sagas_users_id_fk",
+          "tableFrom": "sagas_surveys",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "actor_id"
           ],
@@ -4910,10 +4910,10 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "surveys_for_id_users_id_fk": {
-          "name": "surveys_for_id_users_id_fk",
-          "tableFrom": "surveys",
-          "tableTo": "users",
+        "sagas_surveys_for_id_sagas_users_id_fk": {
+          "name": "sagas_surveys_for_id_sagas_users_id_fk",
+          "tableFrom": "sagas_surveys",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "for_id"
           ],
@@ -4930,8 +4930,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.user_skills": {
-      "name": "user_skills",
+    "public.sagas_user_skills": {
+      "name": "sagas_user_skills",
       "schema": "",
       "columns": {
         "user_id": {
@@ -4973,10 +4973,10 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "user_skills_user_id_users_id_fk": {
-          "name": "user_skills_user_id_users_id_fk",
-          "tableFrom": "user_skills",
-          "tableTo": "users",
+        "sagas_user_skills_user_id_sagas_users_id_fk": {
+          "name": "sagas_user_skills_user_id_sagas_users_id_fk",
+          "tableFrom": "sagas_user_skills",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "user_id"
           ],
@@ -4986,10 +4986,10 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "user_skills_skill_id_skills_id_fk": {
-          "name": "user_skills_skill_id_skills_id_fk",
-          "tableFrom": "user_skills",
-          "tableTo": "skills",
+        "sagas_user_skills_skill_id_sagas_skills_id_fk": {
+          "name": "sagas_user_skills_skill_id_sagas_skills_id_fk",
+          "tableFrom": "sagas_user_skills",
+          "tableTo": "sagas_skills",
           "columnsFrom": [
             "skill_id"
           ],
@@ -4999,10 +4999,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "user_skills_set_by_users_id_fk": {
-          "name": "user_skills_set_by_users_id_fk",
-          "tableFrom": "user_skills",
-          "tableTo": "users",
+        "sagas_user_skills_set_by_sagas_users_id_fk": {
+          "name": "sagas_user_skills_set_by_sagas_users_id_fk",
+          "tableFrom": "sagas_user_skills",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "set_by"
           ],
@@ -5014,8 +5014,8 @@
         }
       },
       "compositePrimaryKeys": {
-        "user_skills_user_id_skill_id_pk": {
-          "name": "user_skills_user_id_skill_id_pk",
+        "sagas_user_skills_user_id_skill_id_pk": {
+          "name": "sagas_user_skills_user_id_skill_id_pk",
           "columns": [
             "user_id",
             "skill_id"
@@ -5025,15 +5025,15 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "user_skills_level": {
-          "name": "user_skills_level",
+        "sagas_user_skills_level": {
+          "name": "sagas_user_skills_level",
           "value": "\"level\" BETWEEN 1 AND 5"
         }
       },
       "isRLSEnabled": false
     },
-    "public.users": {
-      "name": "users",
+    "public.sagas_users": {
+      "name": "sagas_users",
       "schema": "",
       "columns": {
         "id": {
@@ -5043,7 +5043,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "users_id_seq",
+            "name": "sagas_users_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -5102,8 +5102,8 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "users_username_unique": {
-          "name": "users_username_unique",
+        "sagas_users_username_unique": {
+          "name": "sagas_users_username_unique",
           "nullsNotDistinct": false,
           "columns": [
             "username"
@@ -5112,27 +5112,27 @@
       },
       "policies": {},
       "checkConstraints": {
-        "users_kind": {
-          "name": "users_kind",
+        "sagas_users_kind": {
+          "name": "sagas_users_kind",
           "value": "\"kind\" IN ('human', 'agent')"
         },
-        "users_username_lower": {
-          "name": "users_username_lower",
+        "sagas_users_username_lower": {
+          "name": "sagas_users_username_lower",
           "value": "\"username\" = lower(\"username\")"
         },
-        "users_password_iff_human": {
-          "name": "users_password_iff_human",
+        "sagas_users_password_iff_human": {
+          "name": "sagas_users_password_iff_human",
           "value": "(\"kind\" = 'human') = (\"password_hash\" IS NOT NULL)"
         },
-        "users_admin_is_human": {
-          "name": "users_admin_is_human",
+        "sagas_users_admin_is_human": {
+          "name": "sagas_users_admin_is_human",
           "value": "NOT \"is_admin\" OR \"kind\" = 'human'"
         }
       },
       "isRLSEnabled": false
     },
-    "public.webhook_deliveries": {
-      "name": "webhook_deliveries",
+    "public.sagas_webhook_deliveries": {
+      "name": "sagas_webhook_deliveries",
       "schema": "",
       "columns": {
         "id": {
@@ -5142,7 +5142,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "webhook_deliveries_id_seq",
+            "name": "sagas_webhook_deliveries_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -5214,8 +5214,8 @@
         }
       },
       "indexes": {
-        "webhook_deliveries_webhook_idx": {
-          "name": "webhook_deliveries_webhook_idx",
+        "sagas_webhook_deliveries_webhook_idx": {
+          "name": "sagas_webhook_deliveries_webhook_idx",
           "columns": [
             {
               "expression": "webhook_id",
@@ -5235,8 +5235,8 @@
           "method": "btree",
           "with": {}
         },
-        "webhook_deliveries_attempted_idx": {
-          "name": "webhook_deliveries_attempted_idx",
+        "sagas_webhook_deliveries_attempted_idx": {
+          "name": "sagas_webhook_deliveries_attempted_idx",
           "columns": [
             {
               "expression": "attempted_at",
@@ -5252,10 +5252,10 @@
         }
       },
       "foreignKeys": {
-        "webhook_deliveries_webhook_id_webhooks_id_fk": {
-          "name": "webhook_deliveries_webhook_id_webhooks_id_fk",
-          "tableFrom": "webhook_deliveries",
-          "tableTo": "webhooks",
+        "sagas_webhook_deliveries_webhook_id_sagas_webhooks_id_fk": {
+          "name": "sagas_webhook_deliveries_webhook_id_sagas_webhooks_id_fk",
+          "tableFrom": "sagas_webhook_deliveries",
+          "tableTo": "sagas_webhooks",
           "columnsFrom": [
             "webhook_id"
           ],
@@ -5272,8 +5272,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.webhooks": {
-      "name": "webhooks",
+    "public.sagas_webhooks": {
+      "name": "sagas_webhooks",
       "schema": "",
       "columns": {
         "id": {
@@ -5283,7 +5283,7 @@
           "notNull": true,
           "identity": {
             "type": "byDefault",
-            "name": "webhooks_id_seq",
+            "name": "sagas_webhooks_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -5393,8 +5393,8 @@
         }
       },
       "indexes": {
-        "webhooks_owner_idx": {
-          "name": "webhooks_owner_idx",
+        "sagas_webhooks_owner_idx": {
+          "name": "sagas_webhooks_owner_idx",
           "columns": [
             {
               "expression": "owner_id",
@@ -5410,10 +5410,10 @@
         }
       },
       "foreignKeys": {
-        "webhooks_owner_id_users_id_fk": {
-          "name": "webhooks_owner_id_users_id_fk",
-          "tableFrom": "webhooks",
-          "tableTo": "users",
+        "sagas_webhooks_owner_id_sagas_users_id_fk": {
+          "name": "sagas_webhooks_owner_id_sagas_users_id_fk",
+          "tableFrom": "sagas_webhooks",
+          "tableTo": "sagas_users",
           "columnsFrom": [
             "owner_id"
           ],

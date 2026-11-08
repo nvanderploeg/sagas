@@ -55,7 +55,7 @@ export async function loadAttributeFeatures(
 			await db.execute<{ labourId: number; attributeId: number; value: unknown }>(sql`
 			SELECT la.labour_id AS "labourId", la.attribute_id AS "attributeId", la.value AS value
 			FROM ${intRows(candidateIds)} AS c(value)
-			JOIN labour_attributes la ON la.labour_id = c.value
+			JOIN sagas_labour_attributes la ON la.labour_id = c.value
 			WHERE la.attribute_id IN ${intList([...byId.keys()])}
 		`)
 		).rows;

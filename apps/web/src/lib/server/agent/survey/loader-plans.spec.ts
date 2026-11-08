@@ -21,7 +21,7 @@ beforeEach(async () => {
 const NOW = new Date('2026-03-01T12:00:00.000Z');
 
 // A loader reads only rows tied to the candidates: a scan of one of these reads every row.
-const GUARDED = ['mentions', 'comments', 'links', 'quest_labours'];
+const GUARDED = ['sagas_mentions', 'sagas_comments', 'sagas_links', 'sagas_quest_labours'];
 
 type Captured = { source: string };
 

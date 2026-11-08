@@ -113,10 +113,10 @@ async function subtree(tx: Handle, rootId: number): Promise<{ id: number; path: 
 	return (
 		await tx.execute<{ id: number; path: string }>(sql`
 		WITH RECURSIVE t(id) AS (
-			SELECT ${rootId}::int UNION ALL SELECT s.id FROM scrolls s JOIN t ON s.parent_id = t.id
+			SELECT ${rootId}::int UNION ALL SELECT s.id FROM sagas_scrolls s JOIN t ON s.parent_id = t.id
 		)
-		SELECT scrolls.id AS id, scrolls.path AS path FROM t JOIN scrolls ON scrolls.id = t.id
-		ORDER BY length(scrolls.path), scrolls.path
+		SELECT sagas_scrolls.id AS id, sagas_scrolls.path AS path FROM t JOIN sagas_scrolls ON sagas_scrolls.id = t.id
+		ORDER BY length(sagas_scrolls.path), sagas_scrolls.path
 	`)
 	).rows;
 }
@@ -586,10 +586,10 @@ export async function listBacklinks(db: Handle, scrollId: number): Promise<Scrol
 	return (
 		await db.execute<ScrollLinkTarget>(sql`
 		SELECT DISTINCT src.id AS id, src.path AS path, src.title AS title
-		FROM scroll_refs r
-		JOIN scrolls src ON src.id = r.scroll_id
+		FROM sagas_scroll_refs r
+		JOIN sagas_scrolls src ON src.id = r.scroll_id
 		WHERE src.realm_id = ${scroll.realmId} AND src.id <> ${scroll.id}
-			AND r.target_path IN (SELECT path FROM scroll_paths WHERE scroll_id = ${scroll.id})
+			AND r.target_path IN (SELECT path FROM sagas_scroll_paths WHERE scroll_id = ${scroll.id})
 		ORDER BY src.path
 	`)
 	).rows;
@@ -634,8 +634,8 @@ export async function searchScrolls(
 		SELECT s.id AS id, s.path AS path, s.title AS title,
 			ts_headline('sagas_english', t.body, q,
 				'StartSel=, StopSel=, MaxWords=16, MinWords=8, ShortWord=0, FragmentDelimiter=…') AS snippet
-		FROM scroll_text t
-		JOIN scrolls s ON s.id = t.scroll_id, to_tsquery('sagas_english', ${expression}) q
+		FROM sagas_scroll_text t
+		JOIN sagas_scrolls s ON s.id = t.scroll_id, to_tsquery('sagas_english', ${expression}) q
 		WHERE t.search @@ q AND s.realm_id = ${realmId}
 		ORDER BY ts_rank_cd('{0.1, 0.1, 0.25, 1.0}'::float4[], t.search, q, 1) DESC, s.path
 		LIMIT ${limit}

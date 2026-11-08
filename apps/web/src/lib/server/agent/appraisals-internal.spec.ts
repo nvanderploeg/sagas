@@ -48,7 +48,7 @@ describe('schema', () => {
 			...over
 		};
 		return db.$client.query(
-			`INSERT INTO appraisals (labour_id, content_hash, appraised_by, appraised_at)
+			`INSERT INTO sagas_appraisals (labour_id, content_hash, appraised_by, appraised_at)
 			 VALUES ($1, $2, $3, $4)`,
 			[row.labour_id, row.content_hash, row.appraised_by, row.appraised_at]
 		);
@@ -81,14 +81,17 @@ describe('schema', () => {
 	it('refuses refs that are not JSON', async () => {
 		const { id } = await labour();
 		const put = (refs: string) =>
-			db.$client.query('INSERT INTO appraisals (labour_id, refs) VALUES ($1, $2)', [id, refs]);
+			db.$client.query('INSERT INTO sagas_appraisals (labour_id, refs) VALUES ($1, $2)', [
+				id,
+				refs
+			]);
 		await expectFailure(put('{nope'), /invalid input syntax for type json/);
 		await expect(put('[]')).resolves.toBeDefined();
 	});
 
 	const put = (from: number, to: number, type = 'evidence') =>
 		db.$client.query(
-			'INSERT INTO links (from_id, to_id, type, set_by, set_at) VALUES ($1, $2, $3, $4, 0)',
+			'INSERT INTO sagas_links (from_id, to_id, type, set_by, set_at) VALUES ($1, $2, $3, $4, 0)',
 			[from, to, type, actor.id]
 		);
 
@@ -142,7 +145,7 @@ describe('schema', () => {
 		const a = (await labour({ realmId: other })).id;
 		const b = (await labour()).id;
 		await appraise(db, actor, [{ labourId: a, brief: 'x', links: [{ type: 'relates', to: b }] }]);
-		await db.$client.query('DELETE FROM realms WHERE id = $1', [other]);
+		await db.$client.query('DELETE FROM sagas_realms WHERE id = $1', [other]);
 		expect(await appraisalRows()).toHaveLength(0);
 		expect(await linkRows()).toHaveLength(0);
 	});

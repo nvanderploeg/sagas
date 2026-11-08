@@ -61,15 +61,15 @@ function conditions(filter: CandidateFilter, now: number): SQL[] {
 
 	if (filter.questId !== undefined) {
 		where.push(
-			sql`l.id IN (SELECT q.labour_id FROM quest_labours q WHERE q.quest_id = ${filter.questId})`
+			sql`l.id IN (SELECT q.labour_id FROM sagas_quest_labours q WHERE q.quest_id = ${filter.questId})`
 		);
 	}
 
 	for (const key of filter.has) {
 		const [attribute, member] = key.split(':');
 		where.push(sql`EXISTS (
-			SELECT 1 FROM labour_attributes la
-			JOIN attributes ta ON ta.id = la.attribute_id
+			SELECT 1 FROM sagas_labour_attributes la
+			JOIN sagas_attributes ta ON ta.id = la.attribute_id
 			WHERE la.labour_id = l.id AND ta.key = ${attribute} AND ta.kind = 'tags'
 				AND (la.value::jsonb) @> ${JSON.stringify([member])}::jsonb
 		)`);
@@ -77,9 +77,9 @@ function conditions(filter: CandidateFilter, now: number): SQL[] {
 
 	if (filter.unblocked) {
 		where.push(sql`NOT EXISTS (
-			SELECT 1 FROM links k
-			JOIN labours b ON b.id = k.from_id
-			JOIN states bs ON bs.id = b.state_id
+			SELECT 1 FROM sagas_links k
+			JOIN sagas_labours b ON b.id = k.from_id
+			JOIN sagas_states bs ON bs.id = b.state_id
 			WHERE k.type = 'blocks' AND k.to_id = l.id AND NOT bs.is_closed
 		)`);
 	}
@@ -100,10 +100,10 @@ export async function loadCandidates(
 			l.assignee_id AS "assigneeId", r.key || '-' || l.number AS key, l.title AS title,
 			r.key AS "realmKey", s.key AS "stateKey", coalesce(a.brief, '') AS brief,
 			a.content_hash AS "contentHash", l.created_at AS "createdAt", l.updated_at AS "updatedAt"
-		FROM labours l
-		JOIN states s ON s.id = l.state_id
-		JOIN realms r ON r.id = l.realm_id
-		LEFT JOIN appraisals a ON a.labour_id = l.id
+		FROM sagas_labours l
+		JOIN sagas_states s ON s.id = l.state_id
+		JOIN sagas_realms r ON r.id = l.realm_id
+		LEFT JOIN sagas_appraisals a ON a.labour_id = l.id
 		WHERE ${sql.join(conditions(filter, now), sql` AND `)}
 		ORDER BY l.realm_id, s.position, l.rank
 	`)

@@ -120,7 +120,7 @@ describe('Realms an Event touches', () => {
 	it('keeps a deleted Realm id after its Events are recorded', async () => {
 		const a = (await seedRealm(db, 'AM')).id;
 		const realmCreated = (await eventsSince(db, 0))[0];
-		await db.$client.query('DELETE FROM realms WHERE id = $1', [a]);
+		await db.$client.query('DELETE FROM sagas_realms WHERE id = $1', [a]);
 
 		expect(await eventRealmIds(db, realmCreated.seq)).toEqual([a]);
 	});

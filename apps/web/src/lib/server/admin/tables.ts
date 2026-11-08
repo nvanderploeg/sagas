@@ -1,6 +1,7 @@
 import { is } from 'drizzle-orm';
 import { getTableConfig, PgTable, type PgColumn } from 'drizzle-orm/pg-core';
 import * as schema from '#lib/server/db/schema.ts';
+import { TABLE_PREFIX } from '#lib/server/db/schema.ts';
 
 // Rebuilt from the tables below on import, never carried in a Bundle.
 export const DERIVED_TABLES = ['labour_text', 'scroll_text'];
@@ -12,8 +13,9 @@ function tablesOf(): BundleTable[] {
 	for (const value of Object.values(schema)) {
 		if (!is(value, PgTable)) continue;
 		const config = getTableConfig(value);
-		if (DERIVED_TABLES.includes(config.name)) continue;
-		found.push({ name: config.name, table: value, columns: config.columns });
+		const name = config.name.slice(TABLE_PREFIX.length);
+		if (DERIVED_TABLES.includes(name)) continue;
+		found.push({ name, table: value, columns: config.columns });
 	}
 	return found;
 }
@@ -56,3 +58,6 @@ export function columnKind(column: PgColumn): 'json' | 'bytea' | 'boolean' | 'pl
 }
 
 export const quote = (name: string) => `"${name.replace(/"/g, '""')}"`;
+
+// Bundle and stats names are unprefixed; SQL takes the physical name.
+export const tableSql = (name: string) => quote(TABLE_PREFIX + name);

@@ -306,8 +306,8 @@ describe('Substates', () => {
 
 		expect((await getState(db, await todoId(realm.id))).defaultSubstateId).toBe(review.id);
 		expect(
-			(await db.$client.query('SELECT substate_id FROM labours WHERE id = $1', [labour.id])).rows[0]
-				.substate_id
+			(await db.$client.query('SELECT substate_id FROM sagas_labours WHERE id = $1', [labour.id]))
+				.rows[0].substate_id
 		).toBe(review.id);
 	});
 

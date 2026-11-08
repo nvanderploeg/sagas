@@ -14,7 +14,7 @@ beforeEach(async () => {
 const DAY = 24 * 60 * 60 * 1000;
 
 async function age(seq: number, ms: number): Promise<void> {
-	await db.$client.query('UPDATE events SET created_at = $1 WHERE seq = $2', [
+	await db.$client.query('UPDATE sagas_events SET created_at = $1 WHERE seq = $2', [
 		Date.now() - ms,
 		seq
 	]);

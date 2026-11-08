@@ -627,7 +627,9 @@ describe('Event seqs', () => {
 		await deleteRealm(db, actor, realm.id);
 
 		const seqs = (await db.select().from(events)).map((e) => e.seq).sort((a, b) => a - b);
-		const counter = await db.$client.query<{ last: number }>('SELECT last FROM event_counter');
+		const counter = await db.$client.query<{ last: number }>(
+			'SELECT last FROM sagas_event_counter'
+		);
 
 		expect(seqs.length).toBeGreaterThan(2);
 		expect(seqs).toEqual(seqs.map((_, i) => i + 1));

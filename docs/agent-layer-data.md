@@ -10,7 +10,7 @@ The storage behind the `product/agent-layer` Scroll: every table, column, constr
 - `set_by` and `set_at` record the User whose write last set the row, and when.
 - `via` records the name of the API token the write came through, and is null for a write from a browser session. Every write sets it, so a session write clears an earlier token's name. A Comment, Pulse and Outcome carry it too; the appraisal stamp's is `appraised_via`.
 - A foreign key to `labours`, `realms`, `attributes`, `skills`, `comments` or `surveys` is `ON DELETE CASCADE`. One to `users` has no delete rule: Users are never deleted.
-- The agent layer adds tables and changes none, apart from one index on `labours`: `labours_realm_id_uq (realm_id, id)`, which the composite foreign key on `labour_attributes` needs.
+- The agent layer adds tables and changes none, apart from one index on `labours`: `sagas_labours_realm_id_uq (realm_id, id)`, which the composite foreign key on `labour_attributes` needs.
 
 ## Tables
 

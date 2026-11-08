@@ -26,8 +26,10 @@ const now = (name = 'created_at') =>
 
 const timestamp = (name: string) => epoch(name);
 
+export const TABLE_PREFIX = 'sagas_';
+
 export const users = pgTable(
-	'users',
+	'sagas_users',
 	{
 		id: id(),
 		kind: text('kind', { enum: ['human', 'agent'] }).notNull(),
@@ -39,18 +41,18 @@ export const users = pgTable(
 		createdAt: now()
 	},
 	() => [
-		check('users_kind', sql.raw(`"kind" IN ('human', 'agent')`)),
-		check('users_username_lower', sql.raw(`"username" = lower("username")`)),
+		check('sagas_users_kind', sql.raw(`"kind" IN ('human', 'agent')`)),
+		check('sagas_users_username_lower', sql.raw(`"username" = lower("username")`)),
 		check(
-			'users_password_iff_human',
+			'sagas_users_password_iff_human',
 			sql.raw(`("kind" = 'human') = ("password_hash" IS NOT NULL)`)
 		),
-		check('users_admin_is_human', sql.raw(`NOT "is_admin" OR "kind" = 'human'`))
+		check('sagas_users_admin_is_human', sql.raw(`NOT "is_admin" OR "kind" = 'human'`))
 	]
 );
 
 export const sessions = pgTable(
-	'sessions',
+	'sagas_sessions',
 	{
 		id: text('id').primaryKey(),
 		userId: integer('user_id')
@@ -59,11 +61,11 @@ export const sessions = pgTable(
 		createdAt: now(),
 		expiresAt: timestamp('expires_at').notNull()
 	},
-	(t) => [index('sessions_user_idx').on(t.userId)]
+	(t) => [index('sagas_sessions_user_idx').on(t.userId)]
 );
 
 export const invites = pgTable(
-	'invites',
+	'sagas_invites',
 	{
 		id: id(),
 		tokenHash: text('token_hash').notNull().unique(),
@@ -74,11 +76,13 @@ export const invites = pgTable(
 		usedAt: timestamp('used_at'),
 		usedByUserId: integer('used_by_user_id').references(() => users.id)
 	},
-	() => [check('invites_used_pair', sql.raw(`("used_at" IS NULL) = ("used_by_user_id" IS NULL)`))]
+	() => [
+		check('sagas_invites_used_pair', sql.raw(`("used_at" IS NULL) = ("used_by_user_id" IS NULL)`))
+	]
 );
 
 export const apiTokens = pgTable(
-	'api_tokens',
+	'sagas_api_tokens',
 	{
 		id: id(),
 		userId: integer('user_id')
@@ -94,11 +98,11 @@ export const apiTokens = pgTable(
 			.unique()
 			.references(() => oauthGrants.id, { onDelete: 'cascade' })
 	},
-	(t) => [index('api_tokens_user_idx').on(t.userId)]
+	(t) => [index('sagas_api_tokens_user_idx').on(t.userId)]
 );
 
 export const oauthClients = pgTable(
-	'oauth_clients',
+	'sagas_oauth_clients',
 	{
 		id: text('id').primaryKey(),
 		name: text('name').notNull(),
@@ -113,19 +117,19 @@ export const oauthClients = pgTable(
 	},
 	() => [
 		check(
-			'oauth_clients_auth_method',
+			'sagas_oauth_clients_auth_method',
 			sql.raw(`"auth_method" IN ('none', 'client_secret_post', 'client_secret_basic')`)
 		),
 		check(
-			'oauth_clients_secret_iff_confidential',
+			'sagas_oauth_clients_secret_iff_confidential',
 			sql.raw(`("auth_method" = 'none') = ("secret_hash" IS NULL)`)
 		),
-		check('oauth_clients_redirect_uris_json', sql.raw(`"redirect_uris"::json IS NOT NULL`))
+		check('sagas_oauth_clients_redirect_uris_json', sql.raw(`"redirect_uris"::json IS NOT NULL`))
 	]
 );
 
 export const oauthGrants = pgTable(
-	'oauth_grants',
+	'sagas_oauth_grants',
 	{
 		id: id(),
 		clientId: text('client_id')
@@ -138,13 +142,13 @@ export const oauthGrants = pgTable(
 		revokedAt: timestamp('revoked_at')
 	},
 	(t) => [
-		index('oauth_grants_client_idx').on(t.clientId),
-		index('oauth_grants_user_idx').on(t.userId)
+		index('sagas_oauth_grants_client_idx').on(t.clientId),
+		index('sagas_oauth_grants_user_idx').on(t.userId)
 	]
 );
 
 export const oauthCodes = pgTable(
-	'oauth_codes',
+	'sagas_oauth_codes',
 	{
 		codeHash: text('code_hash').primaryKey(),
 		clientId: text('client_id')
@@ -161,13 +165,13 @@ export const oauthCodes = pgTable(
 		grantId: integer('grant_id').references(() => oauthGrants.id, { onDelete: 'set null' })
 	},
 	(t) => [
-		index('oauth_codes_client_idx').on(t.clientId),
-		index('oauth_codes_user_idx').on(t.userId)
+		index('sagas_oauth_codes_client_idx').on(t.clientId),
+		index('sagas_oauth_codes_user_idx').on(t.userId)
 	]
 );
 
 export const oauthRefreshTokens = pgTable(
-	'oauth_refresh_tokens',
+	'sagas_oauth_refresh_tokens',
 	{
 		tokenHash: text('token_hash').primaryKey(),
 		grantId: integer('grant_id')
@@ -177,11 +181,11 @@ export const oauthRefreshTokens = pgTable(
 		expiresAt: timestamp('expires_at').notNull(),
 		usedAt: timestamp('used_at')
 	},
-	(t) => [index('oauth_refresh_tokens_grant_idx').on(t.grantId)]
+	(t) => [index('sagas_oauth_refresh_tokens_grant_idx').on(t.grantId)]
 );
 
 export const realms = pgTable(
-	'realms',
+	'sagas_realms',
 	{
 		id: id(),
 		name: text('name').notNull(),
@@ -190,8 +194,8 @@ export const realms = pgTable(
 		initialStateId: integer('initial_state_id')
 	},
 	(t) => [
-		check('realms_key_format', sql.raw(`"key" ~ '^[A-Z][A-Z0-9]{1,5}$'`)),
-		check('realms_counter_non_negative', sql.raw(`"labour_counter" >= 0`)),
+		check('sagas_realms_key_format', sql.raw(`"key" ~ '^[A-Z][A-Z0-9]{1,5}$'`)),
+		check('sagas_realms_counter_non_negative', sql.raw(`"labour_counter" >= 0`)),
 		foreignKey({
 			columns: [t.id, t.initialStateId],
 			foreignColumns: [states.realmId, states.id]
@@ -201,7 +205,7 @@ export const realms = pgTable(
 
 // One User's role in one Realm, per the product/realm-access Scroll. `pending` is an Offer: it grants nothing.
 export const realmMembers = pgTable(
-	'realm_members',
+	'sagas_realm_members',
 	{
 		realmId: integer('realm_id')
 			.notNull()
@@ -217,16 +221,19 @@ export const realmMembers = pgTable(
 	},
 	(t) => [
 		primaryKey({ columns: [t.realmId, t.userId] }),
-		index('realm_members_user_idx').on(t.userId, t.status),
-		check('realm_members_role', sql.raw(`"role" IN ('owner', 'editor', 'viewer')`)),
-		check('realm_members_status', sql.raw(`"status" IN ('pending', 'active')`)),
-		check('realm_members_accepted', sql.raw(`("status" = 'active') = ("accepted_at" IS NOT NULL)`))
+		index('sagas_realm_members_user_idx').on(t.userId, t.status),
+		check('sagas_realm_members_role', sql.raw(`"role" IN ('owner', 'editor', 'viewer')`)),
+		check('sagas_realm_members_status', sql.raw(`"status" IN ('pending', 'active')`)),
+		check(
+			'sagas_realm_members_accepted',
+			sql.raw(`("status" = 'active') = ("accepted_at" IS NOT NULL)`)
+		)
 	]
 );
 
 // Every key a Realm has held, its current one included.
 export const realmKeys = pgTable(
-	'realm_keys',
+	'sagas_realm_keys',
 	{
 		key: text('key').primaryKey(),
 		realmId: integer('realm_id')
@@ -235,13 +242,13 @@ export const realmKeys = pgTable(
 		createdAt: now()
 	},
 	(t) => [
-		index('realm_keys_realm_idx').on(t.realmId),
-		check('realm_keys_format', sql.raw(`"key" ~ '^[A-Z][A-Z0-9]{1,5}$'`))
+		index('sagas_realm_keys_realm_idx').on(t.realmId),
+		check('sagas_realm_keys_format', sql.raw(`"key" ~ '^[A-Z][A-Z0-9]{1,5}$'`))
 	]
 );
 
 export const states = pgTable(
-	'states',
+	'sagas_states',
 	{
 		id: id(),
 		realmId: integer('realm_id')
@@ -259,10 +266,10 @@ export const states = pgTable(
 		})
 	},
 	(t) => [
-		uniqueIndex('states_realm_key_uq').on(t.realmId, t.key),
-		uniqueIndex('states_realm_position_uq').on(t.realmId, t.position),
-		uniqueIndex('states_realm_id_uq').on(t.realmId, t.id),
-		uniqueIndex('states_one_closed_uq').on(t.realmId).where(sql.raw(`"is_closed"`)),
+		uniqueIndex('sagas_states_realm_key_uq').on(t.realmId, t.key),
+		uniqueIndex('sagas_states_realm_position_uq').on(t.realmId, t.position),
+		uniqueIndex('sagas_states_realm_id_uq').on(t.realmId, t.id),
+		uniqueIndex('sagas_states_one_closed_uq').on(t.realmId).where(sql.raw(`"is_closed"`)),
 		// The column FK clears the default with its Substate; this one keeps it within the State.
 		foreignKey({
 			columns: [t.id, t.defaultSubstateId],
@@ -273,7 +280,7 @@ export const states = pgTable(
 
 // A hint that a Labour in `fromStateId` usually moves next to `toStateId`; moves are never restricted.
 export const stateFlows = pgTable(
-	'state_flows',
+	'sagas_state_flows',
 	{
 		fromStateId: integer('from_state_id')
 			.notNull()
@@ -284,12 +291,12 @@ export const stateFlows = pgTable(
 	},
 	(t) => [
 		primaryKey({ columns: [t.fromStateId, t.toStateId] }),
-		check('state_flows_distinct', sql.raw(`"from_state_id" <> "to_state_id"`))
+		check('sagas_state_flows_distinct', sql.raw(`"from_state_id" <> "to_state_id"`))
 	]
 );
 
 export const substates = pgTable(
-	'substates',
+	'sagas_substates',
 	{
 		id: id(),
 		stateId: integer('state_id')
@@ -302,14 +309,14 @@ export const substates = pgTable(
 		position: integer('position').notNull()
 	},
 	(t) => [
-		uniqueIndex('substates_state_key_uq').on(t.stateId, t.key),
-		uniqueIndex('substates_state_position_uq').on(t.stateId, t.position),
-		uniqueIndex('substates_state_id_uq').on(t.stateId, t.id)
+		uniqueIndex('sagas_substates_state_key_uq').on(t.stateId, t.key),
+		uniqueIndex('sagas_substates_state_position_uq').on(t.stateId, t.position),
+		uniqueIndex('sagas_substates_state_id_uq').on(t.stateId, t.id)
 	]
 );
 
 export const labours = pgTable(
-	'labours',
+	'sagas_labours',
 	{
 		id: id(),
 		realmId: integer('realm_id')
@@ -342,11 +349,11 @@ export const labours = pgTable(
 		updatedAt: now('updated_at')
 	},
 	(t) => [
-		index('labours_recurrence_idx').on(t.recurrenceId),
-		uniqueIndex('labours_realm_number_uq').on(t.realmId, t.number),
-		uniqueIndex('labours_realm_id_uq').on(t.realmId, t.id),
-		index('labours_parent_idx').on(t.parentId),
-		uniqueIndex('labours_state_rank_uq').on(t.stateId, t.rank),
+		index('sagas_labours_recurrence_idx').on(t.recurrenceId),
+		uniqueIndex('sagas_labours_realm_number_uq').on(t.realmId, t.number),
+		uniqueIndex('sagas_labours_realm_id_uq').on(t.realmId, t.id),
+		index('sagas_labours_parent_idx').on(t.parentId),
+		uniqueIndex('sagas_labours_state_rank_uq').on(t.stateId, t.rank),
 		foreignKey({
 			columns: [t.realmId, t.stateId],
 			foreignColumns: [states.realmId, states.id]
@@ -355,13 +362,13 @@ export const labours = pgTable(
 			columns: [t.stateId, t.substateId],
 			foreignColumns: [substates.stateId, substates.id]
 		}),
-		check('labours_number_positive', sql.raw(`"number" >= 1`))
+		check('sagas_labours_number_positive', sql.raw(`"number" >= 1`))
 	]
 );
 
 // Every key a Labour has held, its current one included.
 export const labourKeys = pgTable(
-	'labour_keys',
+	'sagas_labour_keys',
 	{
 		key: text('key').primaryKey(),
 		labourId: integer('labour_id')
@@ -370,13 +377,13 @@ export const labourKeys = pgTable(
 		createdAt: now()
 	},
 	(t) => [
-		index('labour_keys_labour_idx').on(t.labourId),
-		check('labour_keys_format', sql.raw(`"key" ~ '^[A-Z][A-Z0-9]*-[1-9][0-9]*$'`))
+		index('sagas_labour_keys_labour_idx').on(t.labourId),
+		check('sagas_labour_keys_format', sql.raw(`"key" ~ '^[A-Z][A-Z0-9]*-[1-9][0-9]*$'`))
 	]
 );
 
 export const comments = pgTable(
-	'comments',
+	'sagas_comments',
 	{
 		id: id(),
 		labourId: integer('labour_id')
@@ -392,13 +399,13 @@ export const comments = pgTable(
 		// Null until the body is edited.
 		updatedAt: timestamp('updated_at')
 	},
-	(t) => [index('comments_labour_idx').on(t.labourId, t.id)]
+	(t) => [index('sagas_comments_labour_idx').on(t.labourId, t.id)]
 );
 
 // A Quest belongs to one Realm, which decides who may see and edit it. Its Labours may be in any
 // Realm.
 export const quests = pgTable(
-	'quests',
+	'sagas_quests',
 	{
 		id: id(),
 		realmId: integer('realm_id')
@@ -412,11 +419,11 @@ export const quests = pgTable(
 		createdAt: now(),
 		updatedAt: now('updated_at')
 	},
-	(t) => [index('quests_realm_idx').on(t.realmId)]
+	(t) => [index('sagas_quests_realm_idx').on(t.realmId)]
 );
 
 export const questLabours = pgTable(
-	'quest_labours',
+	'sagas_quest_labours',
 	{
 		questId: integer('quest_id')
 			.notNull()
@@ -430,15 +437,15 @@ export const questLabours = pgTable(
 	},
 	(t) => [
 		primaryKey({ columns: [t.questId, t.labourId] }),
-		uniqueIndex('quest_labours_quest_rank_uq').on(t.questId, t.rank),
-		index('quest_labours_labour_idx').on(t.labourId)
+		uniqueIndex('sagas_quest_labours_quest_rank_uq').on(t.questId, t.rank),
+		index('sagas_quest_labours_labour_idx').on(t.labourId)
 	]
 );
 
 // A schedule that creates a Labour in its Realm each time the last one is finished and the next
 // occurrence comes round.
 export const recurrences = pgTable(
-	'recurrences',
+	'sagas_recurrences',
 	{
 		id: id(),
 		realmId: integer('realm_id')
@@ -471,15 +478,15 @@ export const recurrences = pgTable(
 		updatedAt: now('updated_at')
 	},
 	(t) => [
-		index('recurrences_realm_idx').on(t.realmId),
-		index('recurrences_due_idx').on(t.nextDueAt),
-		check('recurrences_every_positive', sql.raw(`"every" >= 1`))
+		index('sagas_recurrences_realm_idx').on(t.realmId),
+		index('sagas_recurrences_due_idx').on(t.nextDueAt),
+		check('sagas_recurrences_every_positive', sql.raw(`"every" >= 1`))
 	]
 );
 
 // The Quests each new Labour of a Recurrence is added to.
 export const recurrenceQuests = pgTable(
-	'recurrence_quests',
+	'sagas_recurrence_quests',
 	{
 		recurrenceId: integer('recurrence_id')
 			.notNull()
@@ -493,7 +500,7 @@ export const recurrenceQuests = pgTable(
 
 // A page of a Realm's wiki, per docs/scrolls.md.
 export const scrolls = pgTable(
-	'scrolls',
+	'sagas_scrolls',
 	{
 		id: id(),
 		realmId: integer('realm_id')
@@ -520,20 +527,24 @@ export const scrolls = pgTable(
 		updatedAt: now('updated_at')
 	},
 	(t) => [
-		uniqueIndex('scrolls_realm_path_uq').on(t.realmId, t.path),
-		uniqueIndex('scrolls_sibling_rank_uq').on(t.realmId, sql`coalesce(${t.parentId}, 0)`, t.rank),
-		index('scrolls_parent_idx').on(t.parentId),
+		uniqueIndex('sagas_scrolls_realm_path_uq').on(t.realmId, t.path),
+		uniqueIndex('sagas_scrolls_sibling_rank_uq').on(
+			t.realmId,
+			sql`coalesce(${t.parentId}, 0)`,
+			t.rank
+		),
+		index('sagas_scrolls_parent_idx').on(t.parentId),
 		check(
-			'scrolls_slug_format',
+			'sagas_scrolls_slug_format',
 			sql.raw(`length("slug") BETWEEN 1 AND 64 AND "slug" ~ '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'`)
 		),
-		check('scrolls_version_positive', sql.raw(`"version" >= 1`))
+		check('sagas_scrolls_version_positive', sql.raw(`"version" >= 1`))
 	]
 );
 
 // Every Path a Scroll has held, its current one included.
 export const scrollPaths = pgTable(
-	'scroll_paths',
+	'sagas_scroll_paths',
 	{
 		realmId: integer('realm_id')
 			.notNull()
@@ -546,13 +557,13 @@ export const scrollPaths = pgTable(
 	},
 	(t) => [
 		primaryKey({ columns: [t.realmId, t.path] }),
-		index('scroll_paths_scroll_idx').on(t.scrollId)
+		index('sagas_scroll_paths_scroll_idx').on(t.scrollId)
 	]
 );
 
 // What a Scroll's body names, per docs/scrolls.md: one of a Scroll link's target, a Labour or a User.
 export const scrollRefs = pgTable(
-	'scroll_refs',
+	'sagas_scroll_refs',
 	{
 		id: id(),
 		scrollId: integer('scroll_id')
@@ -565,16 +576,16 @@ export const scrollRefs = pgTable(
 		firstSeenAt: epoch('first_seen_at').notNull()
 	},
 	(t) => [
-		uniqueIndex('scroll_refs_target_uq').on(
+		uniqueIndex('sagas_scroll_refs_target_uq').on(
 			t.scrollId,
 			sql`coalesce(${t.targetPath}, '')`,
 			sql`coalesce(${t.labourId}, 0)`,
 			sql`coalesce(${t.userId}, 0)`
 		),
-		index('scroll_refs_path_idx').on(t.targetPath),
-		index('scroll_refs_labour_idx').on(t.labourId),
+		index('sagas_scroll_refs_path_idx').on(t.targetPath),
+		index('sagas_scroll_refs_labour_idx').on(t.labourId),
 		check(
-			'scroll_refs_one_target',
+			'sagas_scroll_refs_one_target',
 			sql.raw(
 				`("target_path" IS NOT NULL)::int + ("labour_id" IS NOT NULL)::int + ("user_id" IS NOT NULL)::int = 1`
 			)
@@ -583,7 +594,7 @@ export const scrollRefs = pgTable(
 );
 
 export const events = pgTable(
-	'events',
+	'sagas_events',
 	{
 		// Allocated from event_counter inside the writing transaction.
 		seq: integer('seq').primaryKey(),
@@ -599,23 +610,23 @@ export const events = pgTable(
 		// The type's payload in docs/events.md.
 		data: json('data').notNull().$type<unknown>()
 	},
-	(t) => [index('events_created_idx').on(t.createdAt)]
+	(t) => [index('sagas_events_created_idx').on(t.createdAt)]
 );
 
 // The newest seq ever assigned, pruned Events included. One row.
 export const eventCounter = pgTable(
-	'event_counter',
+	'sagas_event_counter',
 	{
 		id: integer('id').primaryKey().default(1),
 		last: integer('last').notNull().default(0)
 	},
-	() => [check('event_counter_single', sql.raw(`"id" = 1`))]
+	() => [check('sagas_event_counter_single', sql.raw(`"id" = 1`))]
 );
 
 // The Realms an Event touches, per docs/webhooks.md. realmId has no foreign key: a deleted
 // Realm's id stays for the Events that touched it.
 export const eventRealms = pgTable(
-	'event_realms',
+	'sagas_event_realms',
 	{
 		seq: integer('seq')
 			.notNull()
@@ -624,13 +635,13 @@ export const eventRealms = pgTable(
 	},
 	(t) => [
 		primaryKey({ columns: [t.seq, t.realmId] }),
-		index('event_realms_realm_idx').on(t.realmId)
+		index('sagas_event_realms_realm_idx').on(t.realmId)
 	]
 );
 
 // A Realm's settings for agents, per docs/agent-layer-data.md. No row reads as version 0.
 export const realmAgent = pgTable(
-	'realm_agent',
+	'sagas_realm_agent',
 	{
 		realmId: integer('realm_id')
 			.primaryKey()
@@ -642,14 +653,17 @@ export const realmAgent = pgTable(
 		updatedAt: now('updated_at')
 	},
 	() => [
-		check('realm_agent_version', sql.raw(`"version" >= 1`)),
-		check('realm_agent_half_life', sql.raw(`"half_life_days" > 0 AND "half_life_days" <= 365`)),
-		check('realm_agent_loudness', sql.raw(`"loudness" > 0`))
+		check('sagas_realm_agent_version', sql.raw(`"version" >= 1`)),
+		check(
+			'sagas_realm_agent_half_life',
+			sql.raw(`"half_life_days" > 0 AND "half_life_days" <= 365`)
+		),
+		check('sagas_realm_agent_loudness', sql.raw(`"loudness" > 0`))
 	]
 );
 
 export const attributes = pgTable(
-	'attributes',
+	'sagas_attributes',
 	{
 		id: id(),
 		realmId: integer('realm_id')
@@ -668,16 +682,16 @@ export const attributes = pgTable(
 		updatedAt: now('updated_at')
 	},
 	(t) => [
-		uniqueIndex('attributes_realm_key_uq').on(t.realmId, t.key),
-		uniqueIndex('attributes_realm_position_uq').on(t.realmId, t.position),
-		uniqueIndex('attributes_realm_id_uq').on(t.realmId, t.id),
-		check('attributes_key_format', sql.raw(`"key" ~ '^[a-z][a-z0-9-]{0,31}$'`)),
-		check('attributes_kind', sql.raw(`"kind" IN ('scale', 'tags', 'text')`))
+		uniqueIndex('sagas_attributes_realm_key_uq').on(t.realmId, t.key),
+		uniqueIndex('sagas_attributes_realm_position_uq').on(t.realmId, t.position),
+		uniqueIndex('sagas_attributes_realm_id_uq').on(t.realmId, t.id),
+		check('sagas_attributes_key_format', sql.raw(`"key" ~ '^[a-z][a-z0-9-]{0,31}$'`)),
+		check('sagas_attributes_kind', sql.raw(`"kind" IN ('scale', 'tags', 'text')`))
 	]
 );
 
 export const labourAttributes = pgTable(
-	'labour_attributes',
+	'sagas_labour_attributes',
 	{
 		realmId: integer('realm_id').notNull(),
 		labourId: integer('labour_id').notNull(),
@@ -692,7 +706,7 @@ export const labourAttributes = pgTable(
 	},
 	(t) => [
 		primaryKey({ columns: [t.labourId, t.attributeId] }),
-		index('labour_attributes_attribute_idx').on(t.attributeId),
+		index('sagas_labour_attributes_attribute_idx').on(t.attributeId),
 		foreignKey({
 			columns: [t.realmId, t.labourId],
 			foreignColumns: [labours.realmId, labours.id]
@@ -706,7 +720,7 @@ export const labourAttributes = pgTable(
 
 // A Labour's Brief, References and stamp, per docs/agent-layer-data.md. No row reads as unappraised.
 export const appraisals = pgTable(
-	'appraisals',
+	'sagas_appraisals',
 	{
 		labourId: integer('labour_id')
 			.primaryKey()
@@ -725,7 +739,7 @@ export const appraisals = pgTable(
 	},
 	() => [
 		check(
-			'appraisals_stamp_set',
+			'sagas_appraisals_stamp_set',
 			sql.raw(
 				`("content_hash" IS NULL) = ("appraised_by" IS NULL) AND ("appraised_by" IS NULL) = ("appraised_at" IS NULL)`
 			)
@@ -735,7 +749,7 @@ export const appraisals = pgTable(
 
 // A typed connection between two Labours, per docs/agent-layer-data.md.
 export const links = pgTable(
-	'links',
+	'sagas_links',
 	{
 		fromId: integer('from_id')
 			.notNull()
@@ -753,15 +767,15 @@ export const links = pgTable(
 	},
 	(t) => [
 		primaryKey({ columns: [t.fromId, t.toId, t.type] }),
-		index('links_to_type_idx').on(t.toId, t.type),
-		check('links_distinct', sql.raw(`"from_id" <> "to_id"`)),
-		check('links_relates_ordered', sql.raw(`"type" <> 'relates' OR "from_id" < "to_id"`)),
-		check('links_type', sql.raw(`"type" IN ('evidence', 'blocks', 'relates', 'duplicates')`))
+		index('sagas_links_to_type_idx').on(t.toId, t.type),
+		check('sagas_links_distinct', sql.raw(`"from_id" <> "to_id"`)),
+		check('sagas_links_relates_ordered', sql.raw(`"type" <> 'relates' OR "from_id" < "to_id"`)),
+		check('sagas_links_type', sql.raw(`"type" IN ('evidence', 'blocks', 'relates', 'duplicates')`))
 	]
 );
 
 // The version of the build rules each derived structure follows, per docs/agent-layer-data.md.
-export const derivedBuilds = pgTable('derived_builds', {
+export const derivedBuilds = pgTable('sagas_derived_builds', {
 	name: text('name', { enum: ['labour_text', 'mentions', 'embedding_inputs'] }).primaryKey(),
 	version: integer('version').notNull(),
 	builtAt: now('built_at')
@@ -769,7 +783,7 @@ export const derivedBuilds = pgTable('derived_builds', {
 
 // A Labour key or username found in a Labour's description or a Comment, per docs/agent-layer-data.md.
 export const mentions = pgTable(
-	'mentions',
+	'sagas_mentions',
 	{
 		id: id(),
 		sourceLabourId: integer('source_labour_id')
@@ -785,22 +799,25 @@ export const mentions = pgTable(
 		firstSeenAt: epoch('first_seen_at').notNull()
 	},
 	(t) => [
-		uniqueIndex('mentions_source_target_uq').on(
+		uniqueIndex('sagas_mentions_source_target_uq').on(
 			t.sourceLabourId,
 			sql`coalesce(${t.commentId}, 0)`,
 			sql`coalesce(${t.labourId}, 0)`,
 			sql`coalesce(${t.userId}, 0)`
 		),
-		index('mentions_labour_idx').on(t.labourId, t.firstSeenAt),
-		index('mentions_user_idx').on(t.userId, t.firstSeenAt),
-		check('mentions_one_target', sql.raw(`("labour_id" IS NULL) <> ("user_id" IS NULL)`)),
-		check('mentions_not_self', sql.raw(`"labour_id" IS NULL OR "labour_id" <> "source_labour_id"`))
+		index('sagas_mentions_labour_idx').on(t.labourId, t.firstSeenAt),
+		index('sagas_mentions_user_idx').on(t.userId, t.firstSeenAt),
+		check('sagas_mentions_one_target', sql.raw(`("labour_id" IS NULL) <> ("user_id" IS NULL)`)),
+		check(
+			'sagas_mentions_not_self',
+			sql.raw(`"labour_id" IS NULL OR "labour_id" <> "source_labour_id"`)
+		)
 	]
 );
 
 // One report into a Realm's Sentiment or a User's Affinity, per docs/agent-layer-data.md.
 export const pulses = pgTable(
-	'pulses',
+	'sagas_pulses',
 	{
 		id: id(),
 		realmId: integer('realm_id').references(() => realms.id, { onDelete: 'cascade' }),
@@ -825,22 +842,24 @@ export const pulses = pgTable(
 		createdAt: now()
 	},
 	(t) => [
-		uniqueIndex('pulses_author_ref_key_uq')
+		uniqueIndex('sagas_pulses_author_ref_key_uq')
 			.on(t.authorId, t.ref, t.rawKey)
 			.where(sql.raw(`"ref" IS NOT NULL`)),
-		index('pulses_realm_attribute_idx').on(t.realmId, t.attributeId, t.member),
-		index('pulses_user_attribute_idx').on(t.userId, t.attributeId, t.member),
-		index('pulses_unfiled_idx').on(t.realmId, t.rawKey).where(sql.raw(`"attribute_id" IS NULL`)),
-		index('pulses_created_idx').on(t.createdAt),
-		check('pulses_one_owner', sql.raw(`("realm_id" IS NULL) <> ("user_id" IS NULL)`)),
+		index('sagas_pulses_realm_attribute_idx').on(t.realmId, t.attributeId, t.member),
+		index('sagas_pulses_user_attribute_idx').on(t.userId, t.attributeId, t.member),
+		index('sagas_pulses_unfiled_idx')
+			.on(t.realmId, t.rawKey)
+			.where(sql.raw(`"attribute_id" IS NULL`)),
+		index('sagas_pulses_created_idx').on(t.createdAt),
+		check('sagas_pulses_one_owner', sql.raw(`("realm_id" IS NULL) <> ("user_id" IS NULL)`)),
 		check(
-			'pulses_unfiled_is_sentiment',
+			'sagas_pulses_unfiled_is_sentiment',
 			sql.raw(`"attribute_id" IS NOT NULL OR ("member" IS NULL AND "realm_id" IS NOT NULL)`)
 		),
-		check('pulses_amount', sql.raw(`"amount" > 0 AND "amount" <= 10`)),
-		check('pulses_mood', sql.raw(`"mood" >= -1 AND "mood" <= 1`)),
+		check('sagas_pulses_amount', sql.raw(`"amount" > 0 AND "amount" <= 10`)),
+		check('sagas_pulses_mood', sql.raw(`"mood" >= -1 AND "mood" <= 1`)),
 		check(
-			'pulses_half_life',
+			'sagas_pulses_half_life',
 			sql.raw(`"half_life_days" IS NULL OR ("half_life_days" > 0 AND "half_life_days" <= 365)`)
 		)
 	]
@@ -848,7 +867,7 @@ export const pulses = pgTable(
 
 // A scored request and what it returned, per docs/agent-layer-data.md.
 export const surveys = pgTable(
-	'surveys',
+	'sagas_surveys',
 	{
 		id: id(),
 		actorId: integer('actor_id')
@@ -862,12 +881,12 @@ export const surveys = pgTable(
 		results: json('results').notNull().$type<unknown>(),
 		createdAt: now()
 	},
-	(t) => [index('surveys_created_idx').on(t.createdAt)]
+	(t) => [index('sagas_surveys_created_idx').on(t.createdAt)]
 );
 
 // What became of a Labour a Survey returned, per docs/agent-layer-data.md.
 export const outcomes = pgTable(
-	'outcomes',
+	'sagas_outcomes',
 	{
 		surveyId: integer('survey_id')
 			.notNull()
@@ -884,14 +903,14 @@ export const outcomes = pgTable(
 	},
 	(t) => [
 		primaryKey({ columns: [t.surveyId, t.labourId, t.verdict] }),
-		index('outcomes_labour_idx').on(t.labourId),
-		check('outcomes_verdict', sql.raw(`"verdict" IN ('picked', 'skipped', 'done')`))
+		index('sagas_outcomes_labour_idx').on(t.labourId),
+		check('sagas_outcomes_verdict', sql.raw(`"verdict" IN ('picked', 'skipped', 'done')`))
 	]
 );
 
 // An ability named once for the instance, per docs/agent-layer-data.md.
 export const skills = pgTable(
-	'skills',
+	'sagas_skills',
 	{
 		id: id(),
 		key: text('key').notNull().unique(),
@@ -901,14 +920,14 @@ export const skills = pgTable(
 		updatedAt: now('updated_at')
 	},
 	() => [
-		check('skills_key_format', sql.raw(`"key" ~ '^[a-z][a-z0-9-]{0,31}$'`)),
-		check('skills_label_length', sql.raw(`length("label") BETWEEN 1 AND 64`)),
-		check('skills_rubric_length', sql.raw(`length("rubric") <= 4000`))
+		check('sagas_skills_key_format', sql.raw(`"key" ~ '^[a-z][a-z0-9-]{0,31}$'`)),
+		check('sagas_skills_label_length', sql.raw(`length("label") BETWEEN 1 AND 64`)),
+		check('sagas_skills_rubric_length', sql.raw(`length("rubric") <= 4000`))
 	]
 );
 
 export const userSkills = pgTable(
-	'user_skills',
+	'sagas_user_skills',
 	{
 		userId: integer('user_id')
 			.notNull()
@@ -925,13 +944,13 @@ export const userSkills = pgTable(
 	},
 	(t) => [
 		primaryKey({ columns: [t.userId, t.skillId] }),
-		check('user_skills_level', sql.raw(`"level" BETWEEN 1 AND 5`))
+		check('sagas_user_skills_level', sql.raw(`"level" BETWEEN 1 AND 5`))
 	]
 );
 
 // A Labour needs at most 8, held by the domain.
 export const labourNeeds = pgTable(
-	'labour_needs',
+	'sagas_labour_needs',
 	{
 		labourId: integer('labour_id')
 			.notNull()
@@ -948,12 +967,12 @@ export const labourNeeds = pgTable(
 	},
 	(t) => [
 		primaryKey({ columns: [t.labourId, t.skillId] }),
-		check('labour_needs_level', sql.raw(`"level" BETWEEN 1 AND 5`))
+		check('sagas_labour_needs_level', sql.raw(`"level" BETWEEN 1 AND 5`))
 	]
 );
 
 // A Labour's embedding, per docs/agent-layer-data.md. Derived: a missing or stale row is rebuilt.
-export const labourVectors = pgTable('labour_vectors', {
+export const labourVectors = pgTable('sagas_labour_vectors', {
 	labourId: integer('labour_id')
 		.primaryKey()
 		.references(() => labours.id, { onDelete: 'cascade' }),
@@ -964,7 +983,7 @@ export const labourVectors = pgTable('labour_vectors', {
 });
 
 // The hash of a Labour's embedding input as its text stands, per docs/agent-layer-data.md.
-export const labourInputs = pgTable('labour_inputs', {
+export const labourInputs = pgTable('sagas_labour_inputs', {
 	labourId: integer('labour_id')
 		.primaryKey()
 		.references(() => labours.id, { onDelete: 'cascade' }),
@@ -972,7 +991,7 @@ export const labourInputs = pgTable('labour_inputs', {
 });
 
 export const webhooks = pgTable(
-	'webhooks',
+	'sagas_webhooks',
 	{
 		id: id(),
 		ownerId: integer('owner_id')
@@ -996,11 +1015,11 @@ export const webhooks = pgTable(
 		createdAt: now(),
 		updatedAt: now('updated_at')
 	},
-	(t) => [index('webhooks_owner_idx').on(t.ownerId)]
+	(t) => [index('sagas_webhooks_owner_idx').on(t.ownerId)]
 );
 
 export const webhookDeliveries = pgTable(
-	'webhook_deliveries',
+	'sagas_webhook_deliveries',
 	{
 		id: id(),
 		webhookId: integer('webhook_id')
@@ -1017,15 +1036,15 @@ export const webhookDeliveries = pgTable(
 		responseBody: text('response_body')
 	},
 	(t) => [
-		index('webhook_deliveries_webhook_idx').on(t.webhookId, t.id),
-		index('webhook_deliveries_attempted_idx').on(t.attemptedAt)
+		index('sagas_webhook_deliveries_webhook_idx').on(t.webhookId, t.id),
+		index('sagas_webhook_deliveries_attempted_idx').on(t.attemptedAt)
 	]
 );
 
 // Weights: title A, brief B, notes C, description and comments D; keywordScores ranks the classes
 // 4:3:2:1.
 export const labourText = pgTable(
-	'labour_text',
+	'sagas_labour_text',
 	{
 		labourId: integer('labour_id')
 			.primaryKey()
@@ -1041,12 +1060,12 @@ export const labourText = pgTable(
 			)
 		)
 	},
-	(t) => [index('labour_text_search_idx').using('gin', t.search)]
+	(t) => [index('sagas_labour_text_search_idx').using('gin', t.search)]
 );
 
 // Weights: title A, body B; scrollMatches orders by them.
 export const scrollText = pgTable(
-	'scroll_text',
+	'sagas_scroll_text',
 	{
 		scrollId: integer('scroll_id')
 			.primaryKey()
@@ -1059,5 +1078,5 @@ export const scrollText = pgTable(
 			)
 		)
 	},
-	(t) => [index('scroll_text_search_idx').using('gin', t.search)]
+	(t) => [index('sagas_scroll_text_search_idx').using('gin', t.search)]
 );

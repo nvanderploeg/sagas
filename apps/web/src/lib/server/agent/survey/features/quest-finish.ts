@@ -14,14 +14,14 @@ export const questFinish: Feature = {
 			WITH wanted AS (
 				SELECT ql.labour_id AS labour_id, ql.quest_id AS quest_id
 				FROM ${intRows(open.map((candidate) => candidate.id))} AS c(value)
-				JOIN quest_labours ql ON ql.labour_id = c.value
+				JOIN sagas_quest_labours ql ON ql.labour_id = c.value
 			),
 			progress AS (
 				SELECT q.quest_id AS quest_id, count(*) AS total, sum(s.is_closed::int) AS closed
 				FROM (SELECT DISTINCT quest_id FROM wanted) q
-				JOIN quest_labours ql ON ql.quest_id = q.quest_id
-				JOIN labours l ON l.id = ql.labour_id
-				JOIN states s ON s.id = l.state_id
+				JOIN sagas_quest_labours ql ON ql.quest_id = q.quest_id
+				JOIN sagas_labours l ON l.id = ql.labour_id
+				JOIN sagas_states s ON s.id = l.state_id
 				GROUP BY q.quest_id
 			)
 			SELECT w.labour_id AS id, p.closed AS closed, p.total AS total

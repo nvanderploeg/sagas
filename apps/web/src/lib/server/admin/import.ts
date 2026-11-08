@@ -25,7 +25,14 @@ import {
 	type Manifest
 } from './manifest.ts';
 import { legacyIntegrity, openLegacy, type Section } from './legacy.ts';
-import { BUNDLE_TABLES, columnKind, DERIVED_TABLES, quote, type BundleTable } from './tables.ts';
+import {
+	BUNDLE_TABLES,
+	columnKind,
+	DERIVED_TABLES,
+	quote,
+	tableSql,
+	type BundleTable
+} from './tables.ts';
 import { pipeEntry, readDirectory, safeRelativePath, ZipError, type ZipFileEntry } from './zip.ts';
 
 export class BusyError extends Error {}
@@ -312,10 +319,10 @@ async function load(
 		await client.query('SET LOCAL statement_timeout = 0');
 		await client.query('SELECT pg_advisory_xact_lock($1)', [WRITER_LOCK]);
 		await client.query('SET CONSTRAINTS ALL DEFERRED');
-		const live = await client.query<{ last: number }>('SELECT last FROM event_counter');
+		const live = await client.query<{ last: number }>('SELECT last FROM sagas_event_counter');
 		const liveSeq = live.rows[0]?.last ?? 0;
 		const everything = [...BUNDLE_TABLES.map((entry) => entry.name), ...DERIVED_TABLES];
-		await client.query(`TRUNCATE ${everything.map(quote).join(', ')}`);
+		await client.query(`TRUNCATE ${everything.map(tableSql).join(', ')}`);
 
 		const seen = new Set<string>();
 		const insert: Insert = async (section) => {
@@ -351,7 +358,7 @@ async function load(
 					}
 				}
 				await client.query(
-					`INSERT INTO ${quote(section.name)} (${names}) VALUES ${placeholders}`,
+					`INSERT INTO ${tableSql(section.name)} (${names}) VALUES ${placeholders}`,
 					batch.flat()
 				);
 				counts[section.name] = (counts[section.name] ?? 0) + batch.length;
@@ -380,7 +387,7 @@ async function load(
 
 async function rebuildDerived(client: pg.PoolClient): Promise<void> {
 	await client.query(
-		'INSERT INTO scroll_text (scroll_id, title, body) SELECT id, title, body FROM scrolls'
+		'INSERT INTO sagas_scroll_text (scroll_id, title, body) SELECT id, title, body FROM sagas_scrolls'
 	);
 	await rebuildLabourText(drizzle(client, { schema }) as unknown as Handle);
 }
@@ -390,7 +397,7 @@ async function rebuildDerived(client: pg.PoolClient): Promise<void> {
 async function resetSequences(client: pg.PoolClient, eventSeq: number): Promise<void> {
 	const identities = await client.query<{ table_name: string; column_name: string }>(
 		`SELECT table_name, column_name FROM information_schema.columns
-		 WHERE table_schema = 'public' AND is_identity = 'YES'`
+		 WHERE table_schema = 'public' AND table_name LIKE 'sagas\\_%' AND is_identity = 'YES'`
 	);
 	for (const { table_name, column_name } of identities.rows) {
 		const table = quote(table_name);
@@ -403,10 +410,10 @@ async function resetSequences(client: pg.PoolClient, eventSeq: number): Promise<
 		);
 	}
 	await client.query(
-		`INSERT INTO event_counter (id, last)
-		 VALUES (1, GREATEST($1::int, COALESCE((SELECT max(seq) FROM events), 0)))
+		`INSERT INTO sagas_event_counter (id, last)
+		 VALUES (1, GREATEST($1::int, COALESCE((SELECT max(seq) FROM sagas_events), 0)))
 		 ON CONFLICT (id) DO UPDATE
-		 SET last = GREATEST(event_counter.last, EXCLUDED.last)`,
+		 SET last = GREATEST(sagas_event_counter.last, EXCLUDED.last)`,
 		[eventSeq]
 	);
 }

@@ -31,8 +31,8 @@ export async function loadHeldKeys(
 			a.key AS attribute, a.kind AS kind,
 			CASE WHEN a.kind = 'scale' THEN a.spec END AS spec, la.value AS value
 		FROM ${intRows(labourIds)} AS c(value)
-		JOIN labour_attributes la ON la.labour_id = c.value
-		JOIN attributes a ON a.id = la.attribute_id
+		JOIN sagas_labour_attributes la ON la.labour_id = c.value
+		JOIN sagas_attributes a ON a.id = la.attribute_id
 		WHERE a.kind IN ('scale', 'tags')
 	`)
 	).rows;
@@ -96,7 +96,7 @@ export async function loadStrengths(
 			await db.execute<{
 				realmId: number;
 				loudness: number;
-			}>(sql`SELECT realm_id AS "realmId", loudness FROM realm_agent
+			}>(sql`SELECT realm_id AS "realmId", loudness FROM sagas_realm_agent
 					WHERE realm_id IN ${intList([...realmIds])}`)
 		).rows.map((row) => [row.realmId, row.loudness])
 	);

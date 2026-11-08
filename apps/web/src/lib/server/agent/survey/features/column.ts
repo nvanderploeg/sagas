@@ -15,7 +15,7 @@ export const column: Feature = {
 				SELECT id,
 					row_number() OVER (PARTITION BY state_id ORDER BY rank) - 1 AS i,
 					count(*) OVER (PARTITION BY state_id) AS n
-				FROM labours
+				FROM sagas_labours
 				WHERE state_id IN ${intList(stateIds)}
 			) t
 			WHERE id IN ${intList(candidateIds)}

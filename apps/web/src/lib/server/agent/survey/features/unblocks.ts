@@ -10,9 +10,9 @@ export const unblocks: Feature = {
 			await db.execute<{ id: number; n: number }>(sql`
 			SELECT c.value AS id, count(*) AS n
 			FROM ${intRows(candidateIds)} AS c(value)
-			JOIN links k ON k.from_id = c.value AND k.type = 'blocks'
-			JOIN labours t ON t.id = k.to_id
-			JOIN states s ON s.id = t.state_id
+			JOIN sagas_links k ON k.from_id = c.value AND k.type = 'blocks'
+			JOIN sagas_labours t ON t.id = k.to_id
+			JOIN sagas_states s ON s.id = t.state_id
 			WHERE NOT s.is_closed
 			GROUP BY c.value
 		`)

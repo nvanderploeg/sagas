@@ -25,15 +25,15 @@ describe('the baseline migration', () => {
 	});
 
 	it.each([
-		['labours', 'rank'],
-		['quest_labours', 'rank'],
-		['scrolls', 'rank'],
-		['scrolls', 'slug'],
-		['scrolls', 'path'],
-		['scroll_paths', 'path'],
-		['labour_keys', 'key'],
-		['realm_keys', 'key'],
-		['realms', 'key']
+		['sagas_labours', 'rank'],
+		['sagas_quest_labours', 'rank'],
+		['sagas_scrolls', 'rank'],
+		['sagas_scrolls', 'slug'],
+		['sagas_scrolls', 'path'],
+		['sagas_scroll_paths', 'path'],
+		['sagas_labour_keys', 'key'],
+		['sagas_realm_keys', 'key'],
+		['sagas_realms', 'key']
 	])('collates %s.%s as C', async (table, column) => {
 		const db = await testDb();
 
@@ -92,7 +92,7 @@ describe('the baseline migration', () => {
 	it('starts the event counter at zero in a single row', async () => {
 		const db = await testDb();
 
-		expect((await db.$client.query('SELECT id, last FROM event_counter')).rows).toEqual([
+		expect((await db.$client.query('SELECT id, last FROM sagas_event_counter')).rows).toEqual([
 			{ id: 1, last: 0 }
 		]);
 	});
@@ -106,7 +106,7 @@ describe('the baseline migration', () => {
 			)
 		).rows.map((row) => row.indexname);
 
-		expect(rows.sort()).toEqual(['labour_text_search_idx', 'scroll_text_search_idx']);
+		expect(rows.sort()).toEqual(['sagas_labour_text_search_idx', 'sagas_scroll_text_search_idx']);
 	});
 
 	it('has a schema.ts and snapshot that drizzle-kit generate finds no difference in', () => {

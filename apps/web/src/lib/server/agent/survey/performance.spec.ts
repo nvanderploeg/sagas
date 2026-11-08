@@ -109,7 +109,7 @@ async function seed() {
 		for (const part of chunks(talk, 500)) await tx.insert(comments).values(part);
 	});
 	for (const realm of realmRows) {
-		await db.$client.query('UPDATE realms SET labour_counter = $1 WHERE id = $2', [
+		await db.$client.query('UPDATE sagas_realms SET labour_counter = $1 WHERE id = $2', [
 			rows.filter((r) => r.realmId === realm.id).length,
 			realm.id
 		]);

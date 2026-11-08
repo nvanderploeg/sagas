@@ -223,13 +223,16 @@ describe('a bundle from the SQLite build', () => {
 			webhooks: 1
 		});
 		expect(
-			(await rows('SELECT id, username FROM users ORDER BY id')).map((r) => [r.id, r.username])
+			(await rows('SELECT id, username FROM sagas_users ORDER BY id')).map((r) => [
+				r.id,
+				r.username
+			])
 		).toEqual([
 			[1, 'ada'],
 			[7, 'robo']
 		]);
 		expect(
-			(await rows('SELECT key, labour_id FROM labour_keys ORDER BY key')).map((r) => [
+			(await rows('SELECT key, labour_id FROM sagas_labour_keys ORDER BY key')).map((r) => [
 				r.key,
 				r.labour_id
 			])
@@ -238,34 +241,36 @@ describe('a bundle from the SQLite build', () => {
 			['AM-2', 12],
 			['OLD-9', 11]
 		]);
-		expect((await rows('SELECT key FROM realm_keys ORDER BY key')).map((r) => r.key)).toEqual([
-			'AM',
-			'OLD'
-		]);
+		expect((await rows('SELECT key FROM sagas_realm_keys ORDER BY key')).map((r) => r.key)).toEqual(
+			['AM', 'OLD']
+		);
 	});
 
 	it('converts booleans, JSON text and blobs', async () => {
 		await importBundle(db, await legacyBundle(root), LIMITS);
 
-		const admin = (await rows<{ is_admin: boolean }>('SELECT is_admin FROM users WHERE id = 1'))[0];
+		const admin = (
+			await rows<{ is_admin: boolean }>('SELECT is_admin FROM sagas_users WHERE id = 1')
+		)[0];
 		expect(admin.is_admin).toBe(true);
 		const states = await rows<{ is_closed: boolean; is_open: boolean }>(
-			'SELECT is_closed, is_open FROM states ORDER BY id'
+			'SELECT is_closed, is_open FROM sagas_states ORDER BY id'
 		);
 		expect(states).toEqual([
 			{ is_closed: false, is_open: true },
 			{ is_closed: true, is_open: false }
 		]);
-		const labels = await rows('SELECT id FROM labours WHERE labels @> \'["bug"]\'::jsonb');
+		const labels = await rows('SELECT id FROM sagas_labours WHERE labels @> \'["bug"]\'::jsonb');
 		expect(labels.map((r) => r.id)).toEqual([11]);
 		const data = (
-			await rows<{ data: unknown }>('SELECT data::text AS data FROM events WHERE seq = 41')
+			await rows<{ data: unknown }>('SELECT data::text AS data FROM sagas_events WHERE seq = 41')
 		)[0];
 		expect(JSON.parse(data.data as string)).toEqual({ labour: { id: 11 }, nested: { b: 1, a: 2 } });
-		const vector = (await rows<{ vector: Buffer }>('SELECT vector FROM labour_vectors'))[0].vector;
+		const vector = (await rows<{ vector: Buffer }>('SELECT vector FROM sagas_labour_vectors'))[0]
+			.vector;
 		expect(vector.equals(VECTOR)).toBe(true);
 		expect(
-			(await rows<{ created_at: number }>('SELECT created_at FROM labours WHERE id = 11'))[0]
+			(await rows<{ created_at: number }>('SELECT created_at FROM sagas_labours WHERE id = 11'))[0]
 				.created_at
 		).toBe(2000);
 	});
@@ -279,7 +284,7 @@ describe('a bundle from the SQLite build', () => {
 		expect(
 			(
 				await rows(
-					"SELECT 1 FROM scroll_text WHERE search @@ plainto_tsquery('sagas_english', 'tag')"
+					"SELECT 1 FROM sagas_scroll_text WHERE search @@ plainto_tsquery('sagas_english', 'tag')"
 				)
 			).length
 		).toBe(1);
@@ -297,11 +302,11 @@ describe('a bundle from the SQLite build', () => {
 		const scroll = await createScroll(db, actor, { realmId: 3, title: 'second', body: '' });
 		expect(scroll.id).toBe(22);
 		const comment = await rows<{ id: number }>(
-			`INSERT INTO comments (labour_id, author_id, body, created_at) VALUES (11, 1, 'x', 1) RETURNING id`
+			`INSERT INTO sagas_comments (labour_id, author_id, body, created_at) VALUES (11, 1, 'x', 1) RETURNING id`
 		);
 		expect(comment[0].id).toBe(2);
 		const user = await rows<{ id: number }>(
-			`INSERT INTO users (kind, username, display_name, created_at) VALUES ('agent', 'next', 'Next', 1) RETURNING id`
+			`INSERT INTO sagas_users (kind, username, display_name, created_at) VALUES ('agent', 'next', 'Next', 1) RETURNING id`
 		);
 		expect(user[0].id).toBe(8);
 	});
@@ -312,7 +317,7 @@ describe('a bundle from the SQLite build', () => {
 		expect((await eventWindow(db)).last).toBe(60);
 		const made = await createLabour(db, { id: 1 }, { realmId: 3, title: 'new', ownerId: 1 });
 		void made;
-		const last = (await rows<{ seq: number }>('SELECT max(seq) AS seq FROM events'))[0].seq;
+		const last = (await rows<{ seq: number }>('SELECT max(seq) AS seq FROM sagas_events'))[0].seq;
 		expect(last).toBe(61);
 	});
 
@@ -340,7 +345,7 @@ describe('a bundle from the SQLite build', () => {
 
 		expect(result.rows.labours).toBe(2);
 		expect(result.rows.webhooks).toBeUndefined();
-		expect((await rows('SELECT 1 FROM scrolls')).length).toBe(0);
+		expect((await rows('SELECT 1 FROM sagas_scrolls')).length).toBe(0);
 	});
 
 	it('refuses a bundle claiming a newer schema level than the last SQLite migration', async () => {
@@ -354,7 +359,7 @@ describe('a bundle from the SQLite build', () => {
 		const bundle = await legacyBundle(root, { corrupt: true });
 
 		await expect(importBundle(db, bundle, LIMITS)).rejects.toThrow(/SQLite|damaged|readable/);
-		expect((await rows('SELECT 1 FROM labours')).length).toBe(2);
+		expect((await rows('SELECT 1 FROM sagas_labours')).length).toBe(2);
 	});
 
 	it('rolls the whole import back when a row breaks a rule', async () => {
@@ -364,7 +369,7 @@ describe('a bundle from the SQLite build', () => {
 		});
 
 		await expect(importBundle(db, bundle, LIMITS)).rejects.toBeInstanceOf(BundleError);
-		expect((await rows<{ key: string }>('SELECT key FROM realms'))[0].key).toBe('AM');
+		expect((await rows<{ key: string }>('SELECT key FROM sagas_realms'))[0].key).toBe('AM');
 	});
 
 	it('refuses a row that points at a missing parent', async () => {
@@ -373,6 +378,6 @@ describe('a bundle from the SQLite build', () => {
 		});
 
 		await expect(importBundle(db, bundle, LIMITS)).rejects.toBeInstanceOf(BundleError);
-		expect((await rows('SELECT 1 FROM labours')).length).toBe(0);
+		expect((await rows('SELECT 1 FROM sagas_labours')).length).toBe(0);
 	});
 });

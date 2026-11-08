@@ -22,11 +22,11 @@ describe('bootstrap', () => {
 			await Promise.all(pools.map((pool) => bootstrap(pool)));
 
 			const applied = await pools[0].query(
-				'SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations'
+				'SELECT count(*)::int AS n FROM drizzle.sagas_migrations'
 			);
 			expect(applied.rows[0].n).toBe(loadMigrations().length);
 			const tables = await pools[0].query(
-				"SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users'"
+				"SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'sagas_users'"
 			);
 			expect(tables.rows[0].n).toBe(1);
 		} finally {
@@ -42,9 +42,7 @@ describe('bootstrap', () => {
 			await bootstrap(pool);
 			await bootstrap(pool);
 
-			const applied = await pool.query(
-				'SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations'
-			);
+			const applied = await pool.query('SELECT count(*)::int AS n FROM drizzle.sagas_migrations');
 			expect(applied.rows[0].n).toBe(loadMigrations().length);
 		} finally {
 			await pool.end();

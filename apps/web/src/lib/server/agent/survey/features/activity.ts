@@ -11,7 +11,7 @@ export const activity: Feature = {
 				await db.execute<{ id: number; at: number }>(sql`
 						SELECT c.value AS id, max(m.created_at) AS at
 						FROM ${intRows(candidateIds)} AS c(value)
-						JOIN comments m ON m.labour_id = c.value
+						JOIN sagas_comments m ON m.labour_id = c.value
 						GROUP BY c.value
 					`)
 			).rows.map(({ id, at }) => [id, at])

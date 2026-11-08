@@ -71,7 +71,7 @@ describe('the outcomes table', () => {
 		await labour();
 		const insert = async (verdict: string) =>
 			db.$client.query(
-				`INSERT INTO outcomes (survey_id, labour_id, verdict, author_id, created_at)
+				`INSERT INTO sagas_outcomes (survey_id, labour_id, verdict, author_id, created_at)
 				 VALUES ($1, $2, $3, $4, 0)`,
 				[(await row()).surveyId, (await row()).labourId, verdict, actor.id]
 			);

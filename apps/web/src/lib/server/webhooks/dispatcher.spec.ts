@@ -81,7 +81,7 @@ beforeEach(async () => {
 	) {
 		const first = args[0];
 		const source = typeof first === 'string' ? first : ((first as { text?: string })?.text ?? '');
-		if (source.includes('from "webhooks"')) reads.push(source);
+		if (source.includes('from "sagas_webhooks"')) reads.push(source);
 		if (refuse?.test(source)) {
 			refuse = null;
 			const failure = new Error('database is locked');
@@ -92,7 +92,7 @@ beforeEach(async () => {
 			}
 			return Promise.reject(failure) as never;
 		}
-		if (source.includes('from "events"') && onEventsRead !== null) {
+		if (source.includes('from "sagas_events"') && onEventsRead !== null) {
 			const run = onEventsRead;
 			onEventsRead = null;
 			run();
@@ -111,7 +111,7 @@ afterEach(() => {
 });
 
 // The query a pass lists Webhooks with: every column it reads and no where clause.
-const LIST = /^select "id", "status", "cursor", "next_attempt_at" from "webhooks"$/;
+const LIST = /^select "id", "status", "cursor", "next_attempt_at" from "sagas_webhooks"$/;
 
 function storeEnv(): WebhookEnv {
 	return { key: KEY, maxPerUser: 10, max: 50, allowPrivate: false, now: clock };
@@ -178,7 +178,7 @@ function dispatcher(overrides: Partial<DispatcherDeps> = {}): Dispatcher {
 // Winds the id sequence back so the next Webhook reuses the last deleted id.
 async function reuseLastId(): Promise<void> {
 	await db.$client.query(
-		`SELECT setval(pg_get_serial_sequence('webhooks', 'id'), last_value, false) FROM webhooks_id_seq`
+		`SELECT setval(pg_get_serial_sequence('sagas_webhooks', 'id'), last_value, false) FROM sagas_webhooks_id_seq`
 	);
 }
 

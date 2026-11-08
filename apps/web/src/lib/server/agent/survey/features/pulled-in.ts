@@ -10,7 +10,7 @@ export const pulledIn: Feature = {
 			await db.execute<{ id: number; at: number }>(sql`
 			SELECT m.source_labour_id AS id, m.first_seen_at AS at
 			FROM ${intRows(candidateIds)} AS c(value)
-			JOIN mentions m ON m.source_labour_id = c.value
+			JOIN sagas_mentions m ON m.source_labour_id = c.value
 			WHERE m.user_id = ${forUserId}
 		`)
 		).rows;

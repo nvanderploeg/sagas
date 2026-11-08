@@ -90,22 +90,22 @@ try {
 	);
 
 	for (const table of names) {
-		const have = (await pool.query(`SELECT count(*)::int AS n FROM "${table}"`)).rows[0].n;
+		const have = (await pool.query(`SELECT count(*)::int AS n FROM "sagas_${table}"`)).rows[0].n;
 		const want = expected[table] ?? 0;
 		if (table === 'event_counter') continue;
 		check(`rows of ${table}`, have === want, `${have} of ${want}`);
 	}
 
 	const orphans = await pool.query(`
-		SELECT count(*)::int AS n FROM labours l
-		LEFT JOIN labour_keys k ON k.labour_id = l.id
-		LEFT JOIN realms r ON r.id = l.realm_id
+		SELECT count(*)::int AS n FROM sagas_labours l
+		LEFT JOIN sagas_labour_keys k ON k.labour_id = l.id
+		LEFT JOIN sagas_realms r ON r.id = l.realm_id
 		WHERE k.key IS NULL OR r.id IS NULL`);
 	check('every Labour has a key and a Realm', orphans.rows[0].n === 0);
 	const keyMismatch = await pool.query(`
-		SELECT count(*)::int AS n FROM labours l
-		JOIN realms r ON r.id = l.realm_id
-		WHERE NOT EXISTS (SELECT 1 FROM labour_keys k WHERE k.labour_id = l.id AND k.key = r.key || '-' || l.number)`);
+		SELECT count(*)::int AS n FROM sagas_labours l
+		JOIN sagas_realms r ON r.id = l.realm_id
+		WHERE NOT EXISTS (SELECT 1 FROM sagas_labour_keys k WHERE k.labour_id = l.id AND k.key = r.key || '-' || l.number)`);
 	check('every Labour key is its current key too', keyMismatch.rows[0].n === 0);
 	const deferred = await pool.query(
 		`SELECT count(*)::int AS n FROM pg_constraint WHERE contype='f' AND NOT convalidated`
@@ -120,7 +120,7 @@ try {
 	);
 	const questList = await quests.listQuests(db);
 	check('Quests list', questList.length === (expected.quests ?? 0), `${questList.length}`);
-	const realmRows = await pool.query('SELECT id FROM realms ORDER BY id');
+	const realmRows = await pool.query('SELECT id FROM sagas_realms ORDER BY id');
 	let scrollSeen = 0;
 	for (const { id } of realmRows.rows)
 		scrollSeen += (await scrolls.listScrollChildren(db, id, null)).length;
@@ -131,7 +131,7 @@ try {
 	);
 
 	// Search: the most common long word in Labour titles must find Labours.
-	const titles = (await pool.query('SELECT title FROM labours')).rows.map((r) => r.title);
+	const titles = (await pool.query('SELECT title FROM sagas_labours')).rows.map((r) => r.title);
 	const counts = new Map();
 	for (const t of titles)
 		for (const w of new Set(t.toLowerCase().match(/[a-z]{5,}/g) ?? []))
@@ -149,7 +149,8 @@ try {
 	} else {
 		console.log('SKIP  search (no title words)');
 	}
-	const scrollTitles = (await pool.query('SELECT realm_id, title FROM scrolls LIMIT 200')).rows;
+	const scrollTitles = (await pool.query('SELECT realm_id, title FROM sagas_scrolls LIMIT 200'))
+		.rows;
 	if (scrollTitles.length) {
 		const word = scrollTitles.flatMap((r) => r.title.toLowerCase().match(/[a-z]{5,}/g) ?? [])[0];
 		if (word) {
@@ -165,19 +166,22 @@ try {
 
 	// Sequences continue above the imported ids.
 	const before = {
-		labours: (await pool.query('SELECT coalesce(max(id),0)::int AS m FROM labours')).rows[0].m,
-		scrolls: (await pool.query('SELECT coalesce(max(id),0)::int AS m FROM scrolls')).rows[0].m,
-		events: (await pool.query('SELECT coalesce(max(seq),0)::int AS m FROM events')).rows[0].m
+		labours: (await pool.query('SELECT coalesce(max(id),0)::int AS m FROM sagas_labours')).rows[0]
+			.m,
+		scrolls: (await pool.query('SELECT coalesce(max(id),0)::int AS m FROM sagas_scrolls')).rows[0]
+			.m,
+		events: (await pool.query('SELECT coalesce(max(seq),0)::int AS m FROM sagas_events')).rows[0].m
 	};
-	const adminUser = (await pool.query('SELECT id FROM users WHERE is_admin ORDER BY id LIMIT 1'))
-		.rows[0];
+	const adminUser = (
+		await pool.query('SELECT id FROM sagas_users WHERE is_admin ORDER BY id LIMIT 1')
+	).rows[0];
 	const realm =
 		(
 			await pool.query(
-				`SELECT r.id FROM realms r JOIN realm_members m ON m.realm_id = r.id AND m.user_id = $1 AND m.status = 'active' ORDER BY r.id LIMIT 1`,
+				`SELECT r.id FROM sagas_realms r JOIN sagas_realm_members m ON m.realm_id = r.id AND m.user_id = $1 AND m.status = 'active' ORDER BY r.id LIMIT 1`,
 				[adminUser.id]
 			)
-		).rows[0] ?? (await pool.query('SELECT id FROM realms ORDER BY id LIMIT 1')).rows[0];
+		).rows[0] ?? (await pool.query('SELECT id FROM sagas_realms ORDER BY id LIMIT 1')).rows[0];
 	const made = await labours.createLabour(
 		db,
 		{ id: adminUser.id },
@@ -198,9 +202,9 @@ try {
 		madeScroll.id > before.scrolls,
 		`${madeScroll.id} > ${before.scrolls}`
 	);
-	const after = (await pool.query('SELECT max(seq)::int AS m FROM events')).rows[0].m;
+	const after = (await pool.query('SELECT max(seq)::int AS m FROM sagas_events')).rows[0].m;
 	check('new Events continue the seq', after > before.events, `${after} > ${before.events}`);
-	const counter = (await pool.query('SELECT last FROM event_counter')).rows[0].last;
+	const counter = (await pool.query('SELECT last FROM sagas_event_counter')).rows[0].last;
 	check('event counter covers the seq', counter >= after);
 
 	// A native export imports back to the same counts.
@@ -213,7 +217,7 @@ try {
 		await Promise.all(
 			names.map(async (t) => [
 				t,
-				(await pool.query(`SELECT count(*)::int AS n FROM "${t}"`)).rows[0].n
+				(await pool.query(`SELECT count(*)::int AS n FROM "sagas_${t}"`)).rows[0].n
 			])
 		)
 	);
@@ -221,7 +225,7 @@ try {
 	check('a native export imports back', again.format === 2);
 	const mismatched = [];
 	for (const t of names) {
-		const n = (await pool.query(`SELECT count(*)::int AS n FROM "${t}"`)).rows[0].n;
+		const n = (await pool.query(`SELECT count(*)::int AS n FROM "sagas_${t}"`)).rows[0].n;
 		if (n !== rowsBefore[t]) mismatched.push(t);
 	}
 	check('round trip keeps every table count', mismatched.length === 0, mismatched.join(','));

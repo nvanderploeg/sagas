@@ -41,14 +41,14 @@ type TextRow = {
 async function textOf(labourId: number): Promise<TextRow | undefined> {
 	return (
 		await db.$client.query<TextRow>(
-			'SELECT title, brief, description, comments, notes FROM labour_text WHERE labour_id = $1',
+			'SELECT title, brief, description, comments, notes FROM sagas_labour_text WHERE labour_id = $1',
 			[labourId]
 		)
 	).rows[0];
 }
 
 const textRows = async () =>
-	(await db.$client.query<{ n: number }>('SELECT count(*) AS n FROM labour_text')).rows[0].n;
+	(await db.$client.query<{ n: number }>('SELECT count(*) AS n FROM sagas_labour_text')).rows[0].n;
 
 const labour = (over: Partial<Parameters<typeof seedLabour>[1]> = {}) =>
 	seedLabour(db, { realmId, ...over });
@@ -81,7 +81,7 @@ describe('labour_text hooks', () => {
 		await updateLabour(db, actor, a.id, { title: 'renamed', description: 'details' });
 		expect(await textOf(a.id)).toMatchObject({ title: 'renamed', description: 'details' });
 
-		await db.$client.query('UPDATE labour_text SET title = $1 WHERE labour_id = $2', [
+		await db.$client.query('UPDATE sagas_labour_text SET title = $1 WHERE labour_id = $2', [
 			'marker',
 			a.id
 		]);
@@ -137,7 +137,7 @@ describe('labour_text hooks', () => {
 		const holder = await labour();
 		const other = await labour();
 		await setValues(db, actor, holder.id, { lore: 'tale' });
-		await db.$client.query('UPDATE labour_text SET notes = $1 WHERE labour_id = $2', [
+		await db.$client.query('UPDATE sagas_labour_text SET notes = $1 WHERE labour_id = $2', [
 			'marker',
 			other.id
 		]);
@@ -318,7 +318,7 @@ describe('mentions table', () => {
 	const insert = (over: Record<string, unknown>) => {
 		const row = { source: 0, comment: null, labour: null, user: null, author: actor.id, ...over };
 		return db.$client.query(
-			`INSERT INTO mentions (source_labour_id, comment_id, labour_id, user_id, author_id, first_seen_at)
+			`INSERT INTO sagas_mentions (source_labour_id, comment_id, labour_id, user_id, author_id, first_seen_at)
 			 VALUES ($1, $2, $3, $4, $5, 1)`,
 			[row.source, row.comment, row.labour, row.user, row.author]
 		);
@@ -404,7 +404,7 @@ describe('rebuildDerived', () => {
 		const comment = await addComment(db, actor, source.id, `again ${target.key}`);
 		const kept = await db.select().from(mentions);
 		await db.delete(mentions).where(eq(mentions.userId, owner));
-		await db.$client.query('DELETE FROM labour_text');
+		await db.$client.query('DELETE FROM sagas_labour_text');
 
 		await db.delete(derivedBuilds);
 		await rebuildDerived(db);
@@ -438,7 +438,7 @@ describe('rebuildDerived', () => {
 				description: `see ${first.key} and @bulk about dragons`
 			});
 		}
-		await db.$client.query('DELETE FROM labour_text');
+		await db.$client.query('DELETE FROM sagas_labour_text');
 		await db.delete(mentions);
 
 		const started = performance.now();

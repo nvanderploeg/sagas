@@ -74,7 +74,7 @@ describe('schema', () => {
 	const insert = (over: Record<string, unknown>) => {
 		const row = { realm_id: realmId, key: 'a', kind: 'scale', spec: '{}', position: 0, ...over };
 		return db.$client.query(
-			`INSERT INTO attributes (realm_id, key, kind, label, rubric, spec, position, created_at, revised_at, updated_at)
+			`INSERT INTO sagas_attributes (realm_id, key, kind, label, rubric, spec, position, created_at, revised_at, updated_at)
 			 VALUES ($1, $2, $3, 'l', 'r', $4, $5, 0, 0, 0)`,
 			[row.realm_id, row.key, row.kind, row.spec, row.position]
 		);
@@ -97,7 +97,7 @@ describe('schema', () => {
 	it('refuses realm_agent values outside their bounds', async () => {
 		const put = (version: number, half: number, loud: number) =>
 			db.$client.query(
-				'INSERT INTO realm_agent (realm_id, version, half_life_days, loudness, updated_at) VALUES ($1, $2, $3, $4, 0)',
+				'INSERT INTO sagas_realm_agent (realm_id, version, half_life_days, loudness, updated_at) VALUES ($1, $2, $3, $4, 0)',
 				[realmId, version, half, loud]
 			);
 		await expectFailure(put(0, 14, 5), /realm_agent_version/);
