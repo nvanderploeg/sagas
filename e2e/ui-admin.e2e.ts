@@ -155,7 +155,7 @@ test.describe('admin', () => {
 
 		const username = uniqueName('evilbot');
 		const invites = async () =>
-			(await db.$client.query<{ n: number }>('SELECT count(*) AS n FROM invites')).rows[0].n;
+			(await db.$client.query<{ n: number }>('SELECT count(*) AS n FROM sagas_invites')).rows[0].n;
 		const before = await invites();
 		const attempts: [string, Record<string, string>][] = [
 			['invite', {}],
@@ -180,13 +180,15 @@ test.describe('admin', () => {
 		}
 		expect(await invites()).toBe(before);
 		expect(
-			(await db.$client.query('SELECT id FROM users WHERE username = $1', [username])).rowCount
+			(await db.$client.query('SELECT id FROM sagas_users WHERE username = $1', [username]))
+				.rowCount
 		).toBe(0);
 		expect(
 			(
-				await db.$client.query("SELECT id FROM api_tokens WHERE user_id = $1 AND name = 'stolen'", [
-					admin.id
-				])
+				await db.$client.query(
+					"SELECT id FROM sagas_api_tokens WHERE user_id = $1 AND name = 'stolen'",
+					[admin.id]
+				)
 			).rowCount
 		).toBe(0);
 	});
