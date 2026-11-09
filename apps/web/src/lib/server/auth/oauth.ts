@@ -6,7 +6,8 @@ import {
 	oauthClients,
 	oauthCodes,
 	oauthGrants,
-	oauthRefreshTokens
+	oauthRefreshTokens,
+	users
 } from '#lib/server/db/schema.ts';
 import { announceRevoked } from './credentials.ts';
 import {
@@ -349,6 +350,14 @@ export async function refreshGrant(
 				return invalidGrant('Refresh token is invalid');
 			}
 			if (row.grant.revokedAt !== null) return invalidGrant('Refresh token was revoked');
+			const owner = (
+				await tx
+					.select({ bannedAt: users.bannedAt })
+					.from(users)
+					.where(eq(users.id, row.grant.userId))
+					.limit(1)
+			)[0];
+			if (!owner || owner.bannedAt !== null) return invalidGrant('Refresh token was revoked');
 			if (row.refresh.usedAt !== null) {
 				const revokedHash = await revokeGrantRows(tx, row.grant.id, now);
 				return { ...invalidGrant('Refresh token was already used'), revokedHash };

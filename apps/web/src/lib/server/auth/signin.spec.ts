@@ -4,7 +4,7 @@ import type { Db } from '#lib/server/db/client.ts';
 import { users } from '#lib/server/db/schema.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { createAgentUser, setUserEmail, unlinkSignIn } from './users.ts';
-import { seedAdmin, seedHuman } from './fixtures.ts';
+import { fakeSessions, seedAdmin, seedHuman } from './fixtures.ts';
 import type { FirebaseIdentity } from './firebase.ts';
 import { signInIdentity } from './signin.ts';
 
@@ -24,6 +24,17 @@ const identity = (over: Partial<FirebaseIdentity> = {}): FirebaseIdentity => ({
 const none = new Set<string>();
 
 describe('signInIdentity', () => {
+	it('never hands out the Deleted user username', async () => {
+		const user = await signInIdentity(
+			db,
+			identity({ uid: 'u-d', email: 'deleted-user@example.com' }),
+			none
+		);
+
+		expect(user.username).not.toBe('deleted-user');
+		expect(user.username).toBe('deleted-user2');
+	});
+
 	it('creates a human User with a username from the email', async () => {
 		const user = await signInIdentity(db, identity(), none);
 
@@ -168,6 +179,7 @@ describe('signInIdentity', () => {
 	});
 
 	it('links a recreated Firebase account after an Admin unlinks the User', async () => {
+		fakeSessions();
 		const admin = await seedAdmin(db);
 		const first = await signInIdentity(db, identity(), none);
 

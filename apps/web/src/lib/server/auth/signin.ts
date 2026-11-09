@@ -4,7 +4,7 @@ import { transact } from '#lib/server/db/tx.ts';
 import { users } from '#lib/server/db/schema.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import type { FirebaseIdentity } from './firebase.ts';
-import { toAuthUser, type AuthUser } from './users.ts';
+import { DELETED_USERNAME, toAuthUser, type AuthUser } from './users.ts';
 
 const MAX_USERNAME = 32;
 
@@ -21,6 +21,7 @@ async function freeUsername(tx: Handle, email: string): Promise<string> {
 	const base = baseUsername(email);
 	for (let n = 0; ; n++) {
 		const candidate = n === 0 ? base : `${base}${n + 1}`;
+		if (candidate === DELETED_USERNAME) continue;
 		const taken = (
 			await tx.select({ id: users.id }).from(users).where(eq(users.username, candidate)).limit(1)
 		)[0];

@@ -1,7 +1,6 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { sessionVerifier } from '#lib/server/auth/firebase.ts';
-import { endSession, setSessionCookie } from '#lib/server/auth/request.ts';
-import { signInIdentity } from '#lib/server/auth/signin.ts';
+import { isInvalidSession, sessionVerifier } from '#lib/server/auth/firebase.ts';
+import { endSession, setSessionCookie, signInOrFind } from '#lib/server/auth/request.ts';
 import { adminEmails } from '#lib/server/config.ts';
 import { getDb } from '#lib/server/db/index.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
@@ -18,12 +17,16 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 	let exchanged: Awaited<ReturnType<typeof sessionVerifier.exchange>>;
 	try {
 		exchanged = await sessionVerifier.exchange(idToken, SESSION_TTL_MS);
-	} catch {
-		return json({ error: 'Sign-in could not be verified' }, { status: 401 });
+	} catch (error) {
+		if (isInvalidSession(error)) {
+			return json({ error: 'Sign-in could not be verified' }, { status: 401 });
+		}
+		return json({ error: 'Sign-in is temporarily unavailable' }, { status: 503 });
 	}
 	if (!exchanged) return json({ error: 'Sign in again' }, { status: 401 });
 	try {
-		await signInIdentity(getDb(), exchanged.identity, adminEmails);
+		const user = await signInOrFind(getDb(), exchanged.identity, adminEmails);
+		if (user.banned) return json({ error: 'This account is banned' }, { status: 403 });
 	} catch (error) {
 		if (error instanceof DomainError) {
 			return json({ error: error.message }, { status: error.code === 'conflict' ? 409 : 403 });

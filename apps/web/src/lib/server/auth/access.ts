@@ -27,6 +27,11 @@ const OAUTH_OPEN_PATHS = new Set([
 // Sign-in exchanges an ID token for the cookie, so it cannot require one.
 const AUTH_OPEN_PATHS = new Set(['/api/auth/config', '/api/auth/session']);
 
+// Sign-in and sign-out must work while Firebase cannot verify cookies.
+export function skipsCookieAuth(pathname: string): boolean {
+	return isPublicPath(pathname) || pathname === '/api/auth' || pathname.startsWith('/api/auth/');
+}
+
 export function gate(pathname: string, state: { signedIn: boolean }): Gate {
 	if (OAUTH_OPEN_PATHS.has(pathname) || AUTH_OPEN_PATHS.has(pathname)) return 'pass';
 	if (state.signedIn) return 'pass';

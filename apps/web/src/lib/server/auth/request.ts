@@ -12,6 +12,33 @@ import { adminEmails, authCookieDomain } from '#lib/server/config.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import { signInIdentity } from './signin.ts';
 import { findUserByFirebaseUid, type AuthUser } from './users.ts';
+import type { FirebaseIdentity } from './firebase.ts';
+
+export function isUniqueViolation(error: unknown): boolean {
+	for (let e = error as { code?: unknown; cause?: unknown } | null, i = 0; e && i < 3; i++) {
+		if (e.code === '23505') return true;
+		e = e.cause as typeof e;
+	}
+	return false;
+}
+
+// Two first requests for one uid race to create the User; the loser reads the winner's row.
+export async function signInOrFind(
+	db: Db,
+	identity: FirebaseIdentity,
+	admins: ReadonlySet<string>,
+	deps: { signIn?: typeof signInIdentity; find?: typeof findUserByFirebaseUid } = {}
+): Promise<AuthUser> {
+	const { signIn = signInIdentity, find = findUserByFirebaseUid } = deps;
+	try {
+		return await signIn(db, identity, admins);
+	} catch (error) {
+		if (!isUniqueViolation(error)) throw error;
+		const winner = await find(db, identity.uid);
+		if (!winner) throw error;
+		return winner;
+	}
+}
 
 export type Auth = { user: AuthUser; credential: Credential };
 
@@ -38,7 +65,7 @@ export async function authFromRequest(
 	let user = await findUserByFirebaseUid(db, identity.uid);
 	if (!user) {
 		try {
-			user = await signInIdentity(db, identity, adminEmails);
+			user = await signInOrFind(db, identity, adminEmails);
 		} catch (error) {
 			if (error instanceof DomainError) return null;
 			throw error;

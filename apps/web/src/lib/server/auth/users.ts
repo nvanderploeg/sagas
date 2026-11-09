@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Db, Handle } from '#lib/server/db/client.ts';
-import { apiTokens, users } from '#lib/server/db/schema.ts';
+import { apiTokens, realms, users } from '#lib/server/db/schema.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import { requireText } from '#lib/server/domain/validate.ts';
 import { announceRevoked } from './credentials.ts';
@@ -143,6 +143,13 @@ export async function setUserEmail(
 	const email = input.trim().toLowerCase();
 	if (email !== '' && !EMAIL.test(email)) throw new DomainError('invalid', 'Not an email address');
 	return transact(db, async (tx) => {
+		const target = (
+			await tx.select({ kind: users.kind }).from(users).where(eq(users.id, userId)).limit(1)
+		)[0];
+		if (!target) throw new DomainError('not_found', 'No such User');
+		if (target.kind !== 'human') {
+			throw new DomainError('invalid', 'Only human Users have an email to sign in with');
+		}
 		if (email !== '') {
 			const taken = (
 				await tx.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1)
@@ -167,6 +174,11 @@ export async function setUserEmail(
 // sign-in with it links again.
 export async function unlinkSignIn(db: Db, actor: AuthUser, userId: number): Promise<AuthUser> {
 	requireAdmin(actor);
+	const before = (
+		await db.select({ uid: users.firebaseUid }).from(users).where(eq(users.id, userId)).limit(1)
+	)[0];
+	if (!before) throw new DomainError('not_found', 'No such User');
+	if (before.uid) await sessionVerifier.revoke(before.uid);
 	const row = (
 		await db.update(users).set({ firebaseUid: null }).where(eq(users.id, userId)).returning()
 	)[0];
@@ -183,6 +195,14 @@ async function targetOf(db: Handle, actor: AuthUser, userId: number, confirm: st
 		throw new DomainError('invalid', `Type ${target.username} to confirm`);
 	}
 	return target;
+}
+
+async function revokeLogged(uid: string): Promise<void> {
+	try {
+		await sessionVerifier.revoke(uid);
+	} catch (error) {
+		console.error('sagas could not revoke Firebase sessions', uid, error);
+	}
 }
 
 // A banned User cannot sign in or use a token; their history stays. Lifting the ban restores
@@ -206,16 +226,17 @@ export async function setBanned(
 			.returning({ hash: apiTokens.tokenHash });
 	});
 	for (const { hash } of tokens) announceRevoked({ kind: 'api_token', hash });
-	if (input.banned && target.firebaseUid) {
-		await sessionVerifier.revoke(target.firebaseUid).catch(() => undefined);
-	}
+	if (input.banned && target.firebaseUid) await revokeLogged(target.firebaseUid);
 }
 
 export const DELETED_USERNAME = 'deleted-user';
 
 async function deletedUserId(tx: Handle): Promise<number> {
 	const existing = (
-		await tx.select({ id: users.id }).from(users).where(eq(users.username, DELETED_USERNAME))
+		await tx
+			.select({ id: users.id })
+			.from(users)
+			.where(and(eq(users.username, DELETED_USERNAME), eq(users.kind, 'agent')))
 	)[0];
 	if (existing) return existing.id;
 	return (
@@ -258,9 +279,13 @@ export async function deleteUser(
 		for (const { tbl, col } of references.rows) {
 			await tx.execute(sql.raw(`UPDATE ${tbl} SET ${col} = ${stand} WHERE ${col} = ${target.id}`));
 		}
+		await tx
+			.update(realms)
+			.set({ createdByUserId: stand })
+			.where(eq(realms.createdByUserId, target.id));
 		await tx.delete(users).where(eq(users.id, target.id));
 		return gone;
 	});
 	for (const { hash } of ended) announceRevoked({ kind: 'api_token', hash });
-	if (target.firebaseUid) await sessionVerifier.revoke(target.firebaseUid).catch(() => undefined);
+	if (target.firebaseUid) await revokeLogged(target.firebaseUid);
 }

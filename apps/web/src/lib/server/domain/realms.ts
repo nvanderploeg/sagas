@@ -66,6 +66,7 @@ async function assertRealmLimit(tx: Handle, userId: number): Promise<void> {
 			.from(users)
 			.where(eq(users.id, userId))
 			.limit(1)
+			.for('update')
 	)[0];
 	if (user === undefined) throw new DomainError('not_found', 'No such User');
 	if (user.kind === 'agent') {

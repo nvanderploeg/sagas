@@ -7,11 +7,15 @@ import {
 	setSessionVerifier,
 	VERIFY_CACHE_MS
 } from './firebase.ts';
+import { skipsCookieAuth } from './access.ts';
+import type { AuthUser } from './users.ts';
 import {
 	authFromRequest,
 	clearSessionCookie,
 	endSession,
+	isUniqueViolation,
 	SESSION_COOKIE,
+	signInOrFind,
 	setSessionCookie
 } from './request.ts';
 
@@ -128,7 +132,14 @@ describe('isInvalidSession', () => {
 		expect(isInvalidSession({ code: 'auth/session-cookie-revoked' })).toBe(true);
 		expect(isInvalidSession({ code: 'auth/session-cookie-expired' })).toBe(true);
 		expect(isInvalidSession({ code: 'auth/argument-error' })).toBe(true);
+		expect(isInvalidSession({ code: 'auth/id-token-expired' })).toBe(true);
+		expect(isInvalidSession({ code: 'auth/id-token-revoked' })).toBe(true);
+		expect(isInvalidSession({ code: 'auth/invalid-id-token' })).toBe(true);
 		expect(isInvalidSession({ code: 'auth/internal-error' })).toBe(false);
+		expect(isInvalidSession({ code: 'auth/user-not-found' })).toBe(false);
+		expect(isInvalidSession({ code: 'auth/network-error' })).toBe(false);
+		expect(isInvalidSession({ code: 'auth/some-new-code' })).toBe(false);
+		expect(isInvalidSession(null)).toBe(false);
 		expect(isInvalidSession({ code: 'app/network-error' })).toBe(false);
 		expect(isInvalidSession(new Error('ECONNRESET'))).toBe(false);
 	});
@@ -168,5 +179,90 @@ describe('cachedVerify', () => {
 		cache.clear();
 		await cache.verify('a');
 		expect(inner).toHaveBeenCalledTimes(4);
+	});
+});
+
+describe('cachedVerify revoke', () => {
+	const who = (uid: string) => ({ uid, email: null, emailVerified: true, name: null });
+
+	it('drops only that uid and does not cache a verify already in flight', async () => {
+		let release!: () => void;
+		const gated = new Promise<void>((resolve) => (release = resolve));
+		const inner = vi.fn(async (cookie: string) => {
+			if (cookie === 'slow') await gated;
+			return who(cookie === 'other' ? 'u2' : 'u1');
+		});
+		const cache = cachedVerify(inner);
+
+		await cache.verify('other');
+		const pending = cache.verify('slow');
+		cache.revoke('u1');
+		release();
+		await pending;
+		await cache.verify('slow');
+		await cache.verify('other');
+
+		expect(inner).toHaveBeenCalledTimes(3);
+	});
+
+	it('caches again for a verify that starts after the revoke', async () => {
+		const inner = vi.fn(() => Promise.resolve(who('u1')));
+		const cache = cachedVerify(inner);
+
+		cache.revoke('u1');
+		await cache.verify('a');
+		await cache.verify('a');
+
+		expect(inner).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('signInOrFind', () => {
+	const identity = { uid: 'u1', email: 'a@x.test', emailVerified: true, name: null };
+	const user = { id: 1, username: 'a' } as AuthUser;
+	const db = null as never;
+
+	it('reads the winner after losing a unique-violation race', async () => {
+		const unique = Object.assign(new Error('dup'), { code: '23505' });
+		const found = await signInOrFind(db, identity, new Set(), {
+			signIn: () => Promise.reject(new Error('query failed', { cause: unique })),
+			find: () => Promise.resolve(user)
+		});
+		expect(found).toBe(user);
+	});
+
+	it('rethrows other errors, and a violation with no winner', async () => {
+		const boom = new Error('boom');
+		await expect(
+			signInOrFind(db, identity, new Set(), {
+				signIn: () => Promise.reject(boom),
+				find: () => Promise.resolve(user)
+			})
+		).rejects.toBe(boom);
+		const dup = Object.assign(new Error('dup'), { code: '23505' });
+		await expect(
+			signInOrFind(db, identity, new Set(), {
+				signIn: () => Promise.reject(dup),
+				find: () => Promise.resolve(null)
+			})
+		).rejects.toBe(dup);
+	});
+
+	it('recognises 23505 on the error or its cause only', () => {
+		expect(isUniqueViolation({ code: '23505' })).toBe(true);
+		expect(isUniqueViolation({ cause: { code: '23505' } })).toBe(true);
+		expect(isUniqueViolation({ code: '23503' })).toBe(false);
+		expect(isUniqueViolation(null)).toBe(false);
+	});
+});
+
+describe('skipsCookieAuth', () => {
+	it('covers sign-in and sign-out paths only', () => {
+		for (const path of ['/login', '/logout', '/api/auth/session', '/api/auth/config']) {
+			expect(skipsCookieAuth(path), path).toBe(true);
+		}
+		for (const path of ['/', '/login/session', '/api/labours', '/api/authx', '/mcp']) {
+			expect(skipsCookieAuth(path), path).toBe(false);
+		}
 	});
 });

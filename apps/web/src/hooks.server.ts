@@ -2,7 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import type { Handle, ServerInit } from '@sveltejs/kit/hooks';
 import { building, dev } from '$app/env';
 import { crossSiteFormRefusal } from '#lib/server/auth/csrf.ts';
-import { gate, isMcpPath, unauthorizedResponse } from '#lib/server/auth/access.ts';
+import { gate, isMcpPath, skipsCookieAuth, unauthorizedResponse } from '#lib/server/auth/access.ts';
 import { resourceMetadataUrl } from '#lib/server/auth/oauth-metadata.ts';
 import { scheduleOAuthPruning } from '#lib/server/auth/oauth.ts';
 import { AuthUnavailableError } from '#lib/server/auth/firebase.ts';
@@ -94,9 +94,11 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (refusal) return refusal;
 
 	const db = getDb();
-	let auth: Awaited<ReturnType<typeof authFromRequest>>;
+	let auth: Awaited<ReturnType<typeof authFromRequest>> = null;
 	try {
-		auth = await authFromRequest(db, event.request, event.cookies.get(SESSION_COOKIE));
+		if (!skipsCookieAuth(event.url.pathname)) {
+			auth = await authFromRequest(db, event.request, event.cookies.get(SESSION_COOKIE));
+		}
 	} catch (error) {
 		if (error instanceof AuthUnavailableError) {
 			return new Response('Sign-in is temporarily unavailable', {

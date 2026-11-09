@@ -1,7 +1,7 @@
 import { and, eq, gt, isNull, or } from 'drizzle-orm';
 import { sessionVerifier } from './firebase.ts';
 import type { Handle } from '#lib/server/db/client.ts';
-import { apiTokens } from '#lib/server/db/schema.ts';
+import { apiTokens, users } from '#lib/server/db/schema.ts';
 import { hashSecret } from './secrets.ts';
 
 // What a request signed in with, named by the secret's stored hash.
@@ -41,9 +41,17 @@ export async function credentialValid(
 			)[0] !== undefined
 		);
 	}
-	return (
-		credential.token !== undefined && (await sessionVerifier.verify(credential.token)) !== null
-	);
+	if (credential.token === undefined) return false;
+	const identity = await sessionVerifier.verify(credential.token);
+	if (identity === null) return false;
+	const user = (
+		await db
+			.select({ bannedAt: users.bannedAt })
+			.from(users)
+			.where(eq(users.firebaseUid, identity.uid))
+			.limit(1)
+	)[0];
+	return user !== undefined && user.bannedAt === null;
 }
 
 type Listener = (credential: Credential) => void;

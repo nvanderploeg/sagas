@@ -468,6 +468,20 @@ describe('exchangeCode', () => {
 });
 
 describe('refreshGrant', () => {
+	it('refuses a banned User and leaves the token row alone', async () => {
+		const { client } = await register();
+		const first = await connect(client);
+		const before = (await db.select().from(apiTokens))[0];
+		await db.update(users).set({ bannedAt: T0 }).where(eq(users.id, ada.id));
+
+		const error = await oauthErrorOf(() =>
+			refreshGrant(db, { client, refreshToken: first.refreshToken }, after(T0, HOUR))
+		);
+
+		expect(error.error).toBe('invalid_grant');
+		expect((await db.select().from(apiTokens))[0].tokenHash).toBe(before.tokenHash);
+	});
+
 	it('hands back the new tokens even when a revocation listener throws', async () => {
 		const { client } = await register();
 		const first = await connect(client);

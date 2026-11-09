@@ -31,35 +31,42 @@ export class AuthUnavailableError extends Error {
 	}
 }
 
-// An auth/* code is Firebase refusing the cookie, except its own failures.
+const TOKEN_INVALID_CODES: ReadonlySet<string> = new Set([
+	'auth/id-token-expired',
+	'auth/id-token-revoked',
+	'auth/session-cookie-expired',
+	'auth/session-cookie-revoked',
+	'auth/argument-error',
+	'auth/invalid-id-token'
+]);
+
+// Only these codes mean Firebase refused the token; every other failure is infrastructure.
 export function isInvalidSession(error: unknown): boolean {
 	const code = (error as { code?: unknown } | null)?.code;
-	return (
-		typeof code === 'string' &&
-		code.startsWith('auth/') &&
-		code !== 'auth/internal-error' &&
-		code !== 'auth/service-unavailable'
-	);
+	return typeof code === 'string' && TOKEN_INVALID_CODES.has(code);
 }
 
 export const VERIFY_CACHE_MS = 5000;
 const VERIFY_CACHE_MAX = 500;
 
 // Remembers verified identities for a few seconds, keyed by a hash of the cookie. Only successes are
-// kept; revoke() empties it.
+// kept; revoke(uid) drops that uid's entries and bars any verify already in flight from caching.
 export function cachedVerify(
 	inner: (cookie: string) => Promise<FirebaseIdentity | null>,
 	now: () => number = Date.now
 ) {
 	const entries = new Map<string, { identity: FirebaseIdentity; until: number }>();
+	let sequence = 0;
+	const revokedAt = new Map<string, number>();
 	return {
 		async verify(cookie: string): Promise<FirebaseIdentity | null> {
 			const key = createHash('sha256').update(cookie).digest('hex');
 			const hit = entries.get(key);
 			if (hit && hit.until > now()) return hit.identity;
 			entries.delete(key);
+			const started = sequence;
 			const identity = await inner(cookie);
-			if (identity) {
+			if (identity && (revokedAt.get(identity.uid) ?? 0) <= started) {
 				if (entries.size >= VERIFY_CACHE_MAX) {
 					for (const [k, v] of entries) if (v.until <= now()) entries.delete(k);
 					if (entries.size >= VERIFY_CACHE_MAX) entries.clear();
@@ -67,6 +74,10 @@ export function cachedVerify(
 				entries.set(key, { identity, until: now() + VERIFY_CACHE_MS });
 			}
 			return identity;
+		},
+		revoke(uid: string): void {
+			revokedAt.set(uid, ++sequence);
+			for (const [k, v] of entries) if (v.identity.uid === uid) entries.delete(k);
 		},
 		clear(): void {
 			entries.clear();
@@ -129,8 +140,12 @@ const adminVerifier: SessionVerifier = {
 	},
 	verify: verifyCache.verify,
 	async revoke(uid) {
-		verifyCache.clear();
-		await getAuth(app()).revokeRefreshTokens(uid);
+		verifyCache.revoke(uid);
+		try {
+			await getAuth(app()).revokeRefreshTokens(uid);
+		} finally {
+			verifyCache.revoke(uid);
+		}
 	}
 };
 

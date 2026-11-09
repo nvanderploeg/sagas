@@ -120,22 +120,24 @@
 						<span class="tag">{user.kind === 'agent' ? 'Agent' : 'Human'}</span>
 					</span>
 					<div class="flex basis-full flex-wrap items-end gap-3 text-sm">
-						<form method="POST" action="?/realmLimit" use:enhance class="flex items-end gap-2">
-							<input type="hidden" name="userId" value={user.id} />
-							<label class="grid gap-1 text-xs font-medium text-muted">
-								Realm limit
-								<input
-									type="number"
-									name="limit"
-									min="0"
-									step="1"
-									required
-									value={user.realmLimit}
-									class="field w-24"
-								/>
-							</label>
-							<button type="submit" class="btn">Set</button>
-						</form>
+						{#if user.kind === 'human'}
+							<form method="POST" action="?/realmLimit" use:enhance class="flex items-end gap-2">
+								<input type="hidden" name="userId" value={user.id} />
+								<label class="grid gap-1 text-xs font-medium text-muted">
+									Realm limit
+									<input
+										type="number"
+										name="limit"
+										min="0"
+										step="1"
+										required
+										value={user.realmLimit}
+										class="field w-24"
+									/>
+								</label>
+								<button type="submit" class="btn">Set</button>
+							</form>
+						{/if}
 						{#if user.kind === 'human'}
 							<form method="POST" action="?/email" use:enhance class="flex items-end gap-2">
 								<input type="hidden" name="userId" value={user.id} />
