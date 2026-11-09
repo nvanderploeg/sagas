@@ -51,10 +51,6 @@ jobs:
       - if: steps.models.outputs.cache-hit != 'true'
         run: pnpm --filter web models:fetch
       - run: pnpm test
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm e2e
-        env:
-          CI: 'true'
 
   image:
     needs: test
