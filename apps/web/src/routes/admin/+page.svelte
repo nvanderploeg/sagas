@@ -189,6 +189,26 @@
 		{/if}
 	</section>
 
+	<section class="panel grid gap-4 p-5" aria-labelledby="owner-heading">
+		<h2 id="owner-heading" class="text-lg font-bold tracking-tight">Assign a Realm Owner</h2>
+		<p class="text-sm text-muted">
+			Makes the User an active Owner of the Realm, or promotes them if already a member or invited.
+			You do not need to be a member, and this does not let you read the Realm.
+		</p>
+		<form method="POST" action="?/owner" use:enhance class="flex flex-wrap items-end gap-2">
+			<label class="grid gap-1">
+				<span class="label">Realm key</span>
+				<input name="realmKey" class="field w-28" required maxlength="6" autocomplete="off" />
+			</label>
+			<label class="grid gap-1">
+				<span class="label">Username or email</span>
+				<input name="user" class="field w-64" required autocomplete="off" />
+			</label>
+			<button type="submit" class="btn btn-primary">Make Owner</button>
+			{#if failure('owner')}<p role="alert" class="error w-full">{failure('owner')}</p>{/if}
+		</form>
+	</section>
+
 	<section class="panel grid gap-4 p-5" aria-labelledby="agents-heading">
 		<h2 id="agents-heading" class="text-lg font-bold tracking-tight">Agent users</h2>
 		<p class="text-sm text-muted">

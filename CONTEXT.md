@@ -11,7 +11,7 @@ A person or agent who can act in sagas. Has a kind of `human` or `agent`. Owners
 A User of kind `agent`. Has no Firebase account and signs in only with API tokens. Can own and be assigned Labours like any human.
 
 **Admin**:
-A User who can manage Users: set an email, a Realm limit, create Agent users. A User whose verified email is in `ADMIN_EMAILS` is an Admin when they sign in.
+A User who can manage Users: set an email, a Realm limit, create Agent users, assign a Realm's Owner. A User whose verified email is in `ADMIN_EMAILS` is an Admin when they sign in.
 
 **Data bundle**:
 A single .zip an Admin exports to move the instance: a consistent snapshot of every table and `manifest.json` (format, app version, schema level, each file's size and sha256). Importing one replaces all data in one transaction. The contract is `docs/data-bundle.md`. A bundle from the SQLite build imports too.
@@ -29,7 +29,7 @@ One User's consent to one OAuth client: an access token that is an API token, pl
 A group of Labours with its own Realm key and State set.
 
 **Membership**:
-One User's role in one Realm: `owner`, `editor` or `viewer`. A Realm is private to its active members, Admins included. The contract is the `product/realm-access` Scroll.
+One User's role in one Realm: `owner`, `editor` or `viewer`. A Realm is private to its active members, Admins included; an Admin may make any User an Owner of any Realm without becoming a member, and still cannot read it. The contract is the `product/realm-access` Scroll.
 
 **Offer**:
 A pending Membership an Owner makes to a User by username. Grants nothing until the invitee accepts; declining or withdrawing deletes it.

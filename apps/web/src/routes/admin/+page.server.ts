@@ -9,6 +9,7 @@ import {
 	setUserEmail,
 	unlinkSignIn
 } from '#lib/server/auth/users.ts';
+import { assignRealmOwner } from '#lib/server/auth/realm-owners.ts';
 import { IMPORT_CONFIRMATION } from '#lib/server/admin/guard.ts';
 import { importMaxBytes } from '#lib/server/config.ts';
 import { getDb } from '#lib/server/db/index.ts';
@@ -78,6 +79,17 @@ export const actions: Actions = {
 			await deleteUser(getDb(), actor, {
 				userId: int(form, 'userId'),
 				confirm: text(form, 'confirm')
+			});
+		});
+	},
+
+	owner: async ({ request, locals }) => {
+		const actor = signedIn(locals);
+		const form = await request.formData();
+		return perform('owner', async () => {
+			await assignRealmOwner(getDb(), actor, {
+				realmKey: text(form, 'realmKey'),
+				user: text(form, 'user')
 			});
 		});
 	},
