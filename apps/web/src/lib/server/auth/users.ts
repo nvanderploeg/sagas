@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { and, count, eq, isNull, ne } from 'drizzle-orm';
+import { and, count, eq, isNull, ne, sql } from 'drizzle-orm';
 import type { Db, Handle } from '#lib/server/db/client.ts';
 import { apiTokens, sessions, users } from '#lib/server/db/schema.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
@@ -267,39 +267,62 @@ export async function setBanned(
 	for (const { hash } of ended.tokens) announceRevoked({ kind: 'api_token', hash });
 }
 
-// Only a User with no history can be deleted: Labours, Comments and events keep pointing at their
-// author, so anyone else is banned instead.
+export const DELETED_USERNAME = 'deleted-user';
+
+async function deletedUserId(tx: Handle): Promise<number> {
+	const existing = (
+		await tx.select({ id: users.id }).from(users).where(eq(users.username, DELETED_USERNAME))
+	)[0];
+	if (existing) return existing.id;
+	return (
+		await tx
+			.insert(users)
+			.values({
+				kind: 'agent',
+				username: DELETED_USERNAME,
+				displayName: 'Deleted user',
+				bannedAt: new Date()
+			})
+			.returning({ id: users.id })
+	)[0].id;
+}
+
+// Everything the User authored or owned is reassigned to the Deleted user, so history stays whole.
+// Rows that belong to the User alone (sessions, tokens, memberships) cascade away.
 export async function deleteUser(
 	db: Db,
 	actor: AuthUser,
 	input: { userId: number; confirm: string }
 ): Promise<void> {
 	const target = await targetOf(db, actor, input.userId, input.confirm);
-	let ended;
-	try {
-		ended = await transact(db, async (tx) => {
-			const gone = {
-				sessions: await tx
-					.select({ id: sessions.id })
-					.from(sessions)
-					.where(eq(sessions.userId, target.id)),
-				tokens: await tx
-					.select({ hash: apiTokens.tokenHash })
-					.from(apiTokens)
-					.where(eq(apiTokens.userId, target.id))
-			};
-			await tx.delete(users).where(eq(users.id, target.id));
-			return gone;
-		});
-	} catch (e) {
-		const code =
-			(e as { cause?: { code?: string }; code?: string }).cause?.code ??
-			(e as { code?: string }).code;
-		if (code === '23503') {
-			throw new DomainError('conflict', `${target.username} has history; ban them instead`);
-		}
-		throw e;
+	if (target.username === DELETED_USERNAME) {
+		throw new DomainError('invalid', 'The Deleted user stands in for removed Users');
 	}
+	const ended = await transact(db, async (tx) => {
+		const gone = {
+			sessions: await tx
+				.select({ id: sessions.id })
+				.from(sessions)
+				.where(eq(sessions.userId, target.id)),
+			tokens: await tx
+				.select({ hash: apiTokens.tokenHash })
+				.from(apiTokens)
+				.where(eq(apiTokens.userId, target.id))
+		};
+		const references = await tx.execute<{ tbl: string; col: string }>(sql`
+			SELECT format('%I.%I', n.nspname, c.relname) AS tbl, quote_ident(a.attname) AS col
+			FROM pg_constraint k
+			JOIN pg_class c ON c.oid = k.conrelid
+			JOIN pg_namespace n ON n.oid = c.relnamespace
+			JOIN pg_attribute a ON a.attrelid = k.conrelid AND a.attnum = k.conkey[1]
+			WHERE k.contype = 'f' AND k.confrelid = 'sagas_users'::regclass AND k.confdeltype = 'a'`);
+		const stand = await deletedUserId(tx);
+		for (const { tbl, col } of references.rows) {
+			await tx.execute(sql.raw(`UPDATE ${tbl} SET ${col} = ${stand} WHERE ${col} = ${target.id}`));
+		}
+		await tx.delete(users).where(eq(users.id, target.id));
+		return gone;
+	});
 	for (const { id } of ended.sessions) announceRevoked({ kind: 'session', hash: id });
 	for (const { hash } of ended.tokens) announceRevoked({ kind: 'api_token', hash });
 }

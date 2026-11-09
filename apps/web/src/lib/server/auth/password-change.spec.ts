@@ -7,7 +7,10 @@ import { testDb } from '#lib/server/test/db.ts';
 import { gate } from './access.ts';
 import { createSession, resolveSession } from './sessions.ts';
 import {
+	DELETED_USERNAME,
 	authenticate,
+	findUser,
+	findUserByName,
 	changePassword,
 	hasUsers,
 	deleteUser,
@@ -173,13 +176,16 @@ describe('setBanned and deleteUser', () => {
 		).rejects.toMatchObject({ code: 'not_found' });
 	});
 
-	it('refuses to delete a User who has history', async () => {
+	it('deletes a User who has history, handing it to the Deleted user', async () => {
 		const { db, admin } = await fixture();
 		const other = await seedHuman(db, 'other');
 		await db.insert(invites).values({ tokenHash: 'h', createdByUserId: other.id });
 
-		await expect(
-			deleteUser(db, admin, { userId: other.id, confirm: 'other' })
-		).rejects.toMatchObject({ code: 'conflict' });
+		await deleteUser(db, admin, { userId: other.id, confirm: 'other' });
+
+		const stand = (await findUserByName(db, DELETED_USERNAME))!;
+		const invite = (await db.select().from(invites))[0];
+		expect(invite.createdByUserId).toBe(stand.id);
+		expect(await findUser(db, other.id)).toBeNull();
 	});
 });
