@@ -16,6 +16,15 @@ export function postForm(
 	});
 }
 
+export function postJson(
+	request: APIRequestContext,
+	path: string,
+	data: object,
+	headers: Record<string, string> = {}
+): Promise<APIResponse> {
+	return request.post(path, { data, headers: { origin, ...headers }, maxRedirects: 0 });
+}
+
 export function getNoFollow(
 	request: APIRequestContext,
 	path: string,

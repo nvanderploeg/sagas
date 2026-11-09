@@ -7,7 +7,7 @@ test.describe('admin', () => {
 	test('creates an Agent user and manages its API tokens', async ({ page, request }) => {
 		const username = uniqueName('agent');
 		await page.goto('/admin');
-		await page.getByLabel('Username').fill(username);
+		await page.getByLabel('Username', { exact: true }).fill(username);
 		await page.getByLabel('Display name').fill('Robo Helper');
 		await page.getByRole('button', { name: 'Create Agent user' }).click();
 
@@ -123,11 +123,16 @@ test.describe('admin', () => {
 		await expect(other.page.getByRole('link', { name: 'Admin' })).toHaveCount(0);
 
 		const username = uniqueName('evilbot');
-		const invites = async () =>
-			(await db.$client.query<{ n: number }>('SELECT count(*) AS n FROM sagas_invites')).rows[0].n;
-		const before = await invites();
+		const limit = async () =>
+			(
+				await db.$client.query<{ realm_limit: number }>(
+					'SELECT realm_limit FROM sagas_users WHERE id = $1',
+					[other.person.id]
+				)
+			).rows[0].realm_limit;
+		const before = await limit();
 		const attempts: [string, Record<string, string>][] = [
-			['invite', {}],
+			['realmLimit', { userId: String(other.person.id), limit: '999' }],
 			['agent', { username, displayName: 'Evil Bot' }],
 			['token', { userId: String(admin.id), name: 'stolen' }]
 		];
@@ -147,7 +152,7 @@ test.describe('admin', () => {
 			);
 			expect(answer, name).toMatchObject({ type: 'failure', status: 403 });
 		}
-		expect(await invites()).toBe(before);
+		expect(await limit()).toBe(before);
 		expect(
 			(await db.$client.query('SELECT id FROM sagas_users WHERE username = $1', [username]))
 				.rowCount

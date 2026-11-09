@@ -19,4 +19,10 @@ export const databaseUrl = (() => {
 	url.pathname = `/${e2eDatabase}`;
 	return url.toString();
 })();
-export const adminFile = join(runDir, 'admin.json');
+
+// A Firebase Auth emulator stands in for Firebase; the project id is a demo one so nothing leaves the machine.
+export const authHost = '127.0.0.1';
+export const authPort = Number(process.env.E2E_AUTH_PORT || 9199);
+export const authHubPort = Number(process.env.E2E_AUTH_HUB_PORT || 4400);
+export const firebaseProject = 'demo-sagas';
+export const adminEmail = 'admin@e2e.test';

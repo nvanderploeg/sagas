@@ -1,3 +1,4 @@
+import { signInContext } from './fixtures/index.ts';
 import { expect, live, test } from './fixtures/ui.ts';
 import { getNoFollow } from './support/http.ts';
 
@@ -55,7 +56,7 @@ test.describe('content security policy', () => {
 		const policy = response!.headers()['content-security-policy'];
 		expect(policy).toContain("img-src 'self' data:");
 		expect(policy).toContain("connect-src 'self'");
-		expect(policy).toMatch(/script-src 'self' 'nonce-[^']+'/);
+		expect(policy).toMatch(/script-src 'self'( https:\/\/apis\.google\.com)? 'nonce-[^']+'/);
 		expect(policy).not.toMatch(/script-src[^;]*'unsafe-inline'/);
 		await live(page);
 
@@ -119,27 +120,12 @@ test.describe('session', () => {
 
 		const back = encodeURIComponent(`/r/${p.key}?filter=1`);
 		await expect(page).toHaveURL(new RegExp(`/login\\?next=${back}$`), { timeout: 10_000 });
-		await page.getByLabel('Username').fill(person.username);
-		await page.getByLabel('Password').fill(person.password);
-		await page.getByRole('button', { name: 'Sign in' }).click();
+		// A session revoked this second would also revoke one minted in it.
+		await page.waitForTimeout(1100);
+		await signInContext(context, person.email);
+		await page.goto(`/r/${p.key}?filter=1`);
 		await expect(page).toHaveURL(new RegExp(`/r/${p.key}\\?filter=1$`));
 		await live(page);
-	});
-
-	test('signing in never follows a return path off the site', async ({ other }) => {
-		const { page, context, person } = other;
-		await context.clearCookies();
-		for (const next of ['//evil.example/x', 'https://evil.example/', '/\\evil.example']) {
-			await page.goto(`/login?next=${encodeURIComponent(next)}`);
-			await page.getByLabel('Username').fill(person.username);
-			await page.getByLabel('Password').fill(person.password);
-			await page.getByRole('button', { name: 'Sign in' }).click();
-			await expect(page).toHaveURL(/^http:\/\/localhost:\d+\/$/);
-			// Leave before signing out: an open Stream that loses its session navigates to sign in,
-			// aborting the next goto.
-			await page.goto('about:blank');
-			await context.clearCookies();
-		}
 	});
 });
 

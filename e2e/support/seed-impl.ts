@@ -12,6 +12,23 @@ export function openRunDb(): Db {
 	return openDatabase(createPool(databaseUrl, { max: 3 }));
 }
 
+export async function ensureAdmin(
+	db: Db,
+	admin: { username: string; displayName: string; email: string }
+): Promise<number> {
+	const found = await db.$client.query<{ id: number }>(
+		'SELECT id FROM sagas_users WHERE username = $1',
+		[admin.username]
+	);
+	if (found.rows[0]) return found.rows[0].id;
+	const created = await db.$client.query<{ id: number }>(
+		`INSERT INTO sagas_users (kind, is_admin, username, display_name, email, realm_limit, created_at)
+		 VALUES ('human', true, $1, $2, $3, 1000, $4) RETURNING id`,
+		[admin.username, admin.displayName, admin.email, Date.now()]
+	);
+	return created.rows[0].id;
+}
+
 export type IssuedToken = { id: number; token: string; revoke: () => Promise<void> };
 
 const TODO = { key: 'todo', label: 'To do', color: '#111111', icon: 'circle' };

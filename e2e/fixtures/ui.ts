@@ -1,17 +1,14 @@
 /* eslint-disable no-empty-pattern */
-import { fileURLToPath } from 'node:url';
 import type { Browser, BrowserContext, Locator, Page } from '@playwright/test';
-import { createServer } from 'vite';
 import { origin } from '../support/env.ts';
-import { postForm, uniqueName } from '../support/http.ts';
-import { expect, test as base } from './index.ts';
+import { uniqueName } from '../support/http.ts';
+import { createSeedServer } from '../support/seed.ts';
+import { expect, signInContext, test as base } from './index.ts';
 
 type UiKit = typeof import('../support/ui-seed-impl.ts');
 export type UiSeed = import('../support/ui-seed-impl.ts').UiSeed;
 
-const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
-
-export type Person = { id: number; username: string; displayName: string; password: string };
+export type Person = { id: number; username: string; displayName: string; email: string };
 
 type Fixtures = {
 	ui: UiSeed;
@@ -22,36 +19,19 @@ type Fixtures = {
 
 type WorkerFixtures = { uiKit: UiKit };
 
-const PASSWORD = 'a long enough password';
-
 export async function signIn(
 	browser: Browser,
-	username: string,
-	password: string
+	email: string
 ): Promise<{ context: BrowserContext; page: Page }> {
 	const context = await browser.newContext({ baseURL: origin });
-	const response = await postForm(context.request, '/login', { username, password });
-	expect(response.status()).toBe(303);
+	await signInContext(context, email);
 	return { context, page: await context.newPage() };
 }
 
 export const test = base.extend<Fixtures, WorkerFixtures>({
 	uiKit: [
 		async ({}, use) => {
-			const server = await createServer({
-				root: repoRoot,
-				configFile: false,
-				appType: 'custom',
-				logLevel: 'error',
-				server: {
-					middlewareMode: true,
-					hmr: false,
-					ws: false,
-					watch: null,
-					fs: { strict: false }
-				},
-				optimizeDeps: { noDiscovery: true, include: [] }
-			});
+			const server = await createSeedServer();
 			await use((await server.ssrLoadModule('/e2e/support/ui-seed-impl.ts')) as UiKit);
 			await server.close();
 		},
@@ -64,21 +44,18 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
 
 	// Every UI spec starts signed in as the Admin.
 	page: async ({ page, admin }, use) => {
-		const response = await postForm(page.request, '/login', {
-			username: admin.username,
-			password: admin.password
-		});
-		expect(response.status()).toBe(303);
+		await signInContext(page.context(), admin.email);
 		await use(page);
 	},
 
 	other: async ({ ui, browser }, use) => {
 		const username = uniqueName('pat');
-		const user = await ui.human(username, 'Pat Partner');
+		const email = `${username}@e2e.test`;
+		const user = await ui.human(username, 'Pat Partner', email);
 		ui.shareNewRealmsWith(user.id);
-		const { context, page } = await signIn(browser, username, PASSWORD);
+		const { context, page } = await signIn(browser, email);
 		await use({
-			person: { id: user.id, username, displayName: 'Pat Partner', password: PASSWORD },
+			person: { id: user.id, username, displayName: 'Pat Partner', email },
 			context,
 			page
 		});

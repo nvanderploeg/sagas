@@ -20,9 +20,12 @@ test.describe('the agent layer over MCP', () => {
 		try {
 			const { mcp } = artist;
 			const realm = uniqueRealmKey();
-			await mcp.ok('create_realm', { name: 'Stormspire', key: realm });
+			// Agent users cannot create Realms; an Admin does, and offers each agent a role.
+			await admin.ok('create_realm', { name: 'Stormspire', key: realm });
+			await admin.ok('offer_membership', { realm, user: artist.username, role: 'owner' });
+			await mcp.ok('accept_offer', { realm });
 			// The feeder reports into the Realm as an editor, once it accepts the Offer.
-			await mcp.ok('offer_membership', { realm, user: feeder.username, role: 'editor' });
+			await admin.ok('offer_membership', { realm, user: feeder.username, role: 'editor' });
 			await feeder.mcp.ok('accept_offer', { realm });
 
 			const impact = await mcp.ok('define_attribute', {

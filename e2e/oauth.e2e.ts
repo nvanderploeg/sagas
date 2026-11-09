@@ -7,6 +7,7 @@ import {
 	type Page
 } from '@playwright/test';
 import { origin } from './support/env.ts';
+import { signInContext } from './fixtures/index.ts';
 import { postForm, uniqueName } from './support/http.ts';
 import { connectMcp, expect, test } from './fixtures/mcp.ts';
 
@@ -220,9 +221,8 @@ test.describe.serial('OAuth connector flow', () => {
 		expect(response?.status()).toBe(200);
 		await expect(page).toHaveURL(/\/login\?next=%2Foauth%2Fauthorize/);
 
-		await page.getByLabel('Username').fill(admin.username);
-		await page.getByLabel('Password').fill(admin.password);
-		await page.getByRole('button', { name: 'Sign in' }).click();
+		await signInContext(signedIn, admin.email);
+		await page.goto(authorizeUrl(clientId, challenge, state));
 
 		await expect(page).toHaveURL(/\/oauth\/authorize\?/);
 		await expect(page.getByRole('heading', { name: new RegExp(clientName) })).toBeVisible();
@@ -374,32 +374,27 @@ test.describe.serial('OAuth connector flow', () => {
 	});
 
 	test('takes Origin-less form posts at /oauth/token but still refuses them elsewhere', async ({
-		request,
-		admin
+		request
 	}) => {
 		const token = await exchange(request, { grant_type: 'password', client_id: clientId });
 		expect(token.status()).toBe(400);
 		expect((await token.json()).error).toBe('unsupported_grant_type');
 
-		const login = await request.post('/login', {
-			form: { username: admin.username, password: admin.password },
+		const logout = await request.post('/logout', {
+			form: {},
 			headers: { accept: 'text/html' },
 			maxRedirects: 0
 		});
-		expect(login.status()).toBe(403);
+		expect(logout.status()).toBe(403);
 
 		const foreign = await postForm(
 			request,
-			'/login',
-			{ username: 'x', password: 'y' },
+			'/logout',
+			{},
 			{
 				origin: 'https://evil.example'
 			}
 		);
 		expect(foreign.status()).toBe(403);
-	});
-
-	test.skip('forces a password change before consent', () => {
-		// No fixture creates a user who must change their password.
 	});
 });

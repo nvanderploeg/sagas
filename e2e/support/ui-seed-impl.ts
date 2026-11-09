@@ -180,9 +180,9 @@ export async function createUiSeed(db: Db, actorId: number) {
 			return createAgentUser(db, actor, { username, displayName });
 		},
 
-		async human(username: string, displayName: string) {
+		async human(username: string, displayName: string, email?: string) {
 			const row = (
-				await db.insert(users).values({ kind: 'human', username, displayName }).returning()
+				await db.insert(users).values({ kind: 'human', username, displayName, email }).returning()
 			)[0];
 			return toAuthUser(row);
 		}

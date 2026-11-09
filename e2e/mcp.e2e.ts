@@ -177,13 +177,16 @@ test.describe('MCP at /mcp', () => {
 		const agent = await connectMcp(token);
 		try {
 			const { user: bot } = await agent.ok('whoami');
+			const realm = await newRealm(mcp);
+			await mcp.ok('offer_membership', { realm, user: username, role: 'editor' });
+			await agent.ok('accept_offer', { realm });
 			const before = await seed.lastSeq();
-			await agent.ok('create_realm', { name: 'By the bot', key: uniqueRealmKey() });
+			await agent.ok('create_labour', { realm, title: 'By the bot' });
 
 			const events = await eventsAfter(token, before);
 			expect(events.map((e) => [e.type, e.actor])).toEqual([
 				[
-					'realm.created',
+					'labour.created',
 					{
 						id: bot.id,
 						kind: 'agent',
@@ -375,7 +378,10 @@ test.describe('MCP at /mcp', () => {
 		expect(removed.quest.progress).toEqual({ closed: 0, total: 1 });
 	});
 
-	test('refuses an Admin tool to an Agent user, and lets the Admin use it', async ({ mcp }) => {
+	test('refuses an Admin tool to an Agent user, and lets the Admin use it', async ({
+		mcp,
+		admin
+	}) => {
 		const username = uniqueName('agent');
 		const { user } = await mcp.ok('create_agent_user', { username, displayName: 'Bot' });
 		expect(user).toMatchObject({ username, kind: 'agent', isAdmin: false });
@@ -394,9 +400,12 @@ test.describe('MCP at /mcp', () => {
 			await agent.close();
 		}
 
-		const limited = await mcp.ok('set_realm_limit', { user: username, limit: 5 });
+		const limited = await mcp.ok('set_realm_limit', { user: admin.username, limit: 5 });
 		expect(limited.realmLimit).toBe(5);
-		expect((await mcp.call('set_realm_limit', { user: username, limit: -1 })).isError).toBe(true);
+		expect((await mcp.call('set_realm_limit', { user: admin.username, limit: -1 })).isError).toBe(
+			true
+		);
+		await mcp.ok('set_realm_limit', { user: admin.username, limit: 1000 });
 	});
 
 	test('answers 401 without a Bearer token', async ({ request, signedInPage: page }) => {

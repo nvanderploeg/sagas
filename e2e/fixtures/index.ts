@@ -1,8 +1,15 @@
 /* eslint-disable no-empty-pattern */
-import { readFileSync } from 'node:fs';
-import { test as base, expect, type Page } from '@playwright/test';
-import { adminFile } from '../support/env.ts';
-import { postForm } from '../support/http.ts';
+import {
+	test as base,
+	expect,
+	type APIRequestContext,
+	type APIResponse,
+	type BrowserContext,
+	type Page
+} from '@playwright/test';
+import { adminEmail } from '../support/env.ts';
+import { postJson } from '../support/http.ts';
+import { idToken } from '../support/firebase.ts';
 import {
 	loadSeedKit,
 	type SeedKit,
@@ -15,9 +22,21 @@ export type Admin = {
 	id: number;
 	username: string;
 	displayName: string;
-	password: string;
-	setupToken: string;
+	email: string;
 };
+
+// Trades a fresh Firebase ID token for a session cookie, as the sign-in page does.
+export async function exchangeSession(
+	request: APIRequestContext,
+	email: string
+): Promise<APIResponse> {
+	return postJson(request, '/api/auth/session', { idToken: await idToken(email) });
+}
+
+export async function signInContext(context: BrowserContext, email: string): Promise<void> {
+	const response = await exchangeSession(context.request, email);
+	expect(response.status(), await response.text()).toBe(200);
+}
 
 type Fixtures = {
 	seed: Seed;
@@ -50,16 +69,13 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
 		{ scope: 'worker' }
 	],
 
-	// The first Admin, created by setup.e2e.ts, which every other spec depends on.
+	// The Admin the run's ADMIN_EMAILS names; its first session links the Firebase account to this row.
 	admin: [
-		async ({ db }, use) => {
-			const saved = JSON.parse(readFileSync(adminFile, 'utf8')) as Omit<Admin, 'id'>;
-			const row = (
-				await db.$client.query<{ id: number }>('SELECT id FROM sagas_users WHERE username = $1', [
-					saved.username
-				])
-			).rows[0];
-			await use({ ...saved, id: row.id });
+		async ({ kit, db }, use) => {
+			const username = 'e2eadmin';
+			const displayName = 'E2E Admin';
+			const id = await kit.ensureAdmin(db, { username, displayName, email: adminEmail });
+			await use({ id, username, displayName, email: adminEmail });
 		},
 		{ scope: 'worker' }
 	],
@@ -74,11 +90,7 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
 	},
 
 	signedInPage: async ({ page, admin }, use) => {
-		const response = await postForm(page.request, '/login', {
-			username: admin.username,
-			password: admin.password
-		});
-		expect(response.status()).toBe(303);
+		await signInContext(page.context(), admin.email);
 		await use(page);
 	}
 });

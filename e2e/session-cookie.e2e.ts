@@ -1,13 +1,10 @@
-import { expect, test } from './fixtures/index.ts';
+import { exchangeSession, expect, test } from './fixtures/index.ts';
 import { postForm, setCookies } from './support/http.ts';
 
 test.describe('session cookie over plain http', () => {
 	test('is httpOnly, SameSite=Lax and not Secure', async ({ page, admin }) => {
-		const response = await postForm(page.request, '/login', {
-			username: admin.username,
-			password: admin.password
-		});
-		expect(response.status()).toBe(303);
+		const response = await exchangeSession(page.request, admin.email);
+		expect(response.status()).toBe(200);
 
 		const [header] = setCookies(response).filter((c) => c.startsWith('runestone_session='));
 		const attributes = header.split(';').map((a) => a.trim().toLowerCase());
