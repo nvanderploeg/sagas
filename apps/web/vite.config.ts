@@ -21,11 +21,17 @@ export default defineConfig({
 				mode: 'auto',
 				directives: {
 					'default-src': ['self'],
-					'script-src': ['self'],
+					'script-src': ['self', 'https://apis.google.com'],
 					'style-src': ['self', 'unsafe-inline'],
 					'img-src': ['self', 'data:'],
 					'font-src': ['self'],
-					'connect-src': ['self'],
+					'connect-src': [
+						'self',
+						'https://identitytoolkit.googleapis.com',
+						'https://securetoken.googleapis.com',
+						'https://www.googleapis.com'
+					],
+					'frame-src': ['https://*.firebaseapp.com', 'https://accounts.google.com'],
 					'object-src': ['none'],
 					'base-uri': ['self'],
 					'form-action': ['self', 'https://claude.ai', 'https://claude.com'],
