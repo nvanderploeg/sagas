@@ -255,8 +255,8 @@ describe('prunePulses', () => {
 			);
 			expect(await rows()).toHaveLength(1);
 			vi.advanceTimersByTime(1000);
+			await stop();
 			expect(await rows()).toHaveLength(0);
-			stop();
 		} finally {
 			vi.useRealTimers();
 		}

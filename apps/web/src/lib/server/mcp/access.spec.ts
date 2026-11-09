@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seedAdmin, seedHuman } from '#lib/server/auth/fixtures.ts';
 import type { AuthUser } from '#lib/server/auth/users.ts';
 import type { Db } from '#lib/server/db/client.ts';
+import { setSessionVerifier } from '#lib/server/auth/firebase.ts';
 import { setAccessEnforced } from '#lib/server/domain/access.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { createMcpServer } from './server.ts';
@@ -55,6 +56,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	setAccessEnforced(false);
+	setSessionVerifier(null);
 	await Promise.all(clients.splice(0).map((client) => client.close()));
 });
 
@@ -148,6 +150,11 @@ describe('the Realm limit over MCP', () => {
 
 describe('unlink_sign_in over MCP', () => {
 	it('lets an Admin clear a linked sign-in and nobody else', async () => {
+		setSessionVerifier({
+			exchange: () => Promise.resolve(null),
+			verify: () => Promise.resolve(null),
+			revoke: () => Promise.resolve()
+		});
 		await db.update(users).set({ firebaseUid: 'u-ada' }).where(eq(users.id, ada.id));
 		const owner = await connect(ada);
 		expect(await errorCode(owner, 'unlink_sign_in', { user: 'ada' })).toBe('forbidden');
