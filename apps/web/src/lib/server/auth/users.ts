@@ -137,17 +137,17 @@ export async function findUser(db: Handle, id: number): Promise<AuthUser | null>
 	return row ? toAuthUser(row) : null;
 }
 
-// Creates the Admin an operator configured, once, on an empty database. The password is a
+// Creates the Admin an operator configured when no User has that username. The password is a
 // placeholder: the Admin must change it before doing anything else.
 export async function seedAdmin(
 	db: Db,
 	input: { username: string; password: string }
 ): Promise<AuthUser | null> {
-	if (await hasUsers(db)) return null;
 	const username = normalizeUsername(input.username);
+	if (await findUserByName(db, username)) return null;
 	const passwordHash = await hashPassword(input.password);
 	return transact(db, async (tx) => {
-		if (await hasUsers(tx)) return null;
+		if (await findUserByName(tx, username)) return null;
 		const row = (
 			await tx
 				.insert(users)
@@ -159,9 +159,10 @@ export async function seedAdmin(
 					passwordHash,
 					mustChangePassword: true
 				})
+				.onConflictDoNothing()
 				.returning()
 		)[0];
-		return toAuthUser(row);
+		return row ? toAuthUser(row) : null;
 	});
 }
 

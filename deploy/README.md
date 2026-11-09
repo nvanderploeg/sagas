@@ -9,8 +9,8 @@ unpacked files while an import runs.
 docker compose --env-file .env -f deploy/compose.yaml up -d
 ```
 
-Set `POSTGRES_PASSWORD`, `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env`. The Admin is seeded on an
-empty database and changes the password at first sign-in.
+Set `POSTGRES_PASSWORD`, `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env`. The Admin is seeded at launch when
+no User has that username, and changes the password at first sign-in.
 
 ## An external database
 

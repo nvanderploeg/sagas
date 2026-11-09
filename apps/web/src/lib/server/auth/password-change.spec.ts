@@ -5,13 +5,19 @@ import { createSession, resolveSession } from './sessions.ts';
 import { authenticate, changePassword, hasUsers, seedAdmin } from './users.ts';
 
 describe('seedAdmin', () => {
-	it('creates an Admin who must change the password, only on an empty database', async () => {
+	it('creates an Admin who must change the password, unless that username exists', async () => {
 		const db = await testDb();
 		const admin = await seedAdmin(db, { username: 'Boss', password: 'changeme' });
 		expect(admin).toMatchObject({ username: 'boss', isAdmin: true, mustChangePassword: true });
 		expect(await authenticate(db, 'boss', 'changeme')).not.toBeNull();
 
-		expect(await seedAdmin(db, { username: 'other', password: 'changeme' })).toBeNull();
+		expect(await seedAdmin(db, { username: 'boss', password: 'other-pw' })).toBeNull();
+		expect(await authenticate(db, 'boss', 'changeme')).not.toBeNull();
+
+		expect(await seedAdmin(db, { username: 'other', password: 'changeme' })).toMatchObject({
+			username: 'other',
+			isAdmin: true
+		});
 		expect(await hasUsers(db)).toBe(true);
 	});
 });
