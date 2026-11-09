@@ -109,7 +109,7 @@ describe('the pulses table', () => {
 		await expectFailure(insert({ halfLifeDays: 366 }), /pulses_half_life/);
 		await expect(
 			db.$client.query(
-				`INSERT INTO pulses (realm_id, raw_key, amount, mood, evidence, author_id, created_at)
+				`INSERT INTO sagas_pulses (realm_id, raw_key, amount, mood, evidence, author_id, created_at)
 				 VALUES ($1, 'impact', 1, 0, 'not json', $2, 0)`,
 				[realmId, actor.id]
 			)

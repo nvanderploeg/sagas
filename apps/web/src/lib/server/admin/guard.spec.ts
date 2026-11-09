@@ -9,7 +9,8 @@ const user = (isAdmin: boolean): AuthUser => ({
 	username: 'ada',
 	displayName: 'Ada',
 	email: null,
-	realmLimit: 1
+	realmLimit: 1,
+	banned: false
 });
 const session = { kind: 'session', hash: 'h' } as const;
 const token = { kind: 'api_token', hash: 'h' } as const;

@@ -10,7 +10,7 @@ export const mentions: Feature = {
 			await db.execute<{ id: number; at: number }>(sql`
 			SELECT m.labour_id AS id, m.first_seen_at AS at
 			FROM ${intRows(candidateIds)} AS c(value)
-			JOIN mentions m ON m.labour_id = c.value
+			JOIN sagas_mentions m ON m.labour_id = c.value
 		`)
 		).rows;
 		return recentShares(now, rows);

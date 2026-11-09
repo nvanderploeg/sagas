@@ -12,8 +12,15 @@
     {
       "idx": 1,
       "version": "7",
-      "when": 1794056227752,
-      "tag": "0001_firebase_auth",
+      "when": 1794191871866,
+      "tag": "0001_user_banned_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794235743731,
+      "tag": "0002_firebase_auth",
       "breakpoints": true
     }
   ]

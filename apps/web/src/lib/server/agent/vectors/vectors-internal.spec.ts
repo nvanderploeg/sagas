@@ -66,9 +66,10 @@ const textOf = async (id: number) => {
 
 const appraisalBrief = async (id: number) =>
 	(
-		await db.$client.query<{ brief: string }>('SELECT brief FROM appraisals WHERE labour_id = $1', [
-			id
-		])
+		await db.$client.query<{ brief: string }>(
+			'SELECT brief FROM sagas_appraisals WHERE labour_id = $1',
+			[id]
+		)
 	).rows[0]?.brief ?? '';
 
 const hashOf = async (id: number) => inputHash(await textOf(id));
@@ -693,7 +694,7 @@ describe('the input hash', () => {
 describe('a vector of the wrong length', () => {
 	async function storeBlob(id: number, bytes: number) {
 		await db.$client.query(
-			'INSERT INTO labour_vectors (labour_id, model, vector, input_hash, embedded_at) VALUES ($1, $2, $3, $4, $5)',
+			'INSERT INTO sagas_labour_vectors (labour_id, model, vector, input_hash, embedded_at) VALUES ($1, $2, $3, $4, $5)',
 			[id, MODEL_ID, Buffer.alloc(bytes), await hashOf(id), NOW.getTime()]
 		);
 	}

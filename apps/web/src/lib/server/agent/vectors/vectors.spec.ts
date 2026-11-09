@@ -156,7 +156,7 @@ describe('writeVector and readVectors', () => {
 
 		const row = (
 			await db.$client.query<{ vector: Buffer }>(
-				'SELECT vector FROM labour_vectors WHERE labour_id = $1',
+				'SELECT vector FROM sagas_labour_vectors WHERE labour_id = $1',
 				[l.id]
 			)
 		).rows[0];
@@ -794,7 +794,7 @@ describe('queueing from text writes', () => {
 			expect(spy.calls).toEqual([{ id: l.id, inTransaction: false }]);
 			const stored = (
 				await db.$client.query<{ brief: string }>(
-					'SELECT brief FROM appraisals WHERE labour_id = $1',
+					'SELECT brief FROM sagas_appraisals WHERE labour_id = $1',
 					[l.id]
 				)
 			).rows[0];

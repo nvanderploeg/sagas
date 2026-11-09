@@ -116,26 +116,26 @@ async function quiet<T>(action: () => T | Promise<T>): Promise<T> {
 }
 
 const BOARD_TABLES = new Set([
-	'users',
-	'sessions',
-	'invites',
-	'api_tokens',
-	'realms',
-	'realm_keys',
-	'states',
-	'substates',
-	'labours',
-	'labour_keys',
-	'comments',
-	'quests',
-	'quest_labours',
-	'scrolls',
-	'scroll_paths',
-	'scroll_refs',
-	'events',
-	'event_realms',
-	'webhooks',
-	'webhook_deliveries'
+	'sagas_users',
+	'sagas_sessions',
+	'sagas_invites',
+	'sagas_api_tokens',
+	'sagas_realms',
+	'sagas_realm_keys',
+	'sagas_states',
+	'sagas_substates',
+	'sagas_labours',
+	'sagas_labour_keys',
+	'sagas_comments',
+	'sagas_quests',
+	'sagas_quest_labours',
+	'sagas_scrolls',
+	'sagas_scroll_paths',
+	'sagas_scroll_refs',
+	'sagas_events',
+	'sagas_event_realms',
+	'sagas_webhooks',
+	'sagas_webhook_deliveries'
 ]);
 
 // Rows in every table that is not a board table: the agent layer's own storage.
@@ -143,7 +143,7 @@ async function agentRows(): Promise<number> {
 	const names = (
 		await db.$client.query<{ name: string }>(
 			`select table_name as name from information_schema.tables
-			 where table_schema = 'public' and table_name not in ('labour_text', 'scroll_text', 'derived_builds', 'event_counter')`
+			 where table_schema = 'public' and table_name like 'sagas\\_%' and table_name not in ('sagas_labour_text', 'sagas_scroll_text', 'sagas_derived_builds', 'sagas_event_counter')`
 		)
 	).rows;
 	let total = 0;

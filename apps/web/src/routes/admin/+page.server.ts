@@ -2,7 +2,9 @@ import { error } from '@sveltejs/kit';
 import { createApiToken, listApiTokens, revokeApiToken } from '#lib/server/auth/tokens.ts';
 import {
 	createAgentUser,
+	deleteUser,
 	listUsers,
+	setBanned,
 	setRealmLimit,
 	setUserEmail,
 	unlinkSignIn
@@ -54,6 +56,29 @@ export const actions: Actions = {
 		const form = await request.formData();
 		return perform('unlink', async () => {
 			await unlinkSignIn(getDb(), actor, int(form, 'userId'));
+		});
+	},
+
+	ban: async ({ request, locals }) => {
+		const actor = signedIn(locals);
+		const form = await request.formData();
+		return perform(`user:${text(form, 'userId')}`, async () => {
+			await setBanned(getDb(), actor, {
+				userId: int(form, 'userId'),
+				banned: text(form, 'banned') === 'true',
+				confirm: text(form, 'confirm')
+			});
+		});
+	},
+
+	delete: async ({ request, locals }) => {
+		const actor = signedIn(locals);
+		const form = await request.formData();
+		return perform(`user:${text(form, 'userId')}`, async () => {
+			await deleteUser(getDb(), actor, {
+				userId: int(form, 'userId'),
+				confirm: text(form, 'confirm')
+			});
 		});
 	},
 

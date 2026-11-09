@@ -19,7 +19,7 @@ import { seedActor, seedLabour, seedRealm } from '#lib/server/test/fixtures.ts';
 import { exportBundle } from './export.ts';
 import { BusyError, importBundle, isRowError } from './import.ts';
 import { BundleError, buildSchema, type Manifest } from './manifest.ts';
-import { BUNDLE_TABLES, quote } from './tables.ts';
+import { BUNDLE_TABLES, tableSql } from './tables.ts';
 import { pipeEntry, readDirectory, zipChunks, type ZipEntry } from './zip.ts';
 
 const LIMITS = { maxExpandedBytes: 1024 * 1024 * 1024 };
@@ -77,7 +77,7 @@ async function counts(db: Db): Promise<Record<string, number>> {
 	const found: Record<string, number> = {};
 	for (const { name } of BUNDLE_TABLES) {
 		found[name] = (
-			await db.$client.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${quote(name)}`)
+			await db.$client.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${tableSql(name)}`)
 		).rows[0].n;
 	}
 	return found;
@@ -117,13 +117,13 @@ describe('export and import', () => {
 		expect(await counts(target)).toEqual(await counts(source));
 		const vector = (
 			await target.$client.query<{ vector: Buffer }>(
-				'SELECT vector FROM labour_vectors WHERE labour_id = $1',
+				'SELECT vector FROM sagas_labour_vectors WHERE labour_id = $1',
 				[first.id]
 			)
 		).rows[0].vector;
 		expect(new Float32Array(vector.buffer, vector.byteOffset, 384)[7]).toBe(0.5);
 		const keys = await target.$client.query<{ key: string }>(
-			'SELECT key FROM labour_keys ORDER BY key'
+			'SELECT key FROM sagas_labour_keys ORDER BY key'
 		);
 		expect(keys.rows.map((row) => row.key)).toEqual(['AM-1', 'AM-2']);
 	});
@@ -140,7 +140,7 @@ describe('export and import', () => {
 		expect([...(await keywordScores(target, 'telegraph')).keys()]).toEqual([first.id]);
 		expect([...(await keywordScores(target, 'wind-ups')).keys()]).toEqual([first.id]);
 		const scrolls = await target.$client.query(
-			"SELECT 1 FROM scroll_text WHERE search @@ plainto_tsquery('sagas_english', 'steps')"
+			"SELECT 1 FROM sagas_scroll_text WHERE search @@ plainto_tsquery('sagas_english', 'steps')"
 		);
 		expect(scrolls.rowCount).toBe(1);
 	});
@@ -166,11 +166,11 @@ describe('export and import', () => {
 		expect(made.key).toBe('AM-3');
 		const window = await eventWindow(target);
 		const top = (
-			await target.$client.query<{ top: number }>('SELECT max(seq)::int AS top FROM events')
+			await target.$client.query<{ top: number }>('SELECT max(seq)::int AS top FROM sagas_events')
 		).rows[0].top;
 		expect(window.last).toBe(top);
 		const next = await target.$client.query<{ id: number }>(
-			`INSERT INTO skills (key, label, created_at, updated_at) VALUES ('first', 'First', 0, 0) RETURNING id`
+			`INSERT INTO sagas_skills (key, label, created_at, updated_at) VALUES ('first', 'First', 0, 0) RETURNING id`
 		);
 		expect(next.rows[0].id).toBe(1);
 	});
@@ -179,7 +179,7 @@ describe('export and import', () => {
 		const source = await testDb();
 		await populate(source);
 		const last = (await eventWindow(source)).last;
-		await source.$client.query('DELETE FROM events');
+		await source.$client.query('DELETE FROM sagas_events');
 		const bundle = join(root, 'out.zip');
 		await exportTo(source, bundle);
 		const target = await testDb();

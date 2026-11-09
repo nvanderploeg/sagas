@@ -25,7 +25,7 @@ export async function bootstrap(pool: pg.Pool, attempts = CONNECT_ATTEMPTS): Pro
 		await lock.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK]);
 		const { dialect, session } = drizzle(lock) as unknown as Migrator;
 		await dialect.migrate(loadMigrations(), session, {
-			migrationsTable: '__drizzle_migrations',
+			migrationsTable: 'sagas_migrations',
 			migrationsSchema: 'drizzle'
 		});
 	} finally {

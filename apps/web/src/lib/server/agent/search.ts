@@ -42,7 +42,7 @@ export async function keywordScores(db: Handle, query: string): Promise<Map<numb
 		(
 			await db.execute<{ id: number; score: number }>(sql`
 				SELECT t.labour_id AS id, ts_rank_cd(${WEIGHTS}, t.search, q, ${LENGTH_NORMALIZATION}) AS score
-				FROM labour_text t, to_tsquery('sagas_english', ${expression}) q
+				FROM sagas_labour_text t, to_tsquery('sagas_english', ${expression}) q
 				WHERE t.search @@ q
 			`)
 		).rows
@@ -61,7 +61,7 @@ export async function keywordScoresAmong(
 		(
 			await db.execute<{ id: number; score: number }>(sql`
 				SELECT t.labour_id AS id, ts_rank_cd(${WEIGHTS}, t.search, q, ${LENGTH_NORMALIZATION}) AS score
-				FROM labour_text t, to_tsquery('sagas_english', ${expression}) q
+				FROM sagas_labour_text t, to_tsquery('sagas_english', ${expression}) q
 				WHERE t.search @@ q AND t.labour_id IN ${intList(ids)}
 			`)
 		).rows

@@ -57,7 +57,7 @@ const choices = (entries: [number, ChildChoice][]) => new Map(entries);
 const textRows = async () =>
 	(
 		await db.execute<{ rowid: number }>(
-			sql`SELECT scroll_id AS rowid FROM scroll_text ORDER BY scroll_id`
+			sql`SELECT scroll_id AS rowid FROM sagas_scroll_text ORDER BY scroll_id`
 		)
 	).rows;
 

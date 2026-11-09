@@ -21,7 +21,7 @@ export const skillFit: Feature = {
 			await db.execute<{ labourId: number; skillId: number; level: number }>(sql`
 			SELECT n.labour_id AS "labourId", n.skill_id AS "skillId", n.level AS level
 			FROM ${intRows(candidateIds)} AS c(value)
-			JOIN labour_needs n ON n.labour_id = c.value
+			JOIN sagas_labour_needs n ON n.labour_id = c.value
 		`)
 		).rows;
 		const sums = new Map<number, { total: number; count: number }>();

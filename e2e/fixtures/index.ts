@@ -55,7 +55,7 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
 		async ({ db }, use) => {
 			const saved = JSON.parse(readFileSync(adminFile, 'utf8')) as Omit<Admin, 'id'>;
 			const row = (
-				await db.$client.query<{ id: number }>('SELECT id FROM users WHERE username = $1', [
+				await db.$client.query<{ id: number }>('SELECT id FROM sagas_users WHERE username = $1', [
 					saved.username
 				])
 			).rows[0];

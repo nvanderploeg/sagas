@@ -28,7 +28,7 @@ The contract for Webhooks: sagas POSTs Events to an outside service, so it gets 
 
 ## Realms an Event touches
 
-An Event does not list its Realms (`docs/events.md`). The log keeps them beside the Event, in `event_realms`, as it records it. They are pruned with their Event and never sent.
+An Event does not list its Realms (`docs/events.md`). The log keeps them beside the Event, in `sagas_event_realms`, as it records it. They are pruned with their Event and never sent.
 
 | Event                                          | Realms it touches                                                |
 | ---------------------------------------------- | ---------------------------------------------------------------- |

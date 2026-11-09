@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import type { Db } from '#lib/server/db/client.ts';
 import { migrationTags } from '#lib/server/db/migrations.ts';
 import { buildSchema } from './manifest.ts';
-import { BUNDLE_TABLES, DERIVED_TABLES, quote } from './tables.ts';
+import { BUNDLE_TABLES, DERIVED_TABLES, tableSql } from './tables.ts';
 
 export type AdminStats = {
 	appVersion: string;
@@ -19,14 +19,14 @@ export async function adminStats(db: Db): Promise<AdminStats> {
 	const tables: AdminStats['tables'] = [];
 	for (const name of [...BUNDLE_TABLES.map((entry) => entry.name), ...DERIVED_TABLES]) {
 		const counted = await db.execute<{ n: number }>(
-			sql.raw(`SELECT count(*) AS n FROM ${quote(name)}`)
+			sql.raw(`SELECT count(*) AS n FROM ${tableSql(name)}`)
 		);
 		tables.push({ name, rows: counted.rows[0].n });
 	}
 	tables.sort((a, b) => (a.name < b.name ? -1 : 1));
 	const applied = (
 		await db.execute<{ created_at: number }>(
-			sql`SELECT created_at FROM drizzle.__drizzle_migrations ORDER BY id`
+			sql`SELECT created_at FROM drizzle.sagas_migrations ORDER BY id`
 		)
 	).rows;
 	const tags = migrationTags();

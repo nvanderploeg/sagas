@@ -44,7 +44,7 @@ export async function authFromRequest(
 			throw error;
 		}
 	}
-	return user && { user, credential: sessionCredential(sessionToken) };
+	return user && !user.banned ? { user, credential: sessionCredential(sessionToken) } : null;
 }
 
 export function setSessionCookie(cookies: Cookies, url: URL, token: string, expires: Date): void {

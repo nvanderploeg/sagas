@@ -33,8 +33,8 @@ export async function statusAmong(
 		SELECT j.value AS id,
 			CASE WHEN v.labour_id IS NULL THEN 'absent' WHEN ${isCurrent(model)} THEN 'current' ELSE 'stale' END AS status
 		FROM ${intRows(ids)} WITH ORDINALITY AS j(value, n)
-		LEFT JOIN labour_vectors v ON v.labour_id = j.value
-		LEFT JOIN labour_inputs i ON i.labour_id = j.value
+		LEFT JOIN sagas_labour_vectors v ON v.labour_id = j.value
+		LEFT JOIN sagas_labour_inputs i ON i.labour_id = j.value
 		ORDER BY j.n
 	`)
 	).rows;
@@ -50,8 +50,8 @@ export async function currentVectors(
 		await db.execute<{ id: number; vector: Buffer }>(sql`
 		SELECT v.labour_id AS id, v.vector AS vector
 		FROM ${intRows(ids)} AS j(value)
-		JOIN labour_vectors v ON v.labour_id = j.value
-		JOIN labour_inputs i ON i.labour_id = j.value
+		JOIN sagas_labour_vectors v ON v.labour_id = j.value
+		JOIN sagas_labour_inputs i ON i.labour_id = j.value
 		WHERE ${isCurrent(model)}
 	`)
 	).rows;
@@ -67,8 +67,8 @@ export async function countCurrent(
 		await db.execute<{ n: number }>(sql`
 		SELECT count(*) AS n
 		FROM ${intRows(ids)} AS j(value)
-		JOIN labour_vectors v ON v.labour_id = j.value
-		JOIN labour_inputs i ON i.labour_id = j.value
+		JOIN sagas_labour_vectors v ON v.labour_id = j.value
+		JOIN sagas_labour_inputs i ON i.labour_id = j.value
 		WHERE ${isCurrent(model)}
 	`)
 	).rows[0];
@@ -84,9 +84,9 @@ export async function scanCurrent(
 	const rows = (
 		await db.execute<{ id: number; current: boolean }>(sql`
 		SELECT l.id AS id, coalesce(${isCurrent(model)}, false) AS current
-		FROM labours l
-		LEFT JOIN labour_vectors v ON v.labour_id = l.id
-		LEFT JOIN labour_inputs i ON i.labour_id = l.id
+		FROM sagas_labours l
+		LEFT JOIN sagas_labour_vectors v ON v.labour_id = l.id
+		LEFT JOIN sagas_labour_inputs i ON i.labour_id = l.id
 		WHERE l.id > ${after}
 		ORDER BY l.id
 		LIMIT ${limit}

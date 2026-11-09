@@ -106,7 +106,7 @@ export async function totalsOf(db: Handle, where: SQL, now: Date, owner: Owner =
 		}>(sql`
 		SELECT p.realm_id AS "realmId", p.attribute_id AS "attributeId", p.member AS member,
 			sum(w) AS volume, sum(w * p.mood) AS moody
-		FROM (SELECT *, ${weightOf(now)} AS w FROM pulses p) p
+		FROM (SELECT *, ${weightOf(now)} AS w FROM sagas_pulses p) p
 		WHERE ${filedFor(owner)} AND ${where}
 		GROUP BY p.realm_id, p.attribute_id, p.member
 	`)
@@ -143,7 +143,7 @@ async function heaviestOf(db: Handle, where: SQL, limit: number, now: Date, owne
 					PARTITION BY p.attribute_id, p.member
 					ORDER BY ${weightOf(now)} DESC, p.created_at DESC, p.id DESC
 				) AS rn
-			FROM pulses p
+			FROM sagas_pulses p
 			WHERE ${filedFor(owner)} AND ${where}
 		) ranked
 		WHERE rn <= ${limit}
@@ -163,7 +163,7 @@ async function heaviestOf(db: Handle, where: SQL, limit: number, now: Date, owne
 async function liveLabours(db: Handle, ids: number[]): Promise<Set<number>> {
 	if (ids.length === 0) return new Set();
 	const rows = (
-		await db.execute<{ id: number }>(sql`SELECT id FROM labours WHERE id IN ${intList(ids)}`)
+		await db.execute<{ id: number }>(sql`SELECT id FROM sagas_labours WHERE id IN ${intList(ids)}`)
 	).rows;
 	return new Set(rows.map((row) => row.id));
 }
@@ -472,7 +472,7 @@ export async function readAffinity(
 				.select({ id: attributes.id, key: attributes.key, realmId: attributes.realmId })
 				.from(attributes)
 				.where(
-					sql`${attributes.id} IN (SELECT DISTINCT attribute_id FROM pulses WHERE user_id = ${userId})`
+					sql`${attributes.id} IN (SELECT DISTINCT attribute_id FROM sagas_pulses WHERE user_id = ${userId})`
 				)
 		).map((row) => [row.id, row])
 	);
@@ -511,12 +511,12 @@ async function readUnfiled(
 		SELECT t.raw_key AS "rawKey", t.volume AS volume, t.cnt AS count, n.id AS id, n.note AS note
 		FROM (
 			SELECT p.raw_key, sum(${weightOf(now)}) AS volume, count(*) AS cnt
-			FROM pulses p
+			FROM sagas_pulses p
 			WHERE p.realm_id = ${realmId} AND p.attribute_id IS NULL
 			GROUP BY p.raw_key
 		) t
-		JOIN pulses n ON n.id = (
-			SELECT id FROM pulses
+		JOIN sagas_pulses n ON n.id = (
+			SELECT id FROM sagas_pulses
 			WHERE realm_id = ${realmId} AND attribute_id IS NULL AND raw_key = t.raw_key
 			ORDER BY created_at DESC, id DESC LIMIT 1
 		)
@@ -557,7 +557,7 @@ export async function filePulses(
 		return (
 			(
 				await tx.execute(sql`
-			UPDATE pulses SET attribute_id = ${target.attributeId}, member = ${target.member}
+			UPDATE sagas_pulses SET attribute_id = ${target.attributeId}, member = ${target.member}
 			WHERE realm_id = ${realmId}
 				AND ((attribute_id IS NULL AND raw_key = ${from.rawKey}) OR ${filedUnderSource})
 				AND NOT (attribute_id IS NOT DISTINCT FROM ${target.attributeId} AND member IS NOT DISTINCT FROM ${target.member})
@@ -588,7 +588,7 @@ export async function prunePulses(db: Handle, now = Date.now()): Promise<number>
 	return (
 		(
 			await db.execute(sql`
-		DELETE FROM pulses
+		DELETE FROM sagas_pulses
 		WHERE half_life_days IS NOT NULL
 			AND created_at < ${now} - half_life_days * ${DAY} * ${FADED}
 	`)

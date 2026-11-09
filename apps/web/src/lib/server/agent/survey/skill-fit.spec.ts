@@ -396,7 +396,7 @@ describe('skill_fit performance', () => {
 				await tx.insert(labourNeeds).values(wanted.slice(i, i + 500));
 			}
 		});
-		await db.$client.query('UPDATE realms SET labour_counter = $1 WHERE id = $2', [
+		await db.$client.query('UPDATE sagas_realms SET labour_counter = $1 WHERE id = $2', [
 			count,
 			realm.id
 		]);

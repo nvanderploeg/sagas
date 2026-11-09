@@ -10,7 +10,7 @@ export const evidence: Feature = {
 			await db.execute<{ id: number; n: number }>(sql`
 			SELECT c.value AS id, count(*) AS n
 			FROM ${intRows(candidateIds)} AS c(value)
-			JOIN links k ON k.to_id = c.value AND k.type = 'evidence'
+			JOIN sagas_links k ON k.to_id = c.value AND k.type = 'evidence'
 			GROUP BY c.value
 		`)
 		).rows;

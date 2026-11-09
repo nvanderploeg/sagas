@@ -60,11 +60,11 @@ type TextRow = {
 const textRows = async () =>
 	(
 		await db.$client.query<TextRow>(
-			'SELECT labour_id AS id, title, brief, description, comments, notes FROM labour_text ORDER BY labour_id'
+			'SELECT labour_id AS id, title, brief, description, comments, notes FROM sagas_labour_text ORDER BY labour_id'
 		)
 	).rows;
 
-const wipeText = () => db.$client.query('DELETE FROM labour_text');
+const wipeText = () => db.$client.query('DELETE FROM sagas_labour_text');
 
 const mentionRows = async () => await db.select().from(mentions).orderBy(asc(mentions.id));
 
@@ -285,7 +285,7 @@ describe('rebuildDerived: labour_text', () => {
 		await wipeText();
 		const insert = (id: number, ...text: string[]) =>
 			db.$client.query(
-				'INSERT INTO labour_text (labour_id, title, brief, description, comments, notes) VALUES ($1, $2, $3, $4, $5, $6)',
+				'INSERT INTO sagas_labour_text (labour_id, title, brief, description, comments, notes) VALUES ($1, $2, $3, $4, $5, $6)',
 				[id, ...text]
 			);
 		await insert(target.id, 'stale title', 'stale', 'stale', 'stale', 'stale');

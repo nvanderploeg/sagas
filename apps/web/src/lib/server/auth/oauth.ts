@@ -401,8 +401,8 @@ export async function pruneOAuth(db: Db, now = new Date()): Promise<void> {
 			or(
 				sql`${oauthGrants.revokedAt} IS NOT NULL`,
 				sql`NOT EXISTS (
-						SELECT 1 FROM oauth_refresh_tokens r
-						WHERE r.grant_id = oauth_grants.id AND r.expires_at > ${at}
+						SELECT 1 FROM sagas_oauth_refresh_tokens r
+						WHERE r.grant_id = sagas_oauth_grants.id AND r.expires_at > ${at}
 					)`
 			)
 		);
@@ -415,7 +415,7 @@ export async function pruneOAuth(db: Db, now = new Date()): Promise<void> {
 				and(
 					lt(oauthClients.createdAt, dayAgo),
 					isNull(oauthClients.grantedAt),
-					sql`NOT EXISTS (SELECT 1 FROM oauth_grants g WHERE g.client_id = oauth_clients.id)`
+					sql`NOT EXISTS (SELECT 1 FROM sagas_oauth_grants g WHERE g.client_id = sagas_oauth_clients.id)`
 				)
 			);
 	});

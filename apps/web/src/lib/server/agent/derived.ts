@@ -46,22 +46,22 @@ export async function rebuildDerived(db: Db, now: Date = new Date()): Promise<st
 
 // The same row refreshLabourText writes, for every Labour in one statement.
 export async function rebuildLabourText(tx: Handle): Promise<void> {
-	await tx.execute(sql`DELETE FROM labour_text`);
+	await tx.execute(sql`DELETE FROM sagas_labour_text`);
 	await tx.execute(sql`
-		INSERT INTO labour_text (labour_id, title, brief, description, comments, notes)
+		INSERT INTO sagas_labour_text (labour_id, title, brief, description, comments, notes)
 		SELECT l.id, l.title, coalesce(a.brief, ''), l.description,
 			coalesce((
 				SELECT string_agg(c.body, E'\n\n' ORDER BY c.id)
-				FROM comments c WHERE c.labour_id = l.id
+				FROM sagas_comments c WHERE c.labour_id = l.id
 			), ''),
 			coalesce((
 				SELECT string_agg(la.value #>> '{}', E'\n\n' ORDER BY t.position)
-				FROM labour_attributes la
-				JOIN attributes t ON t.id = la.attribute_id
+				FROM sagas_labour_attributes la
+				JOIN sagas_attributes t ON t.id = la.attribute_id
 				WHERE la.labour_id = l.id AND t.kind = 'text'
 			), '')
-		FROM labours l
-		LEFT JOIN appraisals a ON a.labour_id = l.id
+		FROM sagas_labours l
+		LEFT JOIN sagas_appraisals a ON a.labour_id = l.id
 	`);
 }
 

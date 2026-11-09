@@ -117,7 +117,7 @@ export async function verifyApiToken(
 			)
 			.limit(1)
 	)[0];
-	if (!row) return null;
+	if (!row || row.user.bannedAt) return null;
 	await db.update(apiTokens).set({ lastUsedAt: new Date() }).where(eq(apiTokens.id, row.token.id));
 	return { ...toAuthUser(row.user), via: { tokenId: row.token.id, name: row.token.name } };
 }

@@ -13,6 +13,7 @@
 	const created = $derived(
 		form && 'token' in form ? { userId: Number(form.userId), token: String(form.token) } : null
 	);
+	const me = $derived(data.user?.id);
 	const bytes = (n: number) => {
 		const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
 		let value = n;
@@ -115,6 +116,7 @@
 					<span class="key">@{user.username}</span>
 					<span class="ml-auto flex gap-1.5 text-xs">
 						{#if user.isAdmin}<span class="tag">Admin</span>{/if}
+						{#if user.banned}<span class="tag">Banned</span>{/if}
 						<span class="tag">{user.kind === 'agent' ? 'Agent' : 'Human'}</span>
 					</span>
 					<div class="flex basis-full flex-wrap items-end gap-3 text-sm">
@@ -155,6 +157,26 @@
 							</form>
 						{/if}
 					</div>
+					{#if user.id !== me}
+						<details class="w-full text-sm">
+							<summary class="cursor-pointer font-semibold">Ban or delete</summary>
+							<form method="POST" use:enhance class="mt-2 flex flex-wrap items-end gap-2">
+								<input type="hidden" name="userId" value={user.id} />
+								<input type="hidden" name="banned" value={user.banned ? 'false' : 'true'} />
+								<label class="grid gap-1">
+									<span class="label">Type @{user.username} to confirm</span>
+									<input name="confirm" class="field w-44" autocomplete="off" required />
+								</label>
+								<button type="submit" formaction="?/ban" class="btn">
+									{user.banned ? 'Lift ban' : 'Ban'}
+								</button>
+								<button type="submit" formaction="?/delete" class="btn">Delete</button>
+							</form>
+						</details>
+					{/if}
+					{#if failure(`user:${user.id}`)}
+						<p role="alert" class="error w-full">{failure(`user:${user.id}`)}</p>
+					{/if}
 				</li>
 			{/each}
 		</ul>
