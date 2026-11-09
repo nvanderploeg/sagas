@@ -1,8 +1,20 @@
 import { describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { invites, users } from '#lib/server/db/schema.ts';
+import { seedHuman } from './fixtures.ts';
+import { hashPassword } from './password.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { gate } from './access.ts';
 import { createSession, resolveSession } from './sessions.ts';
-import { authenticate, changePassword, hasUsers, seedAdmin } from './users.ts';
+import {
+	authenticate,
+	changePassword,
+	hasUsers,
+	deleteUser,
+	resetPassword,
+	seedAdmin,
+	setBanned
+} from './users.ts';
 
 describe('seedAdmin', () => {
 	it('creates an Admin who must change the password, unless that username exists', async () => {
@@ -73,5 +85,101 @@ describe('gate while a password change is due', () => {
 	it('refuses machine calls with 401', () => {
 		expect(gate('/mcp', due)).toBe('unauthorized');
 		expect(gate('/api/events', due)).toBe('unauthorized');
+	});
+});
+
+describe('resetPassword', () => {
+	async function twoUsers() {
+		const db = await testDb();
+		const admin = (await seedAdmin(db, { username: 'boss', password: 'changeme' }))!;
+		const worker = await seedHuman(db, 'worker');
+		await db
+			.update(users)
+			.set({ passwordHash: await hashPassword('oldpass1') })
+			.where(eq(users.id, worker.id));
+		return { db, admin, worker };
+	}
+
+	it('sets a temporary password, forces a change and ends their sessions', async () => {
+		const { db, admin, worker } = await twoUsers();
+		const session = await createSession(db, worker.id);
+
+		const { password } = await resetPassword(db, admin, worker.id);
+
+		expect(await authenticate(db, 'worker', 'oldpass1')).toBeNull();
+		expect(await authenticate(db, 'worker', password)).toMatchObject({ mustChangePassword: true });
+		expect(await resolveSession(db, session.token)).toBeNull();
+	});
+
+	it('is for Admins, other humans only', async () => {
+		const { db, admin, worker } = await twoUsers();
+		await expect(resetPassword(db, worker, admin.id)).rejects.toMatchObject({ code: 'forbidden' });
+		await expect(resetPassword(db, admin, admin.id)).rejects.toMatchObject({ code: 'invalid' });
+		await expect(resetPassword(db, admin, 99999)).rejects.toMatchObject({ code: 'not_found' });
+	});
+});
+
+describe('setBanned and deleteUser', () => {
+	async function fixture() {
+		const db = await testDb();
+		const admin = (await seedAdmin(db, { username: 'boss', password: 'changeme' }))!;
+		const worker = await seedHuman(db, 'worker');
+		await db
+			.update(users)
+			.set({ passwordHash: await hashPassword('oldpass1') })
+			.where(eq(users.id, worker.id));
+		return { db, admin, worker };
+	}
+
+	it('a ban ends sessions and blocks sign-in until lifted', async () => {
+		const { db, admin, worker } = await fixture();
+		const session = await createSession(db, worker.id);
+
+		await setBanned(db, admin, { userId: worker.id, banned: true, confirm: 'worker' });
+
+		expect(await resolveSession(db, session.token)).toBeNull();
+		expect(await authenticate(db, 'worker', 'oldpass1')).toBeNull();
+
+		await setBanned(db, admin, { userId: worker.id, banned: false, confirm: 'worker' });
+		expect(await authenticate(db, 'worker', 'oldpass1')).not.toBeNull();
+	});
+
+	it('needs the username typed, an Admin, and someone else', async () => {
+		const { db, admin, worker } = await fixture();
+		const input = { userId: worker.id, banned: true };
+		await expect(setBanned(db, admin, { ...input, confirm: 'nope' })).rejects.toMatchObject({
+			code: 'invalid'
+		});
+		await expect(setBanned(db, worker, { ...input, confirm: 'worker' })).rejects.toMatchObject({
+			code: 'forbidden'
+		});
+		await expect(
+			setBanned(db, admin, { userId: admin.id, banned: true, confirm: 'boss' })
+		).rejects.toMatchObject({ code: 'invalid' });
+		await expect(deleteUser(db, admin, { userId: worker.id, confirm: 'x' })).rejects.toMatchObject({
+			code: 'invalid'
+		});
+	});
+
+	it('deletes a User with no history', async () => {
+		const { db, admin, worker } = await fixture();
+		await createSession(db, worker.id);
+
+		await deleteUser(db, admin, { userId: worker.id, confirm: 'worker' });
+
+		expect(await authenticate(db, 'worker', 'oldpass1')).toBeNull();
+		await expect(
+			deleteUser(db, admin, { userId: worker.id, confirm: 'worker' })
+		).rejects.toMatchObject({ code: 'not_found' });
+	});
+
+	it('refuses to delete a User who has history', async () => {
+		const { db, admin } = await fixture();
+		const other = await seedHuman(db, 'other');
+		await db.insert(invites).values({ tokenHash: 'h', createdByUserId: other.id });
+
+		await expect(
+			deleteUser(db, admin, { userId: other.id, confirm: 'other' })
+		).rejects.toMatchObject({ code: 'conflict' });
 	});
 });

@@ -8,7 +8,8 @@ const user = (isAdmin: boolean): AuthUser => ({
 	isAdmin,
 	username: 'ada',
 	displayName: 'Ada',
-	mustChangePassword: false
+	mustChangePassword: false,
+	banned: false
 });
 const session = { kind: 'session', hash: 'h' } as const;
 const token = { kind: 'api_token', hash: 'h' } as const;

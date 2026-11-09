@@ -37,7 +37,7 @@ export async function resolveSession(
 		await endSession(db, id);
 		return null;
 	}
-	return toAuthUser(row.user);
+	return row.user.bannedAt ? null : toAuthUser(row.user);
 }
 
 export async function deleteSession(db: Db, token: string): Promise<void> {

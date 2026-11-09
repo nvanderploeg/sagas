@@ -1,7 +1,13 @@
 import { error } from '@sveltejs/kit';
 import { createInvite, listInvites } from '#lib/server/auth/invites.ts';
 import { createApiToken, listApiTokens, revokeApiToken } from '#lib/server/auth/tokens.ts';
-import { createAgentUser, listUsers } from '#lib/server/auth/users.ts';
+import {
+	createAgentUser,
+	deleteUser,
+	listUsers,
+	resetPassword,
+	setBanned
+} from '#lib/server/auth/users.ts';
 import { IMPORT_CONFIRMATION } from '#lib/server/admin/guard.ts';
 import { importMaxBytes } from '#lib/server/config.ts';
 import { getDb } from '#lib/server/db/index.ts';
@@ -34,6 +40,39 @@ export const actions: Actions = {
 		return perform('invite', async () => {
 			const { token } = await createInvite(getDb(), actor);
 			return { link: `${url.origin}/invite/${token}` };
+		});
+	},
+
+	reset: async ({ request, locals }) => {
+		const actor = signedIn(locals);
+		const form = await request.formData();
+		return perform(`reset:${text(form, 'userId')}`, async () => {
+			const userId = int(form, 'userId');
+			const { password } = await resetPassword(getDb(), actor, userId);
+			return { resetPassword: password, resetUserId: userId };
+		});
+	},
+
+	ban: async ({ request, locals }) => {
+		const actor = signedIn(locals);
+		const form = await request.formData();
+		return perform(`user:${text(form, 'userId')}`, async () => {
+			await setBanned(getDb(), actor, {
+				userId: int(form, 'userId'),
+				banned: text(form, 'banned') === 'true',
+				confirm: text(form, 'confirm')
+			});
+		});
+	},
+
+	delete: async ({ request, locals }) => {
+		const actor = signedIn(locals);
+		const form = await request.formData();
+		return perform(`user:${text(form, 'userId')}`, async () => {
+			await deleteUser(getDb(), actor, {
+				userId: int(form, 'userId'),
+				confirm: text(form, 'confirm')
+			});
 		});
 	},
 

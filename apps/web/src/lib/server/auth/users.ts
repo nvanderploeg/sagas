@@ -1,6 +1,7 @@
-import { and, count, eq, ne } from 'drizzle-orm';
+import { randomBytes } from 'node:crypto';
+import { and, count, eq, isNull, ne } from 'drizzle-orm';
 import type { Db, Handle } from '#lib/server/db/client.ts';
-import { sessions, users } from '#lib/server/db/schema.ts';
+import { apiTokens, sessions, users } from '#lib/server/db/schema.ts';
 import { DomainError } from '#lib/server/domain/errors.ts';
 import { requireText } from '#lib/server/domain/validate.ts';
 import { announceRevoked } from './credentials.ts';
@@ -14,6 +15,7 @@ export type AuthUser = {
 	username: string;
 	displayName: string;
 	mustChangePassword: boolean;
+	banned: boolean;
 	// The API token this User acts through; absent for a session.
 	via?: { tokenId: number; name: string };
 };
@@ -29,7 +31,8 @@ export function toAuthUser(row: UserRow): AuthUser {
 		isAdmin: row.isAdmin,
 		username: row.username,
 		displayName: row.displayName,
-		mustChangePassword: row.mustChangePassword
+		mustChangePassword: row.mustChangePassword,
+		banned: row.bannedAt !== null
 	};
 }
 
@@ -118,7 +121,8 @@ export async function authenticate(
 		await spendPasswordTime(password);
 		return null;
 	}
-	return (await verifyPassword(row.passwordHash, password)) ? toAuthUser(row) : null;
+	if (!(await verifyPassword(row.passwordHash, password))) return null;
+	return row.bannedAt ? null : toAuthUser(row);
 }
 
 export async function listUsers(db: Handle): Promise<AuthUser[]> {
@@ -191,4 +195,111 @@ export async function changePassword(
 			.returning({ id: sessions.id });
 	});
 	for (const { id } of ended) announceRevoked({ kind: 'session', hash: id });
+}
+
+// Sets a one-time password the User must change at next sign-in, and ends all their sessions.
+export async function resetPassword(
+	db: Db,
+	actor: AuthUser,
+	userId: number
+): Promise<{ password: string }> {
+	requireAdmin(actor);
+	if (userId === actor.id) {
+		throw new DomainError('invalid', 'Change your own password from your account page');
+	}
+	const target = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
+	if (!target) throw new DomainError('not_found', 'User not found');
+	if (target.kind !== 'human') throw new DomainError('invalid', 'Agent users have no password');
+	const password = randomBytes(12).toString('base64url');
+	const passwordHash = await hashPassword(password);
+	const ended = await transact(db, async (tx) => {
+		await tx
+			.update(users)
+			.set({ passwordHash, mustChangePassword: true })
+			.where(eq(users.id, userId));
+		return await tx
+			.delete(sessions)
+			.where(eq(sessions.userId, userId))
+			.returning({ id: sessions.id });
+	});
+	for (const { id } of ended) announceRevoked({ kind: 'session', hash: id });
+	return { password };
+}
+
+async function targetOf(db: Handle, actor: AuthUser, userId: number, confirm: string) {
+	requireAdmin(actor);
+	if (userId === actor.id) throw new DomainError('invalid', 'You cannot do that to yourself');
+	const target = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
+	if (!target) throw new DomainError('not_found', 'User not found');
+	if (confirm.trim().toLowerCase() !== target.username) {
+		throw new DomainError('invalid', `Type ${target.username} to confirm`);
+	}
+	return target;
+}
+
+// A banned User cannot sign in or use a token; their history stays. Lifting the ban restores
+// sign-in, but the sessions and tokens it ended stay ended.
+export async function setBanned(
+	db: Db,
+	actor: AuthUser,
+	input: { userId: number; banned: boolean; confirm: string }
+): Promise<void> {
+	const target = await targetOf(db, actor, input.userId, input.confirm);
+	const ended = await transact(db, async (tx) => {
+		await tx
+			.update(users)
+			.set({ bannedAt: input.banned ? new Date() : null })
+			.where(eq(users.id, target.id));
+		if (!input.banned) return { sessions: [], tokens: [] };
+		return {
+			sessions: await tx
+				.delete(sessions)
+				.where(eq(sessions.userId, target.id))
+				.returning({ id: sessions.id }),
+			tokens: await tx
+				.update(apiTokens)
+				.set({ revokedAt: new Date() })
+				.where(and(eq(apiTokens.userId, target.id), isNull(apiTokens.revokedAt)))
+				.returning({ hash: apiTokens.tokenHash })
+		};
+	});
+	for (const { id } of ended.sessions) announceRevoked({ kind: 'session', hash: id });
+	for (const { hash } of ended.tokens) announceRevoked({ kind: 'api_token', hash });
+}
+
+// Only a User with no history can be deleted: Labours, Comments and events keep pointing at their
+// author, so anyone else is banned instead.
+export async function deleteUser(
+	db: Db,
+	actor: AuthUser,
+	input: { userId: number; confirm: string }
+): Promise<void> {
+	const target = await targetOf(db, actor, input.userId, input.confirm);
+	let ended;
+	try {
+		ended = await transact(db, async (tx) => {
+			const gone = {
+				sessions: await tx
+					.select({ id: sessions.id })
+					.from(sessions)
+					.where(eq(sessions.userId, target.id)),
+				tokens: await tx
+					.select({ hash: apiTokens.tokenHash })
+					.from(apiTokens)
+					.where(eq(apiTokens.userId, target.id))
+			};
+			await tx.delete(users).where(eq(users.id, target.id));
+			return gone;
+		});
+	} catch (e) {
+		const code =
+			(e as { cause?: { code?: string }; code?: string }).cause?.code ??
+			(e as { code?: string }).code;
+		if (code === '23503') {
+			throw new DomainError('conflict', `${target.username} has history; ban them instead`);
+		}
+		throw e;
+	}
+	for (const { id } of ended.sessions) announceRevoked({ kind: 'session', hash: id });
+	for (const { hash } of ended.tokens) announceRevoked({ kind: 'api_token', hash });
 }

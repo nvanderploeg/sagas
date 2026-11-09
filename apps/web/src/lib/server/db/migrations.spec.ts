@@ -127,7 +127,8 @@ describe('the baseline migration', () => {
 
 			expect(run.stdout + run.stderr).toContain('No schema changes');
 			expect(readdirSync(join(scratch, 'drizzle')).filter((n) => n.endsWith('.sql'))).toEqual([
-				'0000_baseline.sql'
+				'0000_baseline.sql',
+				'0001_user_banned_at.sql'
 			]);
 		} finally {
 			rmSync(scratch, { recursive: true, force: true });

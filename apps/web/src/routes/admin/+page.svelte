@@ -15,6 +15,12 @@
 	const created = $derived(
 		form && 'token' in form ? { userId: Number(form.userId), token: String(form.token) } : null
 	);
+	const me = $derived(data.user?.id);
+	const reset = $derived(
+		form && 'resetPassword' in form && 'resetUserId' in form
+			? { userId: Number(form.resetUserId), password: String(form.resetPassword) }
+			: null
+	);
 	const name = (id: number | null) => data.users.find((u) => u.id === id)?.displayName ?? 'someone';
 	const day = (date: Date) => new Date(date).toISOString().slice(0, 10);
 	const bytes = (n: number) => {
@@ -119,8 +125,46 @@
 					<span class="key">@{user.username}</span>
 					<span class="ml-auto flex gap-1.5 text-xs">
 						{#if user.isAdmin}<span class="tag">Admin</span>{/if}
+						{#if user.banned}<span class="tag">Banned</span>{/if}
 						<span class="tag">{user.kind === 'agent' ? 'Agent' : 'Human'}</span>
 					</span>
+					{#if user.id !== me}
+						<details class="w-full text-sm">
+							<summary class="cursor-pointer font-semibold">Ban or delete</summary>
+							<form method="POST" use:enhance class="mt-2 flex flex-wrap items-end gap-2">
+								<input type="hidden" name="userId" value={user.id} />
+								<input type="hidden" name="banned" value={user.banned ? 'false' : 'true'} />
+								<label class="grid gap-1">
+									<span class="label">Type @{user.username} to confirm</span>
+									<input name="confirm" class="field w-44" autocomplete="off" required />
+								</label>
+								<button type="submit" formaction="?/ban" class="btn">
+									{user.banned ? 'Lift ban' : 'Ban'}
+								</button>
+								<button type="submit" formaction="?/delete" class="btn">Delete</button>
+							</form>
+						</details>
+					{/if}
+					{#if user.kind === 'human' && user.id !== me}
+						<form method="POST" action="?/reset" use:enhance>
+							<input type="hidden" name="userId" value={user.id} />
+							<button type="submit" class="btn">Reset password</button>
+						</form>
+					{/if}
+					{#if reset?.userId === user.id}
+						<div class="w-full">
+							<Secret
+								value={reset.password}
+								label="Temporary password"
+								note="Copy it now: it is shown only once. They must change it at next sign-in."
+							/>
+						</div>
+					{/if}
+					{#if failure(`reset:${user.id}`) ?? failure(`user:${user.id}`)}
+						<p role="alert" class="error w-full">
+							{failure(`reset:${user.id}`) ?? failure(`user:${user.id}`)}
+						</p>
+					{/if}
 				</li>
 			{/each}
 		</ul>

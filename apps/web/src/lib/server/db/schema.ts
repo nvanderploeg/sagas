@@ -38,6 +38,7 @@ export const users = pgTable(
 		displayName: text('display_name').notNull(),
 		passwordHash: text('password_hash'),
 		mustChangePassword: boolean('must_change_password').notNull().default(false),
+		bannedAt: timestamp('banned_at'),
 		createdAt: now()
 	},
 	() => [

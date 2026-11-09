@@ -1,0 +1,1 @@
+ALTER TABLE "sagas_users" ADD COLUMN "banned_at" bigint;
