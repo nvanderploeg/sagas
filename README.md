@@ -10,6 +10,7 @@ A Jira-like labour tracker. Work in progress: the web app is a placeholder.
 
 ## Run locally
 
+
 Needs Node.js 22+ and pnpm 11 (`corepack enable`).
 
 ```sh
