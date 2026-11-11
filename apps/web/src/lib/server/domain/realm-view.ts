@@ -1,7 +1,7 @@
 import { mapSeq } from '#lib/server/async.ts';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, or } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
-import { labours, stateFlows } from '../db/schema.ts';
+import { labours, stateFlows, states } from '../db/schema.ts';
 import type { EventSpec } from '../events/types.ts';
 import { getRealm, getState } from './lookup.ts';
 import { listStates, listSubstates } from './states.ts';
@@ -36,13 +36,22 @@ export async function readRealm(db: Handle, realmId: number) {
 	return { id, name, key, initialStateId, states };
 }
 
-// Labours come grouped by State and in Rank order within each.
+export const BOARD_CLOSED_DAYS = 14;
+
+// Labours come grouped by State and in Rank order within each. A Closed Labour
+// untouched for BOARD_CLOSED_DAYS is left off.
 export async function readBoard(db: Handle, realmId: number): Promise<BoardView> {
+	const cutoff = new Date(Date.now() - BOARD_CLOSED_DAYS * 24 * 60 * 60 * 1000);
 	return {
 		realm: await readRealm(db, realmId),
 		labours: (
 			await selectLabourViews(db)
-				.where(eq(labours.realmId, realmId))
+				.where(
+					and(
+						eq(labours.realmId, realmId),
+						or(eq(states.isClosed, false), gte(labours.updatedAt, cutoff))
+					)
+				)
 				.orderBy(asc(labours.stateId), asc(labours.rank))
 		).map(toLabourView)
 	};

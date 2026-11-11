@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '#lib/server/db/client.ts';
 import type { Actor } from './write.ts';
-import { users } from '#lib/server/db/schema.ts';
+import { labours, users } from '#lib/server/db/schema.ts';
 import { addOwner } from './memberships.ts';
 import { testDb } from '#lib/server/test/db.ts';
 import { seedActor, seedRealm, seedLabour, TODO } from '#lib/server/test/fixtures.ts';
@@ -14,6 +14,7 @@ import {
 	createRealmWithStates,
 	deleteRealm,
 	listRealms,
+	readBoard,
 	renameRealmKey,
 	setInitialState,
 	updateRealm
@@ -167,6 +168,30 @@ describe('updateRealm', () => {
 
 		expect(updated.name).toBe('Amber');
 		expect(updated.key).toBe('AM');
+	});
+});
+
+describe('readBoard', () => {
+	it('leaves off Closed Labours untouched for more than 14 days', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const closedId = (await listStates(db, realm.id)).find((s) => s.isClosed)!.id;
+		const open = await seedLabour(db, { realmId: realm.id });
+		const stale = await seedLabour(db, { realmId: realm.id });
+		const recent = await seedLabour(db, { realmId: realm.id });
+		const staleOpen = await seedLabour(db, { realmId: realm.id });
+		const day = 24 * 60 * 60 * 1000;
+		const age = (id: number, days: number, stateId?: number) =>
+			db
+				.update(labours)
+				.set({ ...(stateId ? { stateId } : {}), updatedAt: new Date(Date.now() - days * day) })
+				.where(eq(labours.id, id));
+		await age(stale.id, 15, closedId);
+		await age(recent.id, 13, closedId);
+		await age(staleOpen.id, 60);
+
+		const ids = (await readBoard(db, realm.id)).labours.map((l) => l.id).sort();
+
+		expect(ids).toEqual([open.id, recent.id, staleOpen.id].sort());
 	});
 });
 
