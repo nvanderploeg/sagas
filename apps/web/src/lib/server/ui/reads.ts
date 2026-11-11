@@ -1,5 +1,5 @@
 import { mapSeq } from '#lib/server/async.ts';
-import { and, asc, count, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { Handle } from '../db/client.ts';
 import { realmKeys, realms, quests, states, labours } from '../db/schema.ts';
 import { canSeeRealm, requireRealmRole, visibleRealmIds } from '../domain/access.ts';
@@ -79,7 +79,7 @@ export async function readHome(db: Handle, viewer: Viewer) {
 	const owned = await db
 		.select({ id: quests.id })
 		.from(quests)
-		.where(and(eq(quests.ownerId, userId), inQuestRealms(visible)))
+		.where(and(eq(quests.ownerId, userId), isNull(quests.archivedAt), inQuestRealms(visible)))
 		.orderBy(asc(quests.id));
 	return {
 		realms: await readAllRealms(db, viewer),
@@ -94,17 +94,22 @@ export async function readLabourPage(db: Handle, viewer: Viewer, labourId: numbe
 	const visible = await seen(db, viewer);
 	const shown = (item: LabourView) => visible === null || visible.has(item.realmId);
 	const parent = labour.parentId === null ? null : await readLabour(db, labour.parentId);
+	const memberOf = (await listLabourQuests(db, labourId)).map((q) => q.id);
 	return {
 		labour,
 		parent: parent !== null && shown(parent) ? parent : null,
 		children: (await listChildren(db, labourId)).filter(shown),
 		realms: await readAllRealms(db, viewer),
-		quests: await db
-			.select({ id: quests.id, name: quests.name })
-			.from(quests)
-			.where(inQuestRealms(visible))
-			.orderBy(asc(quests.id)),
-		memberOf: (await listLabourQuests(db, labourId)).map((q) => q.id),
+		quests: (
+			await db
+				.select({ id: quests.id, name: quests.name, archivedAt: quests.archivedAt })
+				.from(quests)
+				.where(inQuestRealms(visible))
+				.orderBy(asc(quests.id))
+		)
+			.filter((q) => q.archivedAt === null || memberOf.includes(q.id))
+			.map(({ id, name }) => ({ id, name })),
+		memberOf,
 		comments: await listComments(db, labourId),
 		scrolls: await listLabourScrolls(db, labourId, visible === null ? null : [...visible])
 	};

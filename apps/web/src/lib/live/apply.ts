@@ -196,7 +196,7 @@ export function applyToHome(userId: number): (home: HomeView, e: LiveEvent) => H
 		const realms = applyToRealms(home.realms, event);
 		const mine = (t: Labour) =>
 			inOpenState(realms, t) && (t.ownerId === userId || t.assigneeId === userId);
-		const quests = applyToQuests(home.quests, event, (q) => q.ownerId === userId);
+		const quests = applyToQuests(home.quests, event, (q) => q.ownerId === userId && !q.archivedAt);
 		let labours = realms === home.realms ? home.mine : home.mine.filter(mine);
 		const labour = changedLabour(event);
 		if (labour) {
@@ -246,8 +246,9 @@ function applyToOptions(
 			const option: QuestOption = { id: quest.id, name: quest.name };
 			const member = quest.labours.some((t) => t.id === page.labour.id);
 			const ids = memberOf.filter((id) => id !== quest.id);
+			const offered = !quest.archivedAt || member;
 			return {
-				quests: upsert(quests, option),
+				quests: offered ? upsert(quests, option) : without(quests, [quest.id]),
 				memberOf: member ? [...ids, quest.id].sort((a, b) => a - b) : ids
 			};
 		}

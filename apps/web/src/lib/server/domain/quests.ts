@@ -23,12 +23,18 @@ export {
 } from './quest-view.ts';
 
 export type QuestSpec = { realmId: number; name: string; description?: string; ownerId: number };
-export type QuestPatch = Partial<Omit<QuestSpec, 'realmId'>>;
+export type QuestPatch = Partial<Omit<QuestSpec, 'realmId'>> & { archived?: boolean };
 
 // Editing a Quest takes editor access to its Realm; the Labours it lists may be in any Realm.
 async function editable(tx: Handle, actor: Actor, questId: number): Promise<Quest> {
 	const quest = await getQuest(tx, questId);
 	await requireRealmRole(tx, actor, quest.realmId, 'editor');
+	return quest;
+}
+
+async function active(tx: Handle, actor: Actor, questId: number): Promise<Quest> {
+	const quest = await editable(tx, actor, questId);
+	if (quest.archivedAt !== null) throw new DomainError('conflict', 'The Quest is archived');
 	return quest;
 }
 
@@ -103,6 +109,9 @@ export async function updateQuest(
 	return write(db, actor, async (tx) => {
 		const quest = await editable(tx, actor, questId);
 		const changes: Partial<typeof quests.$inferInsert> = {};
+		const archiveChanged =
+			patch.archived !== undefined && patch.archived !== (quest.archivedAt !== null);
+		if (archiveChanged) changes.archivedAt = patch.archived ? new Date() : null;
 		if (patch.name !== undefined) changes.name = requireText(patch.name, 'Quest name', 120);
 		if (patch.description !== undefined) {
 			changes.description = checkDescription(patch.description);
@@ -112,9 +121,12 @@ export async function updateQuest(
 			await requireActiveMember(tx, quest.realmId, changes.ownerId, 'Owner');
 		}
 
-		const changed = (Object.keys(changes) as (keyof Quest)[]).some(
-			(key) => changes[key as keyof typeof changes] !== quest[key]
-		);
+		const { archivedAt: _archivedAt, ...fields } = changes;
+		const changed =
+			archiveChanged ||
+			(Object.keys(fields) as (keyof Quest)[]).some(
+				(key) => fields[key as keyof typeof fields] !== quest[key]
+			);
 		if (!changed) return { value: await readQuest(tx, questId), events: [] };
 		await tx
 			.update(quests)
@@ -144,7 +156,7 @@ export async function addQuestLabour(
 	placement: Placement = 'bottom'
 ): Promise<QuestView> {
 	return write(db, actor, async (tx) => {
-		await editable(tx, actor, questId);
+		await active(tx, actor, questId);
 		await requireRealmRole(tx, actor, (await getLabour(tx, labourId)).realmId, 'viewer');
 		const members = await membersOf(tx, questId);
 		if (members.some((member) => member.id === labourId)) {
@@ -172,7 +184,7 @@ export async function addQuestLabourWithChildren(
 	placement: Placement = 'bottom'
 ): Promise<QuestView> {
 	return write(db, actor, async (tx) => {
-		await editable(tx, actor, questId);
+		await active(tx, actor, questId);
 		await requireRealmRole(tx, actor, (await getLabour(tx, labourId)).realmId, 'viewer');
 		const present = new Set((await membersOf(tx, questId)).map((member) => member.id));
 		const adding = [
@@ -222,7 +234,7 @@ export async function addQuestLabours(
 	placement: Placement = 'bottom'
 ): Promise<QuestLaboursChange> {
 	return write(db, actor, async (tx) => {
-		await editable(tx, actor, questId);
+		await active(tx, actor, questId);
 		const members = await membersOf(tx, questId);
 		const present = new Set(members.map((member) => member.id));
 		const wanted = await distinctLabours(tx, labourIds);

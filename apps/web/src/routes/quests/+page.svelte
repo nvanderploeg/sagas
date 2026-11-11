@@ -25,6 +25,12 @@
 		)
 	);
 	const failed = $derived(form && 'error' in form ? form : null);
+
+	let showArchived = $state(false);
+	const shown = $derived(list.quests.filter((q) => !!q.archivedAt === showArchived));
+	const archivedCount = $derived(list.quests.filter((q) => q.archivedAt).length);
+	const complete = (q: (typeof list.quests)[number]) =>
+		q.progress.total > 0 && q.progress.closed === q.progress.total;
 </script>
 
 <svelte:head>
@@ -64,11 +70,32 @@
 		{#if failed}<p role="alert" class="error sm:col-span-2">{failed.error}</p>{/if}
 	</form>
 
-	{#if list.quests.length === 0}
-		<p class="panel p-6 text-muted">No Quests yet. Name one above, then add its Labours.</p>
+	{#if archivedCount > 0 || showArchived}
+		<div class="flex gap-2" role="group" aria-label="Quest filter">
+			<button
+				type="button"
+				class="btn {showArchived ? 'btn-quiet' : 'btn-primary'}"
+				aria-pressed={!showArchived}
+				onclick={() => (showArchived = false)}>Active</button
+			>
+			<button
+				type="button"
+				class="btn {showArchived ? 'btn-primary' : 'btn-quiet'}"
+				aria-pressed={showArchived}
+				onclick={() => (showArchived = true)}>Archived ({archivedCount})</button
+			>
+		</div>
+	{/if}
+
+	{#if shown.length === 0}
+		<p class="panel p-6 text-muted">
+			{showArchived
+				? 'No archived Quests.'
+				: 'No Quests yet. Name one above, then add its Labours.'}
+		</p>
 	{:else}
 		<ul class="grid gap-3 md:grid-cols-2">
-			{#each list.quests as quest (quest.id)}
+			{#each shown as quest (quest.id)}
 				{@const owner = people.get(quest.ownerId)}
 				<li class="panel grid gap-3 p-4" data-testid="quest-card">
 					<div class="flex items-start justify-between gap-3">
@@ -80,6 +107,17 @@
 					</div>
 					<p class="key">{list.realms.find((r) => r.id === quest.realmId)?.key}</p>
 					<XpBar closed={quest.progress.closed} total={quest.progress.total} />
+					{#if showArchived}
+						<form method="POST" action="?/unarchive" use:enhance>
+							<input type="hidden" name="questId" value={quest.id} />
+							<button type="submit" class="btn btn-quiet">Unarchive</button>
+						</form>
+					{:else if complete(quest)}
+						<form method="POST" action="?/archive" use:enhance>
+							<input type="hidden" name="questId" value={quest.id} />
+							<button type="submit" class="btn btn-primary">Archive</button>
+						</form>
+					{/if}
 				</li>
 			{/each}
 		</ul>

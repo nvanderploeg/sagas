@@ -129,7 +129,8 @@ describe('the baseline migration', () => {
 			expect(readdirSync(join(scratch, 'drizzle')).filter((n) => n.endsWith('.sql'))).toEqual([
 				'0000_baseline.sql',
 				'0001_user_banned_at.sql',
-				'0002_firebase_auth.sql'
+				'0002_firebase_auth.sql',
+				'0003_quest_archived_at.sql'
 			]);
 		} finally {
 			rmSync(scratch, { recursive: true, force: true });

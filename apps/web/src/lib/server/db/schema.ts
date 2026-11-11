@@ -428,6 +428,8 @@ export const quests = pgTable(
 		ownerId: integer('owner_id')
 			.notNull()
 			.references(() => users.id),
+		// Null while the Quest is active.
+		archivedAt: timestamp('archived_at'),
 		createdAt: now(),
 		updatedAt: now('updated_at')
 	},

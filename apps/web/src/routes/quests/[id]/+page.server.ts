@@ -43,6 +43,7 @@ export const actions: Actions = {
 			if (form.has('name')) patch.name = text(form, 'name');
 			if (form.has('description')) patch.description = text(form, 'description');
 			if (form.has('ownerId')) patch.ownerId = int(form, 'ownerId');
+			if (form.has('archived')) patch.archived = checked(form, 'archived');
 			await updateQuest(getDb(), actor, questId(params.id), patch);
 		});
 	},

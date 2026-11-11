@@ -54,14 +54,15 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'read',
 			description:
-				'List the Quests in Realms you can see, with their Realm, Owner and progress: Closed Labours over all the Labours you can see in them.',
-			input: {}
+				'List the active Quests in Realms you can see, with their Realm, Owner and progress: Closed Labours over all the Labours you can see in them. Archived Quests are left out unless asked for.',
+			input: { archived: z.boolean().optional().describe('true lists archived Quests too') }
 		},
-		async (_args, present) => {
+		async (args, present) => {
 			const visible = await visibleRealmIds(db, actor);
 			const quests = await Promise.all(
 				(await listQuests(db))
 					.filter((q) => visible === null || visible.includes(q.realmId))
+					.filter((q) => args.archived || q.archivedAt === null)
 					.map((q) => present.questSummary(q))
 			);
 			return reply({ quests }, quests.length === 0 ? 'No Quests' : count(quests.length, 'Quest'));
@@ -108,12 +109,13 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 		{
 			kind: 'write',
 			description:
-				"Change a Quest's name, description or Owner (a member of its Realm). Needs editor access to the Quest's Realm.",
+				"Change a Quest's name, description, Owner (a member of its Realm) or archived flag. Needs editor access to the Quest's Realm.",
 			input: {
 				quest: questRef,
 				name: z.string().optional(),
 				description: z.string().optional().describe('Markdown; replaces the whole description'),
-				owner: userRef.optional()
+				owner: userRef.optional(),
+				archived: z.boolean().optional().describe('true archives the Quest, false restores it')
 			}
 		},
 		async (args, present) => {
@@ -121,6 +123,7 @@ export function registerQuestTools({ db, actor, define }: Tools): void {
 			await updateQuest(db, actor, questId, {
 				name: args.name,
 				description: args.description,
+				archived: args.archived,
 				ownerId: args.owner === undefined ? undefined : await refs.userId(db, args.owner, actor)
 			});
 			return questReply(present, questId);

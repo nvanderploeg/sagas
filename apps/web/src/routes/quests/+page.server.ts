@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import { getDb } from '#lib/server/db/index.ts';
-import { createQuest } from '#lib/server/domain/quests.ts';
+import { createQuest, updateQuest } from '#lib/server/domain/quests.ts';
 import { readAtSeq } from '#lib/server/events/log.ts';
 import { int, perform, signedIn, text } from '#lib/server/ui/form.ts';
 import { readQuestList, toJson } from '#lib/server/ui/reads.ts';
@@ -27,5 +27,21 @@ export const actions: Actions = {
 		});
 		if ('id' in result) redirect(303, `/quests/${result.id}`);
 		return result;
+	},
+
+	archive: async ({ request, locals }) => {
+		const actor = signedIn(locals);
+		const form = await request.formData();
+		return perform('archive', async () => {
+			await updateQuest(getDb(), actor, int(form, 'questId'), { archived: true });
+		});
+	},
+
+	unarchive: async ({ request, locals }) => {
+		const actor = signedIn(locals);
+		const form = await request.formData();
+		return perform('archive', async () => {
+			await updateQuest(getDb(), actor, int(form, 'questId'), { archived: false });
+		});
 	}
 };

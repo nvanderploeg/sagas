@@ -1,0 +1,1 @@
+ALTER TABLE "sagas_quests" ADD COLUMN "archived_at" bigint;

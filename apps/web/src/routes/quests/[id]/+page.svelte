@@ -527,6 +527,23 @@
 						</p>{/if}
 				</section>
 
+				<div class="panel p-5">
+					<button
+						class="btn btn-quiet"
+						type="button"
+						onclick={() => {
+							const archived = !quest.archivedAt;
+							save('archive', 'update', { archived: String(archived) }, (q) => ({
+								...q,
+								archivedAt: archived ? new Date().toISOString() : null
+							}));
+						}}>{quest.archivedAt ? 'Unarchive Quest' : 'Archive Quest'}</button
+					>
+					{#if errors.get('archive')}<p role="alert" class="error mt-2">
+							{errors.get('archive')}
+						</p>{/if}
+				</div>
+
 				<form method="POST" action="?/delete" use:enhance class="panel p-5">
 					<ConfirmButton type="submit" label="Delete Quest" confirm="Delete {quest.name}" />
 					<p class="mt-2 text-xs text-muted">Its Labours stay where they are.</p>

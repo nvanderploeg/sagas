@@ -102,6 +102,37 @@ describe('Quest CRUD', () => {
 		expect(updated).toMatchObject({ name: 'Relaunch', description: 'Again', ownerId: grace });
 	});
 
+	it('archives and restores a Quest without touching its Labours', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		const quest = await seedQuest();
+		await addQuestLabour(db, actor, quest.id, labour.id);
+
+		const archived = await updateQuest(db, actor, quest.id, { archived: true });
+		expect(archived.archivedAt).toBeInstanceOf(Date);
+		expect(archived.labours).toHaveLength(1);
+
+		const again = await updateQuest(db, actor, quest.id, { archived: true });
+		expect(again.archivedAt).toEqual(archived.archivedAt);
+
+		const restored = await updateQuest(db, actor, quest.id, { archived: false });
+		expect(restored.archivedAt).toBeNull();
+	});
+
+	it('refuses new Labours in an archived Quest', async () => {
+		const realm = await seedRealm(db, 'AM');
+		const labour = await seedLabour(db, { realmId: realm.id });
+		const quest = await seedQuest();
+		await updateQuest(db, actor, quest.id, { archived: true });
+
+		await expect(addQuestLabour(db, actor, quest.id, labour.id)).rejects.toMatchObject({
+			code: 'conflict'
+		});
+		await expect(addQuestLabours(db, actor, quest.id, [labour.id])).rejects.toMatchObject({
+			code: 'conflict'
+		});
+	});
+
 	it('deletes a Quest and leaves its Labours in place', async () => {
 		const realm = await seedRealm(db, 'AM');
 		const labour = await seedLabour(db, { realmId: realm.id });
