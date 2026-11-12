@@ -1,6 +1,6 @@
 # Adapter API
 
-The contract for external clients (adapters, the command center) that drive sagas without MCP: a REST API under `/api/v1` and the Stream at `/api/events`. Code: `apps/web/src/lib/server/rest/api.ts`; `api.spec.ts` beside it is the executable contract.
+The contract for external clients (adapters) that drive sagas without MCP: a REST API under `/api/v1` and the Stream at `/api/events`. Code: `apps/web/src/lib/server/rest/api.ts`; `api.spec.ts` beside it is the executable contract.
 
 ## Rules
 
